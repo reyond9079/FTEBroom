@@ -356,6 +356,7 @@ static bool terrainCreateWindow;
 #include "ftebroom_prefabs.h"
 #include "ftebroom_entity_list.h"
 #include "ftebroom_fullscreen.h"
+#include "ftebroom_resolution.h"
 #include "ftebroom_actions.h"
 #include "ftebroom_preferences.h"
 #include "ftebroom_shapes.h"
@@ -535,7 +536,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 69");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 70");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1121,7 +1122,7 @@ static void panel(float w, float h)
   static int chosenProfile=-1;
   if (preferencesRequest)
   {
-    chosenProfile=gameProfile;
+    chosenProfile=gameProfile;uiResolutionRead();
     ImGui::OpenPopup("Preferences");
     preferencesRequest = false;
   }
@@ -1132,6 +1133,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("View"))
     {
     uiPreferences();
+    if(ImGui::CollapsingHeader("Resolution"))uiResolutionControls();
     bool legacy = cvars->GetFloat("ftebroom_drag_mode") != 0;
     if (ImGui::Checkbox("Drag unselected brushes to move (legacy)", &legacy))
       cvars->SetFloat("ftebroom_drag_mode", legacy);
@@ -1190,7 +1192,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 69");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 70");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1215,6 +1217,7 @@ static void panel(float w, float h)
   importDialog();
   desktopAttach();
   uiFullscreenTick();
+  uiResolutionDialog();
 #ifndef _WIN32
   linuxPlatformTestPanel();
 #endif

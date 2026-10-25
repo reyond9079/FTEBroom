@@ -488,6 +488,7 @@ static void actionMenus()
       if(std::string(group)=="Edit" && gameProfile==1)ImGui::MenuItem("Create FTE Engine terrain...",nullptr,&terrainCreateWindow);
       if(std::string(group)=="Help" && ImGui::BeginMenu("Updates")){updatePanel();ImGui::EndMenu();}
       if(std::string(group)=="View") {
+        if(ImGui::MenuItem("Resolution...")){uiResolutionRead();uiResolutionWindow=true;}
         if(ImGui::MenuItem("Fullscreen",nullptr,uiFullscreen))uiFullscreenSet(!uiFullscreen);
         if(!uiFullscreenError.empty())ImGui::TextWrapped("%s",uiFullscreenError.c_str());
         ImGui::Separator();

@@ -14,7 +14,8 @@ for i in $(seq 1 50); do [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break; sl
 cp -a "$src/runtime" "$test/ftebroom"
 cp "$src/runtime/default.fmf" "$src/runtime/installed.lst" "$test/"
 cp "$src/csaddon.dat" "$test/ftebroom/"
-cp "$deps/fteqw/engine/release-linux/fteqw-gl64" "$deps/fteplug_ftebroom_amd64.so" "$test/"
+cp "${REYONDBROOM_TEST_ENGINE:-$deps/fteqw/engine/release-linux/fteqw-gl64}" "$test/fteqw-gl64"
+cp "$deps/fteplug_ftebroom_amd64.so" "$test/"
 mkdir -p "$test/tools/clipboard"
 cp "$deps/wl-clipboard/build/src/wl-copy" "$deps/wl-clipboard/build/src/wl-paste" "$test/tools/clipboard/"
 printf 'Привет Arch\nsecond line' | timeout 8s "$test/tools/clipboard/wl-copy" --type 'text/plain;charset=utf-8'
@@ -29,7 +30,7 @@ in 18 screenshot wayland-clipboard.png
 in 23 quit force
 CFG
 cd "$test"
-LIBGL_ALWAYS_SOFTWARE=1 timeout 45s ./fteqw-gl64 -ftebroom-child-processes -nohome -noupdates -window -width 1280 -height 800 -condebug +vid_renderer wlgl +exec linux39.cfg > console.txt 2>&1
+LIBGL_ALWAYS_SOFTWARE=1 timeout 45s ./fteqw-gl64 -ftebroom-child-processes -nohome -noupdates -window -width 1280 -height 800 -condebug +vid_renderer "${REYONDBROOM_TEST_RENDERER:-wlgl}" +exec linux39.cfg > console.txt 2>&1
 if grep -E 'DESKTOP_FAIL|CSQC_Abort' console.txt; then echo "$test";exit 1; fi
 grep 'DESKTOP_PASS wayland_external_paste_utf8_multiline' console.txt
 for check in linux_native_cursor_owner linux_cursor_fallback_generated linux_cursor_shape_text linux_cursor_shape_ew linux_native_cursor_after_paste; do grep "DESKTOP_PASS $check" console.txt; done

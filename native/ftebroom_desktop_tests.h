@@ -21,6 +21,17 @@ static void testDesktop(){
     for(auto window:ImGui::GetCurrentContext()->Windows)
       if(std::string(window->Name).find("Material properties")!=std::string::npos)ImGui::SetScrollY(window,270*uiScale());
   }
+  if(std::string(mode)=="resolution70set") {
+    uiResolutionWidth=1024;uiResolutionHeight=768;
+    cvars->SetFloat("ftebroom_test_display_revision",cvars->GetFloat("ftebroom_revision"));
+    expect(uiResolutionApply(),"resolution70_apply");
+  }
+  if(std::string(mode)=="resolution70check") {
+    frame();frame();float logical[2];unsigned pixels[2]={0,0};draw->GetVideoSize(logical,pixels);expect(ready&&pixels[0]==1024&&pixels[1]==768,"resolution70_framebuffer");
+    expect(cvars->GetFloat("ftebroom_revision")==cvars->GetFloat("ftebroom_test_display_revision"),"resolution70_document_preserved");
+    expect(ImGui::GetDrawData()&&ImGui::GetDrawData()->TotalVtxCount>0,"resolution70_imgui_restored");
+  }
+  if(std::string(mode)=="resolution70show"){uiResolutionRead();uiResolutionWindow=true;frame();}
   if(std::string(mode)=="external69load") {
     gameProfileLoad();gameProfile=2;q1UseLibre=false;firstSetupStep=-1;recentWindow=false;
     std::snprintf(q1Mod,sizeof q1Mod,"%s",root);*q1Wads=0;*q1Definitions=0;

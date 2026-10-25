@@ -1,0 +1,37 @@
+diff --git a/engine/gl/gl_vidsdl.c b/engine/gl/gl_vidsdl.c
+index efe8d67..08715a0 100644
+--- a/engine/gl/gl_vidsdl.c
++++ b/engine/gl/gl_vidsdl.c
+@@ -482,11 +482,8 @@ static qboolean SDLVID_Init (rendererstate_t *info, unsigned char *palette, r_qr
+ 			SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+ 		else
+ 			SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+-		if (info->multisample)
+-		{
+-			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, info->multisample);
+-			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+-		}
++		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, info->multisample);
++		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, info->multisample ? 1 : 0);
+ 
+ 		flags |= SDL_WINDOW_OPENGL;
+ 		break;
+@@ -519,6 +516,18 @@ static qboolean SDLVID_Init (rendererstate_t *info, unsigned char *palette, r_qr
+ #else
+ 	sdlwindow = SDL_CreateWindow(FULLENGINENAME, SDL_WINDOWPOS_CENTERED_DISPLAY(display), SDL_WINDOWPOS_CENTERED_DISPLAY(display), info->width, info->height, flags);
+ #endif
++	if (!sdlwindow && qrenderer == QR_OPENGL && info->multisample)
++	{
++		Con_Printf("Requested MSAA unavailable; retrying SDL without multisampling.\n");
++		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
++		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
++		info->multisample = 0;
++#if SDL_VERSION_ATLEAST(3,0,0)
++		sdlwindow = SDL_CreateWindow(FULLENGINENAME, info->width, info->height, flags);
++#else
++		sdlwindow = SDL_CreateWindow(FULLENGINENAME, SDL_WINDOWPOS_CENTERED_DISPLAY(display), SDL_WINDOWPOS_CENTERED_DISPLAY(display), info->width, info->height, flags);
++#endif
++	}
+ 	if (!sdlwindow)
+ 	{
+ 		Con_Printf("SDL_CreateWindow failed: %s\n", SDL_GetError());

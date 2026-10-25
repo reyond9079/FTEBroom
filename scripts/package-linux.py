@@ -8,15 +8,17 @@ p = argparse.ArgumentParser()
 p.add_argument('--deps', type=Path, required=True)
 p.add_argument('--output', type=Path, required=True)
 p.add_argument('--version', required=True)
+p.add_argument('--sdl2', action='store_true', help='Package the SDL2 engine instead of the native backend')
 a = p.parse_args()
 src = Path(__file__).resolve().parents[1]
 runpy.run_path(str(src / 'scripts/fetch-q3map2-source.py'))
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=False)
+platform = 'Linux-SDL2-x64' if a.sdl2 else 'Linux-x64'
 root = out / 'ReyondBroom-Linux-x64'
 root.mkdir()
 for source, name in [
-    (a.deps/'fteqw/engine/release-linux/fteqw-gl64', 'fteqw-gl64'),
+    (a.deps/('fteqw/engine/release-sdl2/fteqw-glsdl2_64' if a.sdl2 else 'fteqw/engine/release-linux/fteqw-gl64'), 'fteqw-gl64'),
     (a.deps/'fteplug_ftebroom_amd64.so', 'fteplug_ftebroom_amd64.so'),
     (a.deps/'compilers/netradiant-custom-20260114/install/q3map2.x86_64', 'tools/q3map2/q3map2'),
     *[(a.deps/f'compilers/ericw-build/{tool}/{tool}', f'tools/ericw/{tool}') for tool in ('qbsp','vis','light')],
@@ -39,6 +41,9 @@ for name in ('default.fmf','installed.lst'):
     shutil.copy2(src/'runtime'/name, root/name)
 shutil.copy2(src/'scripts/Launch-ReyondBroom.sh', root/'Launch-ReyondBroom.sh')
 (root/'Launch-ReyondBroom.sh').chmod(0o755)
+if a.sdl2:
+    (root/'linux-sdl2-build').write_text('SDL2 backend\n')
+
 audio = root/'tools/audio/ffmpeg'
 audio.parent.mkdir(parents=True)
 audio.write_text('#!/bin/sh\nexec /usr/bin/ffmpeg "$@"\n')
@@ -66,12 +71,12 @@ shutil.copy2(a.deps/'compilers/embree-v2.17.7.tar.gz',root/'tools/ericw/embree-v
 shutil.copy2(a.deps/'compilers/embree-2.17.7/LICENSE.txt',root/'tools/ericw/LICENSE-embree.txt')
 subprocess.run(['git','-C',str(a.deps/'wl-clipboard'),'archive','--format=zip',f'--output={root}/tools/clipboard/wl-clipboard-source.zip','3eb912c274042cd5deed6b478b39908a12f37498'],check=True)
 shutil.copy2(a.deps/'wl-clipboard/COPYING',root/'tools/clipboard/LICENSE.txt')
-(root/'build-info.txt').write_text(f'ReyondBroom {a.version}\nUbuntu 24.04 x86-64, glibc 2.39+\nSee docs/linux.md for dependencies and platform differences.\n')
+(root/'build-info.txt').write_text(f'ReyondBroom {a.version}\nUbuntu 24.04 x86-64, glibc 2.39+\nBackend: {"SDL2" if a.sdl2 else "native"}\nSee docs/linux.md for dependencies and platform differences.\n')
 runpy.run_path(str(src/'scripts/package-sources.py'))['separate_sources'](
-    root, out, a.version, 'Linux-x64')
+    root, out, a.version, platform)
 manifest={path.relative_to(root).as_posix():hashlib.sha256(path.read_bytes()).hexdigest() for path in root.rglob('*') if path.is_file()}
 (root/'distribution-manifest.json').write_text(json.dumps(manifest,indent=2))
-archive=out/f'ReyondBroom-{a.version}-Linux-x64.tar.gz'
+archive=out/f'ReyondBroom-{a.version}-{platform}.tar.gz'
 with tarfile.open(archive,'w:gz') as f:
     f.add(root,arcname=root.name)
 digest=hashlib.sha256(archive.read_bytes()).hexdigest()

@@ -75,3 +75,24 @@ On Arch, install the corresponding runtime libraries with your package manager:
 gcc-libs ffmpeg xdg-utils wayland python`.
 The Ubuntu-built archive targets glibc 2.39+; Arch dependency versions can differ,
 so inspect a missing-library error with `ldd` rather than renaming shared libraries.
+
+## SDL2 build (alpha.70)
+
+The optional `Linux-SDL2-x64.tar.gz` archive uses FTE's SDL2 video/input backend.
+Extract it into its own directory and run `./Launch-ReyondBroom.sh`. Install
+`libsdl2-2.0-0` on Ubuntu or `sdl2` / `sdl2-compat` on Arch, in addition to the
+runtime dependencies above. SDL selects Wayland or X11; for troubleshooting use
+`SDL_VIDEODRIVER=wayland ./Launch-ReyondBroom.sh` or `SDL_VIDEODRIVER=x11 ...`.
+Do not mix the native and SDL archives. Updates retain the selected backend and
+wait for a matching SDL release asset instead of installing the native engine.
+
+Build dependencies and the plugin are shared with the native build. After
+`scripts/build-linux.sh`, run `bash scripts/build-sdl2-linux.sh /path/to/build`.
+The script deliberately uses the generic SDL target with `sdl2-config`, avoiding
+the upstream SDL2 target's assumption that all codec libraries were built statically.
+
+New installations default to a 1280 x 800 window. Existing saved engine settings
+remain authoritative. Change the framebuffer/window size with **View > Resolution**
+or **Edit > Preferences > View > Resolution**. Applying a resolution uses the safe
+renderer restart and retains the current MAP document. Return from mod preview
+or engine terrain before changing it. Settings persist between launches.

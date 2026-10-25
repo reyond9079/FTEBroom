@@ -6,7 +6,8 @@ test=$(mktemp -d "$deps/linux38-XXXXXX")
 cp -a "$src/runtime" "$test/ftebroom"
 cp "$src/runtime/default.fmf" "$src/runtime/installed.lst" "$test/"
 cp "$src/csaddon.dat" "$test/ftebroom/"
-cp "$deps/fteqw/engine/release-linux/fteqw-gl64" "$deps/fteplug_ftebroom_amd64.so" "$test/"
+cp "${REYONDBROOM_TEST_ENGINE:-$deps/fteqw/engine/release-linux/fteqw-gl64}" "$test/fteqw-gl64"
+cp "$deps/fteplug_ftebroom_amd64.so" "$test/"
 cat > "$test/ftebroom/linux38.cfg" <<'CFG'
 set ftebroom_skip_setup 1
 exec ftebroom.cfg

@@ -42,6 +42,12 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(result[0],'v0.5.0-alpha.41')
         self.assertIsNone(updater.select_release([release(42,'Windows')],'0.5.0-alpha.40'))
 
+    def test_sdl_selection_does_not_switch_backend(self):
+        name='ReyondBroom-0.5.0-alpha.70-Linux-SDL2-x64.tar.gz'
+        sdl=dict(tag_name='v0.5.0-alpha.70',assets=[dict(name=name),dict(name=name+'.sha256')])
+        self.assertEqual(updater.select_release([sdl],'0.5.0-alpha.69',True)[1]['name'],name)
+        self.assertIsNone(updater.select_release([sdl],'0.5.0-alpha.69'))
+
     def make_package(self,folder):
         files={'fteqw-gl64':b'new engine','fteplug_ftebroom_amd64.so':b'plugin','Launch-ReyondBroom.sh':b'launcher',
                'ftebroom/appearance.cfg':b'0 0 0 0','ftebroom/ftebroom-quake1.txt':b'new defaults',

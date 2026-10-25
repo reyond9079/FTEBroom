@@ -21,12 +21,13 @@ def version(tag):
     match = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?', tag)
     return tuple(int(x) if x is not None else 999999 for x in match.groups()) if match else None
 
-def select_release(releases, current):
+def select_release(releases, current, sdl2=False):
     for release in sorted((r for r in releases if not r.get('draft') and version(r['tag_name'])),
                           key=lambda r: version(r['tag_name']), reverse=True):
         if version(release['tag_name']) <= version(current):
             continue
-        name = 'ReyondBroom-' + release['tag_name'].removeprefix('v') + '-Linux-x64.tar.gz'
+        platform = 'Linux-SDL2-x64' if sdl2 else 'Linux-x64'
+        name = 'ReyondBroom-' + release['tag_name'].removeprefix('v') + '-' + platform + '.tar.gz'
         assets = {a['name']: a for a in release.get('assets', [])}
         if name in assets and name + '.sha256' in assets:
             return release['tag_name'], assets[name], assets[name + '.sha256']
@@ -153,7 +154,7 @@ def cleanup_updates(updates, keep_backup):
             # rmtree does not follow symlinks contained within the directory.
             shutil.rmtree(path)
         elif path.is_file() and re.fullmatch(
-                r'(?:ReyondBroom|FTEBroom)-[0-9][a-zA-Z0-9.\-]*-(Windows-x64\.zip|Linux-x64\.tar\.gz)(\.part|\.sha256)?', path.name):
+                r'(?:ReyondBroom|FTEBroom)-[0-9][a-zA-Z0-9.\-]*-(Windows-x64\.zip|Linux-(?:SDL2-)?x64\.tar\.gz)(\.part|\.sha256)?', path.name):
             path.unlink()
 
 def main():
@@ -183,7 +184,7 @@ def main():
             if not archive:
                 status('Checking GitHub releases...')
                 with request(RELEASES) as response:
-                    release = select_release(json.load(response), args.current_version)
+                    release = select_release(json.load(response), args.current_version, (root/'linux-sdl2-build').is_file())
                 if not release:
                     status('ReyondBroom is up to date for Linux.')
                     return
