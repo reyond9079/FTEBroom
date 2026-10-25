@@ -267,7 +267,7 @@ void() wrap_renderscene =
         vector mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE);
         if(fb_build_preview_active) {
             drawsetcliparea(mn_x,mn_y,sz_x,sz_y);
-            fb_build_preview_draw();perf_renderscene();drawresetcliparea();continue;
+            fb_build_preview_draw();fb_online_draw();perf_renderscene();drawresetcliparea();continue;
         }
         int cached=type && count>1 && !fb_active && !fb_clip_count && !cvar("ftebroom_tool") && !cvar("ftebroom_view_cache_disable");
         string signature="";
@@ -293,6 +293,7 @@ void() wrap_renderscene =
         ftebroom_frame();
         fb_profile_sum[2]+=gettime(1)-profileTime;profileTime=gettime(1);
         fb_visual_draw();
+        fb_online_draw();
         fb_profile_sum[3]+=gettime(1)-profileTime;profileTime=gettime(1);
         perf_renderscene();
         fb_profile_sum[4]+=gettime(1)-profileTime;
@@ -685,6 +686,7 @@ float(string cmd) CSQC_ConsoleCommand =
     if(argv(0)=="ftebroom_test_terrain"){fb_terrain_test(stoi(argv(1)));return TRUE;}
     if(argv(0)=="ftebroom_terrain_save"){fb_terrain_finish();terrain_edit(TEREDIT_SAVE);return TRUE;}
     if(fb_renderer_command())return TRUE;
+    if(fb_online_command())return TRUE;
     if(fb_sweep_command())return TRUE;
     if(fb_uv_command())return TRUE;
     if(fb_repeat_testcommand())return TRUE;

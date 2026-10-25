@@ -6,6 +6,7 @@
 static bool materialDropVisible=false;
 static void textureFolderShow();
 static void importAddWads(const std::vector<std::filesystem::path>& paths){
+ if(onlineResourceLock)throw std::runtime_error("Online sessions use only the LibreQuake resource pack.");
  if(paths.empty())return;
  if(gameProfile!=2)throw std::runtime_error("Select the Quake 1 profile to use WAD materials.");std::string list=q1Wads;
  for(const auto& path:paths){ftebroom::quake1::wad(q1Read(path));auto value=path.generic_u8string();if(value.find_first_of("\r\n;\"")!=value.npos)throw std::runtime_error("Unsupported WAD path.");if(list.find(value)==list.npos){if(!list.empty())list+='\n';list+=value;}}
@@ -125,6 +126,7 @@ static void importSaveImage(){
  importAddWads({target});cvars->SetString("ftebroom_reveal_material",texture.name.c_str());importNotice="Added "+texture.name+" to "+target.u8string();importImages.erase(importImages.begin());importName[0]=0;
 }
 static void importMaterialControls(){
+ if(onlineResourceLock){ImGui::TextDisabled("Online: LibreQuake resource pack only.");return;}
  materialDropVisible=true;materialDropMin=ImGui::GetWindowPos();auto size=ImGui::GetWindowSize();materialDropMax={materialDropMin.x+size.x,materialDropMin.y+size.y};
  if(gameProfile==2){
 #ifdef _WIN32
@@ -139,6 +141,7 @@ static void importMaterialControls(){
  if(!importError.empty()){ImGui::TextWrapped("%s",importError.c_str());if(ImGui::SmallButton("Dismiss import message"))importError.clear();}
 }
 static void importDialog(){
+ if(onlineResourceLock){if(!desktopDrops.empty()||!desktopFileDrops.empty())importError="Online sessions use only the LibreQuake resource pack.";desktopDrops.clear();desktopFileDrops.clear();importImages.clear();importWindow=importRequest=false;return;}
  for(const auto& drop:desktopFileDrops)try {
   if(!drop.folder.empty()){if(modelImportSource(drop.path))modelImportEnqueue(drop.path,drop.folder);else modFileCopy(drop.path,drop.folder);continue;}
   auto folder=modFileRoot()/"models"/"imported";modFileValidate(folder);std::filesystem::create_directories(folder);

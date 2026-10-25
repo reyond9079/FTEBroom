@@ -357,6 +357,7 @@ static bool terrainCreateWindow;
 #include "ftebroom_entity_list.h"
 #include "ftebroom_fullscreen.h"
 #include "ftebroom_resolution.h"
+#include "ftebroom_online.h"
 #include "ftebroom_actions.h"
 #include "ftebroom_preferences.h"
 #include "ftebroom_shapes.h"
@@ -528,6 +529,7 @@ static void panel(float w, float h)
     if (ImGui::BeginMenu("Workspace"))
     {
       ImGui::MenuItem("Mod file manager",nullptr,&modFilesOpen);
+      ImGui::MenuItem("Online session (experimental)",nullptr,&onlineWindow);
       if (ImGui::MenuItem("Appearance / font scale..."))
         preferencesRequest = true;
       if (ImGui::MenuItem("Lock panels", nullptr, &uiLocked))
@@ -1218,6 +1220,7 @@ static void panel(float w, float h)
   desktopAttach();
   uiFullscreenTick();
   uiResolutionDialog();
+  onlineTick();onlinePanel();
 #ifndef _WIN32
   linuxPlatformTestPanel();
 #endif
@@ -1989,6 +1992,7 @@ static void shutdownEditor()
   settleCancel=true;if(settleJob.valid())settleJob.wait();
   textureFolderCancel=true;if(textureFolderJob.valid())textureFolderJob.wait();
   soundStop();
+  onlineDisconnect();
   if(soundJob.valid())soundJob.wait();
   desktopDetach();
   modEmbedEnd();

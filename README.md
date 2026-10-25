@@ -1,5 +1,8 @@
 # ReyondBroom FTE-native map editor
 
+**Experimental branch: ReyondBroom online.** [Local relay setup, limits and checks](docs/online.md).
+The release links below are the regular alpha.70 editor, not online binaries.
+
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
 **Alpha 70: optional Linux SDL2 build, resolution controls and native cursor updates.** [Changes and checklist](docs/alpha70.md).

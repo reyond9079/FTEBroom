@@ -32,6 +32,7 @@ static void updateStart(){
 #endif
 }
 static void updateTick(){
+ if(cvars->GetFloat("ftebroom_online_experiment"))return;
  if(!ready||cvars->GetFloat("ftebroom_skip_setup"))return;
  if(!updateStarted){updateStarted=true;updateStart();}
  static quintptr_t last=0;auto now=core->GetMilliseconds();if(now-last<1000)return;last=now;

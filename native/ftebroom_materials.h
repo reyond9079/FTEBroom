@@ -280,6 +280,7 @@ static void readMaterialUsage()
 }
 static bool materialMatches(const std::string& name, const char* query)
 {
+  if(onlineResourceLock&&!onlineAllowedMaterials.count(name))return false;
   auto lower = [](std::string text) {
     for (char& c : text)
       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));

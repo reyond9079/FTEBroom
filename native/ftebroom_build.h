@@ -76,6 +76,8 @@ static void buildBegin()
   if(documentFile.empty()){buildMessage="Save the map once before building.";return;}
   if(assetsLoading){buildMessage="Wait for game resources to finish loading before building.";return;}
   buildMessage.clear();runLoad();buildLoadSettings();gameProfileLoad();
+  const bool onlineBuild=cvars->GetFloat("ftebroom_online_active")!=0;
+  if(onlineBuild){buildGeometry=true;buildVis=false;}
   if(gameProfile==1 && gamePreviewAfterBuild){try{modValidate();}catch(const std::exception& e){buildMessage=e.what();return;}}
   std::error_code projectError;
   if(!*baseq3 || !std::filesystem::is_directory(std::filesystem::u8path(baseq3),projectError)){buildMessage="Configure an existing game resource folder in Game / resources.";setupNeeded=true;return;}
@@ -109,6 +111,7 @@ static void buildBegin()
       for(int i=0;i<3;i++)if(enabled[i]){
         if(runVariables[names[i]].empty())throw std::runtime_error(std::string("Set the ")+names[i]+" executable path.");
         std::string args=(i==0 && q1BspFormat==1?"-bsp2 ":"")+buildArguments[i]+" \"${WORK_DIR_PATH}/snapshot."+(i==0?"map":"bsp")+"\"";
+        if(onlineBuild && i==0)args="-bsp2 -nofill \"${WORK_DIR_PATH}/snapshot.map\"";
         profile.tasks.push_back({1,std::string("${")+names[i]+"}",args});buildStages.push_back(names[i]);
       }
     } else {
@@ -119,7 +122,7 @@ static void buildBegin()
     runExportHook=buildExported;runStageHook=buildStageFinished;runBegin(profile);runWindow=false;buildRunning=runActive;gameProfileLocked=buildRunning;buildStarted=ImGui::GetTime();
     if(!buildRunning){runExportHook=nullptr;runStageHook=nullptr;buildMessage=runError;}
     runSaveProfiles();
-    {std::ofstream settings(documentPath((gameProfile==2?"ftebroom-quake1-build-options.txt":"ftebroom-build-options.txt")));settings<<buildGeometry<<' '<<buildVis<<' '<<buildLight;for(auto& argument:buildArguments)settings<<' '<<std::quoted(argument);}
+    if(!onlineBuild){std::ofstream settings(documentPath((gameProfile==2?"ftebroom-quake1-build-options.txt":"ftebroom-build-options.txt")));settings<<buildGeometry<<' '<<buildVis<<' '<<buildLight;for(auto& argument:buildArguments)settings<<' '<<std::quoted(argument);}
   }catch(const std::exception& error){buildMessage=error.what();runExportHook=nullptr;runStageHook=nullptr;}
 }
 static void buildTick()
@@ -134,7 +137,7 @@ static void buildTick()
     if(!buildValidBsp(buildPending))throw std::runtime_error("Compiler did not produce a valid BSP for the selected profile.");
     buildResult=buildPending;buildResultModel=buildPendingModel;buildResultDocument=buildDocument;buildResultRevision=buildRevision;buildResultProfile=gameProfile;
     buildMessage="Build complete. Ready to preview.";
-    if(gameProfile!=0 && gamePreviewAfterBuild)modPreview();
+    if(gameProfile!=0 && gamePreviewAfterBuild && !cvars->GetFloat("ftebroom_online_active"))modPreview();
     else buildShow();
   }catch(const std::exception& error){buildMessage=error.what();}
 }

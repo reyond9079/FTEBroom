@@ -9,6 +9,8 @@
 static plugfsfuncs_t* files;
 static char baseq3[1024] = "";
 static bool setupNeeded = true, setupInitialized = false, assetsLoading = false;
+static bool onlineResourceLock=false;
+static std::set<std::string> onlineAllowedMaterials;
 static int firstSetupStep=-1;
 static void uiSaveAppearance();
 static std::string assetError;

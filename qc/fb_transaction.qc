@@ -2,6 +2,7 @@
 // A transaction owns its redo branch until commit, so cancellation can restore it.
 int fb_tx_start,fb_tx_redocount,fb_tx_serial,fb_tx_lastmarker;
 int fb_linked_before_commit();
+int fb_online_before_commit();
 void fb_autosnap_before_commit();
 void fb_repeat_selection(history_t *marker);
 history_t *fb_tx_redo;
@@ -89,6 +90,7 @@ void fb_tx_commit()
     if(!fb_tx_depth) return;
     if(fb_tx_depth==1)fb_autosnap_before_commit();
     if(fb_tx_depth==1)if(!fb_linked_before_commit()){fb_tx_cancel();return;}
+    if(fb_tx_depth==1)if(!fb_online_before_commit()){fb_tx_cancel();return;}
     if(--fb_tx_depth) return;
     history_t *marker=&historyring[fb_tx_start&(historyring_length-1)];
     marker->aftercount=selectedbrushcount;

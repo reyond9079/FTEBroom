@@ -9,6 +9,39 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="online_prepare"){
+    recentWindow=false;firstSetupStep=-1;setupNeeded=false;gameProfileLoad();gameProfile=2;q1UseLibre=true;gameProfileSave();
+    expect(libreReady()&&mountAssets(),"online_librequake_mounted");
+    command("in 2 mapedit maps/start-quake1.map\n");
+  }
+  if(std::string(mode)=="online_join"){
+    cvars->GetString("ftebroom_test_online_server",onlineServer,sizeof onlineServer);cvars->GetString("ftebroom_test_online_name",onlineName,sizeof onlineName);
+    onlineWindow=true;onlineConnect();expect(onlineRunning,"online_worker_started");
+  }
+  if(std::string(mode)=="online_check"){
+    expect(onlineJoined&&cvars->GetFloat("ftebroom_online_active"),"online_plot_joined");
+    expect(gameProfile==2&&q1UseLibre&&q1BspFormat==1,"online_profile_locked");
+    command("ftebroom_test_online guard\n");
+  }
+  if(std::string(mode)=="online_compile"){
+    buildLight=false;buildBegin();expect(buildRunning,"online_compile_started");
+    bool correct=false,noVis=true;
+    for(const auto& task:runningProfile.tasks){if(task.source=="${vis}")noVis=false;if(task.destination.find("-bsp2 -nofill")!=std::string::npos&&task.destination.find("-noclip")==std::string::npos)correct=true;}
+    expect(correct&&noVis,"online_open_map_collision_no_vis_pipeline");
+  }
+  if(std::string(mode)=="online_publish"){
+    bool current=!buildRunning&&!runHadError&&!buildResult.empty()&&buildResultRevision==(int)cvars->GetFloat("ftebroom_revision");
+    expect(current,"online_local_bsp_complete");buildEdit();if(!current){core->Print((buildMessage+"\n"+runLog+"\n").c_str());return;}
+    onlineWrite(onlineDirectory()/"request.json","{\"action\":\"publish\",\"map\":"+onlineJson(documentFile.u8string())+",\"bsp\":"+onlineJson(buildResult.u8string())+"}");
+  }
+  if(std::string(mode)=="online_scene_check"){
+    command("ftebroom_test_online scene\n");
+    std::ifstream own(onlineDirectory()/"own-bsp.txt");std::string path;std::getline(own,path);expect(!path.empty(),"online_own_bsp_available");
+    if(!path.empty())command(("ftebroom_bsp "+path+"\n").c_str());
+  }
+  if(std::string(mode)=="online_preview_check"){
+    expect(cvars->GetFloat("ftebroom_bsp_preview")!=0,"online_own_bsp_preview");buildEdit();
+  }
   if(std::string(mode)=="renderer65before") {
     cvars->SetFloat("ftebroom_test_restart_revision",cvars->GetFloat("ftebroom_revision"));
     cvars->SetFloat("vid_multisample",4);command("ftebroom_renderer_restart\n");
