@@ -3,6 +3,10 @@
 This branch is separate from main. Alpha.70 is the normal editor release, including
 the requested Linux SDL2 build. It does not contain the online experiment.
 
+Experimental binary releases have an `-online.N` suffix and are marked pre-release.
+Start with [the two-person quick start](../START-ONLINE.md); it does not require
+building the editor from source.
+
 ## Scope
 
 - Up to eight persistent, individually assigned 2048 x 2048 plots, with a 2048-unit height range.
