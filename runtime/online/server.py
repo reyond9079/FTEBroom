@@ -14,6 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 from bsp_limits import validate, MAX_BYTES
+from master import PROTOCOL, origin, read_json
 
 def wad_names(root):
     names = set()
@@ -87,6 +88,8 @@ class Relay:
         self.players = {}
         self.pack = 'LibreQuake-v0.09'
         self.resource_digest = resource_digest(resources)
+        self.name = 'ReyondBroom workshop'
+        self.registration_key = secrets.token_hex(32)
         state = self.root / 'state.json'
         if state.exists():
             self.players = json.loads(state.read_text())
@@ -186,6 +189,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             relay=self.server.relay; token=self.headers.get('Authorization','').removeprefix('Bearer ')
+            if self.path == '/info':
+                with relay.lock:
+                    self.respond(200,dict(protocol=PROTOCOL,pack=relay.pack,name=relay.name,
+                        active=sum(time.time()-p['seen']<30 for p in relay.players.values()),
+                        free=8-len(relay.players),registration_hash=hashlib.sha256(relay.registration_key.encode()).hexdigest()))
+                return
             with relay.lock:
                 player=relay.player(token)
                 if self.path == '/map':
@@ -224,11 +233,40 @@ def make_server(address, root, resources):
     server.relay=Relay(root,resources)
     return server
 
+def advertise(server, master, stop, public_url=None):
+    while not stop.is_set():
+        try:
+            payload=dict(port=server.server_port,key=server.relay.registration_key)
+            if public_url:payload['url']=public_url
+            read_json(master+'/register',payload)
+            print('Listed on master: '+master,flush=True)
+        except (OSError,ValueError) as error:
+            print('Master registration failed (relay still available directly): '+str(error),flush=True)
+        stop.wait(30)
+
 if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--host',default='127.0.0.1');parser.add_argument('--port',type=int,default=28777)
     parser.add_argument('--data',required=True);parser.add_argument('--librequake',required=True)
+    parser.add_argument('--master',help='Directory HTTP(S) origin; omit to keep this relay unlisted')
+    parser.add_argument('--name',default='ReyondBroom workshop')
+    parser.add_argument('--public-url',help='Advertised HTTP(S) origin, for example a Cloudflare tunnel URL')
     args=parser.parse_args()
+    if not 1<=len(args.name)<=64 or any(ord(c)<32 for c in args.name):parser.error('Name must be 1-64 printable characters')
+    master=origin(args.master) if args.master else None
+    public_url=origin(args.public_url) if args.public_url else None
     server=make_server((args.host,args.port),args.data,args.librequake)
+    server.relay.name=args.name
+    keyfile=server.relay.root/'registration-key.txt'
+    if keyfile.exists():
+        key=keyfile.read_text().strip()
+        if not re.fullmatch('[0-9a-f]{64}',key):raise ValueError('Invalid saved registration key')
+        server.relay.registration_key=key
+    else:
+        keyfile.write_text(server.relay.registration_key);keyfile.chmod(0o600)
+    stop=threading.Event()
+    if master:threading.Thread(target=advertise,args=(server,master,stop,public_url),daemon=True).start()
     print('ReyondBroom online relay: http://%s:%s' % server.server_address,flush=True)
-    server.serve_forever()
+    try:server.serve_forever()
+    except KeyboardInterrupt:pass
+    finally:stop.set();server.server_close()

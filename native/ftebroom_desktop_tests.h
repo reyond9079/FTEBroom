@@ -9,6 +9,18 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="online_browser_prepare"){
+    recentWindow=false;setupInitialized=true;setupNeeded=false;firstSetupStep=3;cvars->SetFloat("ftebroom_online_experiment",1);
+    onlineLoadBrowser();cvars->GetString("ftebroom_test_online_master",onlineMaster,sizeof onlineMaster);onlineDiscover();frame();
+    auto wizard=ImGui::FindWindowByName("First-time setup");expect(wizard&&wizard->Active&&firstSetupStep==3,"online_server_onboarding_visible");
+  }
+  if(std::string(mode)=="online_browser_join"){
+    expect(!onlineDiscoverBusy&&onlineServers.size()==1,"online_master_row_received");
+    if(!onlineServers.empty())std::snprintf(onlineServer,sizeof onlineServer,"%s",onlineServers[0].url.c_str());
+    cvars->GetString("ftebroom_test_online_name",onlineName,sizeof onlineName);onlineSaveBrowser();
+    std::string saved=onlineMaster;onlineBrowserLoaded=false;std::snprintf(onlineMaster,sizeof onlineMaster,"invalid");onlineLoadBrowser();expect(saved==onlineMaster,"online_master_preference_saved");
+    onlinePrepareJoin();expect(onlinePreparePending,"online_fixed_resources_auto_prepare");
+  }
   if(std::string(mode)=="online_prepare"){
     recentWindow=false;firstSetupStep=-1;setupNeeded=false;gameProfileLoad();gameProfile=2;q1UseLibre=true;gameProfileSave();
     expect(libreReady()&&mountAssets(),"online_librequake_mounted");
@@ -19,6 +31,7 @@ static void testDesktop(){
     onlineWindow=true;onlineConnect();expect(onlineRunning,"online_worker_started");
   }
   if(std::string(mode)=="online_check"){
+    if(onlineExperiment()){frame();expect(firstSetupStep==4,"online_onboarding_joined_without_profile_steps");firstSetupStep=-1;}
     expect(onlineJoined&&cvars->GetFloat("ftebroom_online_active"),"online_plot_joined");
     expect(gameProfile==2&&q1UseLibre&&q1BspFormat==1,"online_profile_locked");
     command("ftebroom_test_online guard\n");

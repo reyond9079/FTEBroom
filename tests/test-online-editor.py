@@ -13,12 +13,19 @@ import time
 src=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(src/'runtime/online'))
 from server import make_server
-parser=argparse.ArgumentParser();parser.add_argument('--deps',required=True);parser.add_argument('--resources',required=True);parser.add_argument('--output',required=True)
+parser=argparse.ArgumentParser();parser.add_argument('--deps',required=True);parser.add_argument('--resources',required=True);parser.add_argument('--output',required=True);parser.add_argument('--master-browser',action='store_true')
 args=parser.parse_args();deps=Path(args.deps);resources=Path(args.resources).resolve();root=Path(args.output)
 root.mkdir(parents=True,exist_ok=False)
 server=make_server(('127.0.0.1',0),root/'relay',resources)
 threading.Thread(target=server.serve_forever,daemon=True).start()
 url='http://127.0.0.1:%s'%server.server_port
+master=None
+if args.master_browser:
+    from master import Master, read_json
+    master=Master(('127.0.0.1',0),allow_private=True)
+    threading.Thread(target=master.serve_forever,daemon=True).start()
+    master_url='http://127.0.0.1:%s'%master.server_port
+    read_json(master_url+'/register',dict(port=server.server_port,key=server.relay.registration_key))
 processes=[];streams=[]
 try:
     for name in ('Alice','Bob'):
@@ -57,6 +64,8 @@ in 98 ftebroom_test_desktop online_scene_check
 in 100 ftebroom_test_desktop online_preview_check
 in 102 screenshot online-after.png
 '''
+        if args.master_browser:
+            cfg=cfg.replace('in 5 ftebroom_test_desktop online_prepare','set ftebroom_test_online_master "'+master_url+'"\nin 5 ftebroom_test_desktop online_browser_prepare').replace('in 18 ftebroom_test_desktop online_join','in 18 ftebroom_test_desktop online_browser_join')
         (install/'ftebroom/online-test.cfg').write_text(cfg)
         stream=(install/'console.txt').open('wb');streams.append(stream)
         env=dict(os.environ,SDL_VIDEODRIVER='x11',LIBGL_ALWAYS_SOFTWARE='1');env.pop('WAYLAND_DISPLAY',None)
@@ -80,7 +89,11 @@ in 102 screenshot online-after.png
     for name in ('Alice','Bob'):
         log=(root/name/'console.txt').read_text(errors='replace')
         assert '_FAIL ' not in log and 'CSQC_Abort' not in log,log[-12000:]
+        if args.master_browser:
+            for check in ('online_server_onboarding_visible','online_master_row_received','online_master_preference_saved','online_fixed_resources_auto_prepare','online_onboarding_joined_without_profile_steps'):
+                assert 'PASS '+check in log,(name,check,log[-12000:])
         for check in ('online_librequake_mounted','online_worker_started','online_plot_joined','online_profile_locked','online_compile_started','online_open_map_collision_no_vis_pipeline','online_local_bsp_complete','online_own_bsp_available','online_own_bsp_preview','inside_plot_edit','outside_plot_rolled_back','guard_undo','remote_avatar_loaded','remote_bsp_loaded'):
+            if args.master_browser and check in ('online_librequake_mounted','online_worker_started'):continue
             assert 'PASS '+check in log,(name,check,log[-12000:])
         print('PASS real editor',name,root/name,flush=True)
         assert (root/name/'ftebroom/ftebroom-quake1-build-options.txt').read_text()=='1 1 0 "" "" ""\n','Ordinary compile settings changed'
@@ -95,3 +108,4 @@ finally:
     for process in processes:
         if process.poll() is None:process.terminate()
     server.shutdown();server.server_close()
+    if master:master.shutdown();master.server_close()

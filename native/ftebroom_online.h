@@ -3,6 +3,8 @@
 static bool onlineWindow=false,onlineRunning=false,onlineJoined=false,onlineOldLock=false;
 static bool onlineOldGeometry,onlineOldVis,onlineOldLight;static int onlineOldBsp;
 static char onlineServer[512]="http://127.0.0.1:28777",onlineName[64]="Mapper";
+static char onlineMaster[512]="http://127.0.0.1:28776";
+static bool onlinePreparePending=false,onlineMountPending=false,onlineJoinAfterResources=true;
 #ifdef _WIN32
 static char onlinePython[4096]="python";
 #else
@@ -29,6 +31,19 @@ static void onlineWrite(const std::filesystem::path& path,const std::string& tex
   std::error_code ec;std::filesystem::rename(temporary,path,ec);
   if(ec){std::filesystem::copy_file(temporary,path,std::filesystem::copy_options::overwrite_existing);std::filesystem::remove(temporary);}
 }
+#include "ftebroom_online_browser.h"
+static bool onlineSetupComplete(){return onlineJoined;}
+static bool onlinePreparing(){return onlinePreparePending||onlineMountPending||onlineRunning||assetsLoading;}
+static void onlinePrepareJoin(){
+  if(onlinePreparing())return;
+  if(cvars->GetFloat("ftebroom_dirty")){onlineMessage="Save the current map before joining.";return;}
+  onlineJoinAfterResources=true;
+  gameProfile=2;q1UseLibre=true;setupModChoice=0;q1BspFormat=1;
+  *q1Wads=0;*q1Definitions=0;
+  onlineSaveBrowser();onlinePreparePending=true;onlineMessage="Preparing LibreQuake resources...";
+  if(!libreReady())libreStartDownload();
+}
+static void onlinePrepareResources(){onlinePrepareJoin();if(onlinePreparePending)onlineJoinAfterResources=false;}
 static void onlineDisconnect(){
   if(onlineRunning){try{onlineWrite(onlineDirectory()/"stop","stop");}catch(...){}gameProfileLocked=onlineOldLock||buildRunning;buildGeometry=onlineOldGeometry;buildVis=onlineOldVis;buildLight=onlineOldLight;q1BspFormat=onlineOldBsp;}
   onlineRunning=onlineJoined=false;cvars->SetFloat("ftebroom_online_active",0);command("ftebroom_online_clear\n");
@@ -59,6 +74,14 @@ static void onlineConnect(){
   }catch(const std::exception& e){onlineMessage=e.what();}
 }
 static void onlineTick(){
+  onlineBrowserTick();
+  if(onlinePreparePending&&!libreBusy()){
+    onlinePreparePending=false;
+    if(!libreReady()){onlineMessage=libreError.empty()?"LibreQuake is not ready. Retry joining.":libreError;}
+    else if(gameProfileSave()&&mountAssets()){onlineMountPending=true;onlineMessage="Loading LibreQuake resources...";}
+    else onlineMessage=assetError;
+  }
+  if(onlineMountPending&&!assetsLoading){onlineMountPending=false;if(setupNeeded)onlineMessage=assetError;else if(onlineJoinAfterResources)onlineConnect();else onlineMessage="LibreQuake is ready. You can start your relay and refresh the server list.";setupNeeded=false;}
   bool alive=onlineProcessAlive();if(!onlineRunning)return;
   double now=core->GetMilliseconds()/1000.;if(now-onlineLastPoll<.25)return;onlineLastPoll=now;
   try{
@@ -85,11 +108,11 @@ static void onlineTick(){
 }
 static void onlinePanel(){
   if(!onlineWindow)return;
-  ImGui::SetNextWindowSize({520*uiScale(),380*uiScale()},ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize({640*uiScale(),600*uiScale()},ImGuiCond_FirstUseEver);
   if(ImGui::Begin("ReyondBroom online (experimental)",&onlineWindow)){
     ImGui::TextWrapped("Local relay prototype: eight private 2048 x 2048 plots, shared free camera, LibreQuake only, BSP2 only. Python 3 is required. Online compilation retains collision hulls, skips VIS and accepts open maps (-nofill).");
-    ImGui::BeginDisabled(onlineRunning);ImGui::InputText("Server",onlineServer,sizeof onlineServer);ImGui::InputText("Name",onlineName,sizeof onlineName);ImGui::InputText("Python executable",onlinePython,sizeof onlinePython);
-    if(ImGui::Button("Join session"))onlineConnect();ImGui::EndDisabled();
+    onlineBrowserControls();
+    ImGui::BeginDisabled(onlinePreparing());if(ImGui::Button("Join session"))onlinePrepareJoin();ImGui::EndDisabled();
     if(onlineRunning){
       ImGui::BeginDisabled(buildRunning);if(ImGui::Button("Disconnect"))onlineDisconnect();ImGui::EndDisabled();
       ImGui::BeginDisabled(!onlineJoined);

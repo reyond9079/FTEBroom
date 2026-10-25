@@ -12,6 +12,12 @@ static bool setupNeeded = true, setupInitialized = false, assetsLoading = false;
 static bool onlineResourceLock=false;
 static std::set<std::string> onlineAllowedMaterials;
 static int firstSetupStep=-1;
+static bool onlineExperiment(){return cvars->GetFloat("ftebroom_online_experiment")!=0;}
+static void onlineBrowserControls();
+static void onlinePrepareJoin();
+static void onlinePrepareResources();
+static bool onlineSetupComplete();
+static bool onlinePreparing();
 static void uiSaveAppearance();
 static std::string assetError;
 struct MaterialEntry
@@ -345,6 +351,34 @@ static bool projectLoadRequested(bool clicked)
   return gameProfileSave()&&mountAssets();
 }
 static ImVec2 setupFinishCenter;
+static void projectOnlineSetup(){
+  ImGui::OpenPopup("First-time setup");
+  auto display=ImGui::GetIO().DisplaySize;
+  ImGui::SetNextWindowSize({std::min(display.x-24,800*uiScale()),std::min(display.y-64,550*uiScale())},ImGuiCond_Always);
+  ImGui::SetNextWindowPos({display.x*.5f,display.y*.5f},ImGuiCond_Always,{.5f,.5f});
+  bool open=true;
+  if(ImGui::BeginPopupModal("First-time setup",&open,ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings)){
+    if(firstSetupStep>4)firstSetupStep=3;
+    if(firstSetupStep==3&&onlineSetupComplete())firstSetupStep=4;
+    const char* titles[]={"Choose your language","Choose interface size","Make yourself at home","Choose an online server","Join our Discord"};
+    ImGui::TextDisabled("ReyondBroom online / Step %d of 5",firstSetupStep+1);
+    ImGui::TextUnformatted(titles[firstSetupStep]);ImGui::ProgressBar(float(firstSetupStep+1)/5,{-1,3*uiScale()},"");
+    ImGui::BeginChild("Online setup content",{0,-ImGui::GetFrameHeightWithSpacing()*2});
+    if(firstSetupStep==0){for(int i=0;i<7;i++)if(ImGui::RadioButton(uiLanguageNames[i],uiLanguage==i))uiLanguage=i;}
+    else if(firstSetupStep==1)setupScaleList();
+    else if(firstSetupStep==2)setupThemeTiles();
+    else if(firstSetupStep==3)onlineBrowserControls();
+    else {ImGui::TextWrapped("Share your maps, get help and follow ReyondBroom updates.");ImGui::TextLinkOpenURL("https://discord.gg/eDMf53Kny","https://discord.gg/eDMf53Kny");}
+    ImGui::EndChild();ImGui::Separator();
+    ImGui::BeginDisabled(firstSetupStep==0||onlinePreparing());if(ImGui::Button("Back",{110*uiScale(),0}))--firstSetupStep;ImGui::EndDisabled();ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x-220*uiScale());
+    if(firstSetupStep<3){if(ImGui::Button("Next",{220*uiScale(),0})){uiSaveAppearance();++firstSetupStep;}}
+    else if(firstSetupStep==3){ImGui::BeginDisabled(onlinePreparing());if(ImGui::Button("Join selected / direct server",{220*uiScale(),0}))onlinePrepareJoin();ImGui::EndDisabled();}
+    else if(ImGui::Button("Start editing",{220*uiScale(),0})){uiSaveAppearance();firstSetupStep=-1;ImGui::CloseCurrentPopup();}
+    ImGui::EndPopup();
+  }
+  if(!open){firstSetupStep=-1;setupNeeded=false;}
+}
 static void projectSetup()
 {
   libreTick();
@@ -352,6 +386,7 @@ static void projectSetup()
   {
     setupInitialized = true;
     gameProfileLoad();
+    if(onlineExperiment()){gameProfile=2;q1UseLibre=true;setupModChoice=0;q1BspFormat=1;*q1Wads=0;*q1Definitions=0;}
     std::ifstream settings(settingsPath(), std::ios::binary);
     std::string saved;
     std::getline(settings, saved);
@@ -360,6 +395,11 @@ static void projectSetup()
     setupNeeded = false;
     if(!saved.empty()) { if(!mountAssets())setupNeeded=cvars->GetFloat("ftebroom_skip_setup")==0; }
     else setupNeeded=cvars->GetFloat("ftebroom_skip_setup")==0;
+  }
+  if(onlineExperiment()){
+    if(firstSetupStep>=0){projectOnlineSetup();return;}
+    // Online resources are fixed; profile/mod selection is never part of this wizard.
+    if(setupNeeded&&!assetsLoading){firstSetupStep=3;setupNeeded=false;projectOnlineSetup();return;}
   }
   if(firstSetupStep==5&&setupNeeded&&!assetsLoading){firstSetupStep=4;setupNeeded=false;}
   if(firstSetupStep>=0) {

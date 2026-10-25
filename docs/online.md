@@ -31,6 +31,42 @@ replace or modify another participant's saved MAP or BSP.
 
 ## Local setup
 
+Online experimental 2 replaces game/mod onboarding with a server browser and
+automatic LibreQuake preparation. See [START-ONLINE.md](../START-ONLINE.md) for
+master + relay commands. The older source test setup below is still supported.
+
+### Directory service
+
+`runtime/online/master.py` runs an independent HTTP directory. FTE's game-server
+master protocol is not the editor relay's HTTP protocol; no unrelated game servers
+are advertised or accepted. A relay started with `--master URL --name NAME`
+registers automatically and sends a heartbeat every 30 seconds. Listings expire
+after 90 seconds without renewal. The directory probes `/info` at the registration
+connection's IP and supplied port, verifies ownership against a secret registration
+key, and publishes only name, address, active users, free plots and protocol/pack.
+Relays may advertise an HTTPS tunnel with `--public-url ORIGIN`. Verification pins
+validated numeric DNS addresses, retains HTTPS certificate/SNI validation, and
+does not follow redirects. This prevents a supplied public hostname from switching
+the callback to a private address after validation. No tunnel hostname is hardcoded.
+Tokens, registration keys and MAP sources never appear in the list. Keep each
+relay's `registration-key.txt` private and retain it when restarting.
+
+The master binds localhost by default, limits connections/response sizes/list
+length, rejects private callback addresses unless explicitly allowed, never follows
+callback redirects and never executes uploads. Use `--allow-private` for LAN/VPN
+testing. This is not a hardened public account service or a NAT relay. No public
+master is hosted or hardcoded; the editor starts with a clearly labelled local
+address, which can be changed and saved. GitHub Pages can serve a static directory
+but cannot run live registration/heartbeats. Public hosting needs a continuously
+running service and a separately configured TLS gateway.
+
+Test the actual HTTP discovery and expiry flow with:
+
+```sh
+python3 tests/test-online-master.py --resources /path/to/mod_lite/lq1
+xvfb-run -a -s '-screen 0 1600x1000x24' python3 tests/test-online-editor.py --deps /path/to/build-deps --resources /path/to/mod_lite/lq1 --output /new/test-directory --master-browser
+```
+
 Use two separate writable editor installations for a two-person/local test. Do not
 run both clients from one portable directory: their document and session files differ.
 
