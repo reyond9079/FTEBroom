@@ -1,5 +1,11 @@
 # Prototype checks
 
+## Linux native cursor, 2026-10-25
+
+- Wayland with `WAYLAND_DEBUG=1` shows `wp_cursor_shape_device_v1.set_shape` calls with the pointer-enter serial for arrow, text, hand and resize cursors. No `unknown cursor shape` or other protocol errors appeared; the compositor drew the themed pointer.
+- `scripts/test-linux38.sh` passes `linux_native_cursor_owner`, `linux_cursor_fallback_generated`, `linux_cursor_shape_text`, `linux_cursor_shape_ew`, `linux_cursor_hidden_for_camera` and `linux_native_cursor_after_camera` under Xvfb. ImGui no longer draws a second pointer.
+- The plugin writes ImGui-atlas TGA fallbacks for compositors without shape support. `scripts/test-linux39.sh` was updated for the Wayland path, but Weston was unavailable in this environment; the Wayland check above was performed manually.
+
 ## Linux surface-grid depth, 2026-10-25
 
 - The `ftebroom/surfacegrid` and `ftebroom/brushedges` shaders no longer request `polygonoffset`. FTE's default bias is 25 depth LSBs; with the editor near plane at 4 and no far plane that is roughly 100 world units at 16k view distance, so grid lines on a distant wall reached in front of a pillar only 80 units closer. Both overlays draw after world geometry, and the default `GL_LEQUAL` depth test keeps coplanar surfaces visible without the bias.

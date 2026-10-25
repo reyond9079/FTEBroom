@@ -18,3 +18,5 @@ The entity definition loader now logs whether `info_player_start`'s model exists
 - If compilation fails, provide the error lines after the compiler starts, not just the `snapshot.map` path.
 
 Tests run in isolated Arch userspace with Weston under WSL2/software OpenGL; physical Arch desktop testing is still required.
+
+The ImGui cursor layer described above was later replaced by native shape cursors: Wayland uses `wp_cursor_shape_v1`, X11 uses Xcursor theme shapes, and the ImGui image is retained only as a fallback.

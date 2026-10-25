@@ -397,9 +397,12 @@ static void testDesktop(){
     bool glyphs=true;for(auto font:uiFonts)for(int c=0x410;c<=0x44f;++c)glyphs &= font&&font->FindGlyphNoFallback((ImWchar)c)!=nullptr;
     expect(glyphs,"cyrillic_all_font_scales");
 #ifndef _WIN32
-    expect(ImGui::GetIO().MouseDrawCursor,"linux_imgui_cursor_owner");
+    expect(!ImGui::GetIO().MouseDrawCursor,"linux_native_cursor_owner");
+    expect(!linuxCursorNames[ImGuiMouseCursor_Arrow].empty(),"linux_cursor_fallback_generated");
+    expect(linuxCursorShape(ImGuiMouseCursor_TextInput)==9,"linux_cursor_shape_text");
+    expect(linuxCursorShape(ImGuiMouseCursor_ResizeEW)==26,"linux_cursor_shape_ew");
     sceneLook=true;frame();expect(!ImGui::GetIO().MouseDrawCursor,"linux_cursor_hidden_for_camera");
-    sceneLook=false;frame();expect(ImGui::GetIO().MouseDrawCursor,"linux_imgui_cursor_after_camera");
+    sceneLook=false;frame();expect(!ImGui::GetIO().MouseDrawCursor,"linux_native_cursor_after_camera");
 #endif
   }
 
@@ -421,8 +424,11 @@ static void testDesktop(){
     firstSetupStep=-1;setupNeeded=false;recentWindow=false;if(GImGui->OpenPopupStack.Size)ImGui::ClosePopupToLevel(0,true);
     linuxTestWindow=linuxTestFocus=true;frame();frame();
     auto state=ImGui::GetInputTextState(ImGui::GetActiveID());expect(state!=nullptr,"linux_text_field_focused");if(state)state->SelectAll();
-    expect(ImGui::GetIO().MouseDrawCursor,"single_imgui_cursor_owner");
+    expect(!ImGui::GetIO().MouseDrawCursor,"linux_native_cursor_owner");
     bool shapes=true;for(int c=0;c<ImGuiMouseCursor_COUNT;++c){ImVec2 hot,size,border[2],fill[2];shapes &= ImFontAtlasGetMouseCursorTexData(ImGui::GetIO().Fonts,c,&hot,&size,border,fill)&&size.x>0&&size.y>0;}expect(shapes,"imgui_cursor_shapes_available");
+    expect(linuxCursorShape(ImGuiMouseCursor_TextInput)==9,"linux_cursor_shape_text");
+    expect(linuxCursorShape(ImGuiMouseCursor_ResizeEW)==26,"linux_cursor_shape_ew");
+    expect(!linuxCursorNames[ImGuiMouseCursor_ResizeEW].empty(),"linux_cursor_fallback_generated");
 
   }
   if(std::string(mode)=="linux39paste") {
@@ -434,7 +440,7 @@ static void testDesktop(){
   if(std::string(mode)=="linux39check") {
     expect(std::string(linuxTestText)=="Привет Arch\nsecond line","wayland_external_paste_utf8_multiline");
     ImGui::SetClipboardText("Ответ из ReyondBroom");
-    expect(ImGui::GetIO().MouseDrawCursor,"imgui_cursor_after_paste");
+    expect(!ImGui::GetIO().MouseDrawCursor,"linux_native_cursor_after_paste");
   }
 #endif
   if(std::string(mode)=="setup37") {

@@ -1219,7 +1219,7 @@ static void panel(float w, float h)
   linuxPlatformTestPanel();
 #endif
 #ifndef _WIN32
-  linuxCursorUpdate(sceneLook);
+  linuxCursorUpdate(sceneLook,uiScale());
 #endif
   render();
   modEmbedTick(w,h);

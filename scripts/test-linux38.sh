@@ -17,5 +17,5 @@ CFG
 cd "$test"
 env -u WAYLAND_DISPLAY LIBGL_ALWAYS_SOFTWARE=1 timeout 45s xvfb-run -a -s '-screen 0 1280x800x24' ./fteqw-gl64 -ftebroom-child-processes -nohome -noupdates -window -width 1280 -height 800 -condebug +exec linux38.cfg > console.txt 2>&1
 if grep -E "DESKTOP_FAIL|CSQC_Abort|not a zip|No archive in|couldn't exec (config|fte).cfg" console.txt; then exit 1; fi
-for check in cyrillic_all_font_scales linux_engine_cursor_owner linux_cursor_hidden_for_camera linux_engine_cursor_after_camera; do grep "DESKTOP_PASS $check" console.txt; done
+for check in cyrillic_all_font_scales linux_native_cursor_owner linux_cursor_fallback_generated linux_cursor_shape_text linux_cursor_shape_ew linux_cursor_hidden_for_camera linux_native_cursor_after_camera; do grep "DESKTOP_PASS $check" console.txt; done
 echo "PASS $test"

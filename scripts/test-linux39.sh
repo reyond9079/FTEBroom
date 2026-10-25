@@ -32,7 +32,7 @@ cd "$test"
 LIBGL_ALWAYS_SOFTWARE=1 timeout 45s ./fteqw-gl64 -ftebroom-child-processes -nohome -noupdates -window -width 1280 -height 800 -condebug +vid_renderer wlgl +exec linux39.cfg > console.txt 2>&1
 if grep -E 'DESKTOP_FAIL|CSQC_Abort' console.txt; then echo "$test";exit 1; fi
 grep 'DESKTOP_PASS wayland_external_paste_utf8_multiline' console.txt
-grep 'DESKTOP_PASS imgui_cursor_after_paste' console.txt
+for check in linux_native_cursor_owner linux_cursor_fallback_generated linux_cursor_shape_text linux_cursor_shape_ew linux_native_cursor_after_paste; do grep "DESKTOP_PASS $check" console.txt; done
 actual=$(timeout 8s "$test/tools/clipboard/wl-paste" --no-newline)
 [ "$actual" = 'Ответ из ReyondBroom' ]
 echo "PASS $test"
