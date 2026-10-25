@@ -66,7 +66,7 @@ for archive in archives:
 for path in source.glob("*.md"):
     shutil.copy2(path, root / path.name)
 for folder in ("docs", "scripts"):
-    shutil.copytree(source / folder, root / folder)
+    shutil.copytree(source / folder, root / folder, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 patches = ", ".join(path.name for path in sorted((source / "patches").glob("*.patch")))
 info = (
     f"ReyondBroom {args.version}\n"
