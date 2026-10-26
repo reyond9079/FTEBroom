@@ -9,6 +9,8 @@ shim='''#include <stdlib.h>
 #include <assert.h>
 typedef struct {unsigned int id;} brushes_t;
 typedef struct {brushes_t *wbrushes;unsigned int numbrushes;} heightmap_t;
+static void Terr_TraceInvalidate(heightmap_t *hm) {(void)hm;}
+static void Terr_TraceClear(heightmap_t *hm) {(void)hm;}
 #define qboolean int
 #define true 1
 #define Con_DPrintf(...) ((void)0)

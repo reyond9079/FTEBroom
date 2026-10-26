@@ -60,6 +60,8 @@ typedef struct
     vector modelaxes;
 	
 	trisoup_simple_vert_t bboxverts[8];
+    trisoup_simple_vert_t solidverts[24];
+    vector rendercolour;
 
 	//full data
 	hashtable fields;
@@ -71,9 +73,29 @@ int bbox_line_idxs[] =
 	4,6, 6,7, 7,5, 5,4,
 	0,4, 3,7, 2,6, 1,5
 };
+int fb_entity_box_corners[]={0,2,6,4,1,3,7,5,0,4,5,1,2,6,7,3,0,1,3,2,4,5,7,6};
+int fb_entity_box_triangles[]={0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,12,14,15,16,17,18,16,18,19,20,21,22,20,22,23};
 
 static entedit_t *editents;
 static int numents;
+string fb_entity_classname(int index){if(index>=0 && index<numents)return editents[index].fields["classname"];return "";}
+int fb_entity_has_model(int index){if(index<0 || index>=numents)return FALSE;return editents[index].modelindex && !editents[index].isbsp;}
+void fb_entity_draw_box(int index,vector colour,int solid,int wire,string shader)
+{
+    if(index<0 || index>=numents)return;
+    entedit_t *item=&editents[index];
+    if(item->rendercolour!=colour) {
+        item->rendercolour=colour;
+        for(int v=0;v<8;v++)item->bboxverts[v].rgba=(vec4){colour_x,colour_y,colour_z,1};
+        for(int v=0;v<24;v++) {
+            item->solidverts[v]=item->bboxverts[fb_entity_box_corners[v]];
+            float shade=.65+.15*floor((float)v/8);
+            item->solidverts[v].rgba=(vec4){colour_x*shade,colour_y*shade,colour_z*shade,1};
+        }
+    }
+    if(solid)addtrisoup_simple("ftebroom/entitysolid",3,item->solidverts,fb_entity_box_triangles,36);
+    if(wire)addtrisoup_simple(shader,3|DRAWFLAG_LINES,item->bboxverts,bbox_line_idxs,bbox_line_idxs.length);
+}
 vector fb_entity_color(int index) {if(index>=0 && index<numents)return editents[index].colourmod;return '0.3 0.8 0.4';}
 void fb_entity_draw_model(int index)
 {
@@ -316,8 +338,10 @@ float(string model) modelindexforname =
 	setmodel(tempent, model);
 	return tempent.modelindex;
 };
+int fb_entity_render_epoch;
 void(entedit_t *nent) editor_ents_updated =
 {
+    fb_entity_render_epoch++;
 	float ang;
 	int i;
 
@@ -393,6 +417,7 @@ void(entedit_t *nent) editor_ents_updated =
 	if (nent->isbsp)
 		nent->ang = '0 0 0';	//bsp entities should not be displayed rotated, because that just messes everything up.
 
+    nent->rendercolour='-1 -1 -1';
 	for (i = 0; i < 8; i++)
 	{
 		nent->bboxverts[i].st = (vec2){0,0};

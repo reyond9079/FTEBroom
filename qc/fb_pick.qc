@@ -1,8 +1,11 @@
+int fb_filter_epoch,fb_visibility_epoch,fb_transform_preview;
+float fb_active;
 int fb_render_allowed(int node,int flags);
 int fb_transform_replaces(int model,int id);
 int fb_visibility_get(int model,int id);
 int fb_filter_allowed(int node);
 void fb_filter_prepare();
+#include "fb_label_visibility.qc"
 // SPDX-License-Identifier: GPL-2.0-or-later
 enum : int { FB_HIT_BRUSH=1, FB_HIT_PATCH=2, FB_HIT_ENTITY=4, FB_HIT_HANDLE=8 };
 enum : int { FB_PICK_HIDDEN=1, FB_PICK_LOCKED=2 };
@@ -225,55 +228,147 @@ int fb_pick(vector pixel)
     return fb_pick_query(start,end,pixel,0,
         FB_HIT_BRUSH|FB_HIT_PATCH|FB_HIT_ENTITY|FB_HIT_HANDLE,cvar("ca_brush_view")!=0);
 }
-void fb_pick_draw_entities(int labelsOnly)
+int *fb_point_draw_ids;vector *fb_point_draw_colors;int fb_point_draw_capacity;
+void fb_pick_draw_entities_uncached(int labelsOnly)
 {
-    static vector bounds[2],corners[8];
-    cvar_set("ftebroom_selected_entity","");
+    static vector bounds[2];
+    int selectedEntity=fb_selected_entity();
+    cvar_set("ftebroom_selected_entity",fb_entity_classname(selectedEntity));
     string entityWire="ftebroom/entitybounds";
     if(cvar("ca_brush_view")) entityWire="ftebroom/entitybounds2d";
     shaderforname(entityWire,strcat("{\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\n",cvar("ca_brush_view")?"nodepthtest\n":"","}\n}"));
     shaderforname("ftebroom/entitysolid","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
+    int ortho=cvar("ca_brush_view"),names=cvar("ftebroom_show_entity_names"),models=cvar("ftebroom_show_models"),wire=cvar("ftebroom_show_entity_bounds");
+    if(labelsOnly && (!names || fb_view_render_cache))return;
+    vector eye=getproperty(VF_ORIGIN),angles=getproperty(VF_ANGLES),mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE),fov=getproperty(VF_FOV);
+    makevectors(angles);vector forward=v_forward,right=v_right,up=v_up;
+    float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     fb_document_lists_prepare();
+    if(!labelsOnly && fb_point_draw_capacity<fb_point_node_count){
+        fb_point_draw_capacity=fb_point_node_count;memfree(fb_point_draw_ids);memfree(fb_point_draw_colors);
+        fb_point_draw_ids=memalloc(fb_point_draw_capacity*sizeof(int));fb_point_draw_colors=memalloc(fb_point_draw_capacity*sizeof(vector));
+    }
+    int drawCount=0,profileLabels=cvar("ftebroom_benchmark");
     for(int entry=0;entry<fb_point_node_count;entry++) {
+        // Conservative block bounds avoid per-entity work for off-screen clusters.
+        // Model-containing blocks stay on the normal path for animated bounds.
+        if(!ortho && !(entry&63i)){
+            int group=entry/64;
+            if(fb_point_group_flags[group]==1){
+                vector low=fb_point_group_bounds[group*2],high=fb_point_group_bounds[group*2+1],groupDelta=(low+high)*.5-eye;
+                float groupRadius=vlen(high-low)*.5+12,groupDepth=groupDelta*forward;
+                float labelMargin=names?max(0,groupDepth)*tx*512/max(1,sz_x):0;
+                if(groupDepth+groupRadius<0 || fabs(groupDelta*right)>groupDepth*tx+groupRadius*(1+tx)+labelMargin || fabs(groupDelta*up)>groupDepth*ty+groupRadius*(1+ty)+labelMargin){entry+=63;continue;}
+            }
+        }
         int node=fb_point_nodes[entry];fb_node_t item=fb_nodes[node];
         if(!fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         if(substring(item.fields["model"],0,1)=="*") continue;
         if(!fb_entity_bounds(item.id,bounds)) continue;
         if(fb_transform_replaces(0,item.id)) continue;
+        // Cull complete bounds before building corners or tracing labels. No distance limit.
+        if(!ortho && !fb_entity_has_model(item.id)) {
+            vector delta=(bounds[0]+bounds[1])*.5-eye;
+            float radius=vlen(bounds[1]-bounds[0])*.5+12,depth=delta*forward;
+            if(depth+radius<0 || fabs(delta*right)>depth*tx+radius*(1+tx) || fabs(delta*up)>depth*ty+radius*(1+ty))continue;
+        }
         vector colour=fb_entity_color(item.id);
         if(!fb_render_allowed(node,0))colour=stov(cvar_string("ftebroom_color_locked"));
         if(fb_entity_selected(item.id)) {
             colour=stov(cvar_string("ftebroom_color_selected"));cvar_set("ftebroom_selected_entity",item.name);
         }
-        for(int i=0;i<8;i++) for(int axis=0;axis<3;axis++)
-            corners[i][axis]=(i&(1i<<axis))?bounds[1][axis]:bounds[0][axis];
-        if(!labelsOnly && !cvar("ca_brush_view") && cvar("ftebroom_show_models"))fb_entity_draw_model(item.id);
-        // Point entities remain visible even when their game model is unavailable.
-        if(!labelsOnly && !cvar("ca_brush_view"))if(!cvar("ftebroom_show_models") || fb_entity_model_name(item.id)=="") {
-            for(int axis=0;axis<3;axis++)for(int side=0;side<2;side++) {
-                int u=(axis+1)%3,v=(axis+2)%3,base=side<<axis;
-                int faceCorners[4];faceCorners[0]=base;faceCorners[1]=base|(1i<<u);faceCorners[2]=base|(1i<<u)|(1i<<v);faceCorners[3]=base|(1i<<v);
-                float shade=0.65+0.15*(float)axis;
-                R_BeginPolygon("ftebroom/entitysolid",3);
-                for(int c=0;c<4;c++)R_PolygonVertex(corners[faceCorners[c]],'0 0',colour*shade,1);
-                R_EndPolygon();
-            }
-        }
-        if(!labelsOnly && (cvar("ftebroom_show_entity_bounds") || cvar("ca_brush_view"))) for(int vertex=0;vertex<8;vertex++) for(int a=0;a<3;a++) {
-            int other=vertex^(1i<<a);
-            if(other<vertex) continue;
-            R_BeginPolygon(entityWire);
-            R_PolygonVertex(corners[vertex],'0 0',colour,1);
-            R_PolygonVertex(corners[other],'0 0',colour,1);R_EndPolygon();
-        }
-        if(labelsOnly && cvar("ftebroom_show_entity_names") && !fb_view_render_cache) {
-            makevectors(getproperty(VF_ANGLES));
+        if(labelsOnly) {
             vector label=(bounds[0]+bounds[1])*.5;label_z=bounds[1][2]+12;
-            if(cvar("ca_brush_view") || (label-getproperty(VF_ORIGIN))*v_forward>0) {
-                int visible=TRUE;
-                if(!cvar("ca_brush_view")){traceline(getproperty(VF_ORIGIN),label,TRUE,world);visible=trace_fraction>=.999;}
-                if(visible)drawstring(project(label),item.name,'8 8 0',colour,1,0);
-            }
+            if(!ortho && (label-eye)*forward<=0)continue;
+            vector pixel=project(label);pixel_z=0;
+            float width=strlen(item.name)*8;
+            if(pixel_x+width<mn_x || pixel_y+8<mn_y || pixel_x>=mn_x+sz_x || pixel_y>=mn_y+sz_y)continue;
+            if(!ortho){float startTrace=profileLabels?gettime(1):0;int visible=fb_label_visible(eye,label,node);if(profileLabels)fb_label_trace_seconds+=gettime(1)-startTrace;if(!visible)continue;}
+            float startText=profileLabels?gettime(1):0;drawstring(pixel,item.name,'8 8 0',colour,1,0);if(profileLabels)fb_label_draw_seconds+=gettime(1)-startText;continue;
+        }
+        fb_point_draw_ids[drawCount]=item.id;fb_point_draw_colors[drawCount++]=colour;
+    }
+    // Solids and wires use separate passes so FTE can batch adjacent entities.
+    // Alternating shaders for each entity caused thousands of GPU submissions.
+    if(!labelsOnly)for(int pass=0;pass<2;pass++) {
+        if(pass && !wire && !ortho)continue;
+        for(int entry=0;entry<drawCount;entry++) {
+            int id=fb_point_draw_ids[entry];
+            if(!pass && !ortho && models)fb_entity_draw_model(id);
+            int solid=!pass && !ortho && (!models || !fb_entity_has_model(id));
+            fb_entity_draw_box(id,fb_point_draw_colors[entry],solid,pass,entityWire);
+        }
+    }
+}
+// Cache document properties once, independently of the camera. Culling and
+// occlusion are still evaluated for every rendered view and every frame.
+typedef struct {int node,id,model;vector center,label,color;float radius;string name;} fb_point_render_t;
+fb_point_render_t *fb_point_render;int fb_point_render_count;
+var float autocvar_ftebroom_point_cache=1;
+int(fb_point_render_t *points,int count,int *indices,int stride) ftebroom_cull_points=#0:ftebroom_cull_points;
+int *fb_point_visible;int fb_point_visible_capacity;
+void fb_point_render_prepare()
+{
+    static int geometry=-1,selection=-1,filters=-1,visibility=-1,revision=-1,entityRevision=-1;
+    static string colors;
+    string currentColors=strcat(cvar_string("ftebroom_color_locked"),"|",cvar_string("ftebroom_color_selected"));
+    int currentRevision=fb_document_revision();
+    if(geometry==fb_grid_geometry_epoch && selection==fb_selection_epoch && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==currentRevision && entityRevision==fb_entity_render_epoch && colors==currentColors)return;
+    geometry=fb_grid_geometry_epoch;selection=fb_selection_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=currentRevision;entityRevision=fb_entity_render_epoch;
+    strunzone(colors);colors=strzone(currentColors);
+    fb_document_lists_prepare();memfree(fb_point_render);fb_point_render=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_render_t));fb_point_render_count=0;
+    static vector bounds[2];
+    for(int i=0;i<fb_point_node_count;i++){
+        int node=fb_point_nodes[i],id=fb_nodes[node].id;
+        if(!fb_render_allowed(node,FB_PICK_LOCKED))continue;
+        if(!fb_entity_bounds(id,bounds))continue;
+        fb_point_render_t *item=&fb_point_render[fb_point_render_count++];
+        item->node=node;item->id=id;item->model=fb_entity_has_model(id);item->name=fb_nodes[node].name;
+        item->center=(bounds[0]+bounds[1])*.5;item->radius=vlen(bounds[1]-bounds[0])*.5+12;
+        item->label=item->center;item->label[2]=bounds[1][2]+12;
+        item->color=fb_entity_color(id);
+        if(!fb_render_allowed(node,0))item->color=stov(cvar_string("ftebroom_color_locked"));
+        if(fb_entity_selected(id))item->color=stov(cvar_string("ftebroom_color_selected"));
+    }
+}
+void fb_pick_draw_entities(int labelsOnly)
+{
+    if(!autocvar_ftebroom_point_cache || fb_active || fb_transform_preview){fb_pick_draw_entities_uncached(labelsOnly);return;}
+    int names=cvar("ftebroom_show_entity_names"),ortho=cvar("ca_brush_view"),models=cvar("ftebroom_show_models"),wire=cvar("ftebroom_show_entity_bounds");
+    if(labelsOnly && (!names || fb_view_render_cache))return;
+    fb_point_render_prepare();
+    cvar_set("ftebroom_selected_entity",fb_entity_classname(fb_selected_entity()));
+    vector eye=getproperty(VF_ORIGIN),mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
+    vector forward=v_forward,right=v_right,up=v_up;float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
+    string entityWire=ortho?"ftebroom/entitybounds2d":"ftebroom/entitybounds";
+    shaderforname(entityWire,strcat("{\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\n",ortho?"nodepthtest\n":"","}\n}"));
+    shaderforname("ftebroom/entitysolid","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
+    if(fb_point_draw_capacity<fb_point_render_count){fb_point_draw_capacity=fb_point_render_count;memfree(fb_point_draw_ids);memfree(fb_point_draw_colors);fb_point_draw_ids=memalloc(max(1,fb_point_draw_capacity)*sizeof(int));fb_point_draw_colors=memalloc(max(1,fb_point_draw_capacity)*sizeof(vector));}
+    int drawCount=0,profileLabels=cvar("ftebroom_benchmark"),visibleCount=-1;
+    if(!ortho && checkbuiltin(ftebroom_cull_points)){
+        if(fb_point_visible_capacity<fb_point_render_count){fb_point_visible_capacity=fb_point_render_count;memfree(fb_point_visible);fb_point_visible=memalloc(max(1,fb_point_visible_capacity)*sizeof(int));}
+        visibleCount=ftebroom_cull_points(fb_point_render,fb_point_render_count,fb_point_visible,sizeof(fb_point_render_t));
+    }
+    int entries=visibleCount<0?fb_point_render_count:visibleCount;
+    for(int visibleEntry=0;visibleEntry<entries;visibleEntry++){
+        int entry=visibleCount<0?visibleEntry:fb_point_visible[visibleEntry];
+        fb_point_render_t *item=&fb_point_render[entry];
+        if(visibleCount<0 && !ortho && !item->model){vector delta=item->center-eye;float depth=delta*forward,radius=item->radius;
+            if(depth+radius<0 || fabs(delta*right)>depth*tx+radius*(1+tx) || fabs(delta*up)>depth*ty+radius*(1+ty))continue;}
+        if(labelsOnly){
+            if(!ortho && (item->label-eye)*forward<=0)continue;
+            vector pixel=project(item->label);pixel_z=0;
+            if(pixel_x+strlen(item->name)*8<mn_x || pixel_y+8<mn_y || pixel_x>=mn_x+sz_x || pixel_y>=mn_y+sz_y)continue;
+            if(!ortho){float startTrace=profileLabels?gettime(1):0;int visible=fb_label_visible(eye,item->label,item->node);if(profileLabels)fb_label_trace_seconds+=gettime(1)-startTrace;if(!visible)continue;}
+            drawstring(pixel,item->name,'8 8 0',item->color,1,0);
+        }else fb_point_draw_ids[drawCount++]=entry;
+    }
+    if(!labelsOnly)for(int pass=0;pass<2;pass++){
+        if(pass && !wire && !ortho)continue;
+        for(int draw=0;draw<drawCount;draw++){
+            fb_point_render_t *drawItem=&fb_point_render[fb_point_draw_ids[draw]];
+            if(!pass && !ortho && models && drawItem->model)fb_entity_draw_model(drawItem->id);
+            fb_entity_draw_box(drawItem->id,drawItem->color,!pass && !ortho && (!models || !drawItem->model),pass,entityWire);
         }
     }
 }

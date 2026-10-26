@@ -375,6 +375,10 @@ static void materialBrowser()
   if(uiTheme==0){ImGui::PopStyleColor(4);ImGui::PopStyleVar();}
   uiInspectorTopEnd("Material browser divider",propertiesHeight);
   ImGui::SeparatorText("Material collections");
+  if(gameProfile==2 && !q1MissingWads.empty()) {
+    ImGui::TextColored({1,.7f,.25f,1},"Missing WAD archives: %zu",q1MissingWads.size());
+    if(ImGui::IsItemHovered()){ImGui::BeginTooltip();ImGui::TextUnformatted("The MAP stores texture names, not texture pixels. Reconnect these WADs with Add WAD(s):");for(const auto& path:q1MissingWads)ImGui::TextUnformatted(path.u8string().c_str());ImGui::EndTooltip();}
+  }
   collectionsLoad();
   for (auto& pair : materials)
     materialFolders.emplace(materialFolder(pair.first), true);

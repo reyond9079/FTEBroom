@@ -1,0 +1,51 @@
+--- a/engine/server/world.c
++++ b/engine/server/world.c
+@@ -2128,7 +2128,12 @@
+ //The logic of this function is seriously handicapped vs the other types of trace we could be doing.
+ static void World_ClipToNetwork (world_t *w, moveclip_t *clip)
+ {
+-	int i;
++	int i, candidateIndex, hintedIndex=-1;
++	// A bounded hint cache only changes any-hit query order. Every hint is retraced.
++	typedef struct { unsigned int endbits[3], number; int index; qboolean valid; } rb_occluder_hint_t;
++	static rb_occluder_hint_t hints[8192];
++	rb_occluder_hint_t *hint=NULL;
++	unsigned int endbits[3], hash=2166136261u;
+ 	packet_entities_t *pe = cl.currentpackentities;
+ 	entity_state_t	*touch;
+ 
+@@ -2153,10 +2158,21 @@
+ 	else
+ 		skip = 0;
+ 
++	if (clip->type & REYONDBROOM_MOVE_OCCLUSION)
++	{
++		memcpy(endbits,clip->end,sizeof(endbits));
++		for(i=0;i<3;i++)hash=(hash^endbits[i])*16777619u;
++		hint=&hints[hash&8191];
++		if(hint->valid && !memcmp(hint->endbits,endbits,sizeof(endbits)) &&
++		   hint->index>=0 && hint->index<pe->num_entities &&
++		   pe->entities[hint->index].number==hint->number)hintedIndex=hint->index;
++	}
+ 	for (i = 0; i < pe->num_entities; i++)
+ 	{
+ 		if((clip->type & REYONDBROOM_MOVE_OCCLUSION) && clip->trace.fraction<.999f)return;
+-		touch = &pe->entities[i];
++		candidateIndex=i;
++		if(hintedIndex>=0){if(i==0)candidateIndex=hintedIndex;else if(i==hintedIndex)candidateIndex=0;}
++		touch = &pe->entities[candidateIndex];
+ 		if (touch->number == skip)
+ 			continue; //can happen with deltalisten or certain evil hacks.
+ 
+@@ -2288,6 +2304,11 @@
+ 				clip->trace.ent = w->edicts;	//misreport world
+ 				clip->trace.entnum = touch->number;	//with an ssqc ent number
+ 			}
++		}
++		if(hint && clip->trace.fraction<.999f)
++		{
++			memcpy(hint->endbits,endbits,sizeof(endbits));hint->index=candidateIndex;
++			hint->number=touch->number;hint->valid=true;return;
+ 		}
+ 	}
+ }

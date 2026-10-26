@@ -131,8 +131,10 @@ typedef struct {
     int node,count,brushEnd;string shader;float alpha,radius,distance;
     vector color,center,normal,brushCenter;float brushRadius;
     vector *points;vector *uv;
-    trisoup_simple_vert_t *vertices;int *triangles;
+    trisoup_simple_vert_t *vertices;int *triangles;int enabled;
 } fb_render_face_t;
+int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride) ftebroom_draw_faces = #0:ftebroom_draw_faces;
+var float autocvar_ftebroom_native_faces=1;
 fb_render_face_t *fb_render_faces;int fb_render_face_count,fb_render_face_capacity;
 vector *fb_render_points;
 vector *fb_render_uv;
@@ -207,6 +209,7 @@ void fb_render_faces_prepare()
             item.vertices=&fb_render_vertices[vertexOffset];
             item.triangles=&fb_render_triangles[vertexOffset*3];vertexOffset+=vertices;
             item.brushCenter=brushCenter;item.brushRadius=brushRadius;
+            item.enabled=fb_filter_custom(n) || brush_isselected(fb_nodes[n].model,fb_nodes[n].id)!=0;
             item.node=n;item.count=vertices;item.shader=strzone(shader);item.alpha=alpha;item.color=color;
             item.normal=face.planenormal;item.distance=face.planedist;item.center='0 0 0';item.radius=0;
             for(int p=0;p<vertices;p++) {
@@ -230,7 +233,13 @@ void fb_filter_draw()
     vector forward=v_forward,right=v_right,up=v_up;
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int previous=-1,visible=FALSE;
-    for(int i=0;i<fb_render_face_count;i++) {
+    int nativePass=FALSE;
+    if(autocvar_ftebroom_native_faces && checkbuiltin(ftebroom_draw_faces) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
+        fb_render_allowed(0,FB_PICK_LOCKED);
+        int drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t));
+        nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
+    }
+    if(!nativePass)for(int i=0;i<fb_render_face_count;i++) {
         fb_render_face_t *face=&fb_render_faces[i];
         if(face.node!=previous) {
             previous=face.node;fb_node_t node=fb_nodes[previous];

@@ -10,6 +10,35 @@ void fb_polygon_test_rectangle(vector center,float half,float height)
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="labels75"){
+        int mismatches=0,hitsBefore=fb_label_native_traces;
+        cvar_set("ftebroom_native_labels","1");
+        for(int i=0;i<2048;i++){
+            float a=(float)i*.017;
+            vector target='-448 288 8',start=target+[cos(a)*1024,sin(a)*1024,128];
+            if(i&1i)target_z+=1024;
+            if((i%8)==0)start='-448 288 8';
+            int actual=fb_label_visible(start,target,1);
+            traceline(start,target,TRUE,world);
+            if(actual!=(trace_fraction>=.999))mismatches++;
+        }
+        fb_transform_expect(mismatches==0,"labels75_matches_full_traces");
+        fb_transform_expect(fb_label_native_traces>hitsBefore,"labels75_native_path_exercised");
+return TRUE;
+    }
+    if(argv(1)=="map75"){
+        fb_document_tick();int mapBrushes=0;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH)mapBrushes++;
+        print(sprintf("FTEBROOM_MAP_COUNTS %i brushes, %i entities\n",mapBrushes,terrain_edit(TEREDIT_ENT_COUNT)));
+        int *counts=memalloc(fb_node_count*sizeof(int));
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH)counts[fb_nodes[n].parent]++;
+        filestream mapStats=fopen("map-counts.txt",FILE_WRITE);
+        for(int n=0;n<fb_node_count;n++)if(fb_nodes[n].kind<FB_NODE_BRUSH && fb_nodes[n].kind!=FB_NODE_LAYER)fputs(mapStats,sprintf("%i %i\n",fb_nodes[n].id,n?counts[n]:counts[1]));
+        fclose(mapStats);memfree(counts);
+        fb_transform_expect(mapBrushes==(int)cvar("ftebroom_test_map_brushes"),"map75_all_brushes_loaded");
+        fb_transform_expect(terrain_edit(TEREDIT_ENT_COUNT)==(int)cvar("ftebroom_test_map_entities"),"map75_all_entities_loaded");
+        fb_transform_expect(cvar("ftebroom_large_map_ready")==1,"map75_cache_warmup_finished");return TRUE;
+    }
     if(argv(1)=="large74"){
         fb_document_tick();fb_document_lists_prepare();int largeBrushes=0,largeLast=-1;
         for(int largeNode=2;largeNode<fb_node_count;largeNode++)if(fb_nodes[largeNode].kind==FB_NODE_BRUSH){largeBrushes++;largeLast=largeNode;}

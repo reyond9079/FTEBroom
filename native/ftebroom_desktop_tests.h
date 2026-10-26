@@ -9,6 +9,12 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="map75check"){
+    expect(gameProfile==2&&!assetsLoading&&!setupNeeded&&assetError.empty(),"map75_resources_ready");
+    expect(!documentFile.empty()&&documentError.empty()&&!documentUntitled,"map75_external_document_open");
+    expect(materials.count("textures/q1test")!=0,"map75_valid_wad_survives_missing_archives");
+    expect(!q1MissingWads.empty(),"map75_missing_wads_reported");
+  }
   if(std::string(mode)=="plugin72open"){
     pluginsTick();expect(editorPlugins.size()==1&&editorPlugins[0].api&&editorPlugins[0].module,"plugin72_external_module_loaded");
     if(!editorPlugins.empty()){auto& p=editorPlugins[0];p.open=true;frame();if(auto window=ImGui::FindWindowByName(p.name.c_str())){ImGui::SetWindowPos(window,{10,40},ImGuiCond_Always);ImGui::SetWindowSize(window,{650,730},ImGuiCond_Always);}frame();if(auto window=ImGui::FindWindowByName(p.name.c_str()))ImGui::SetScrollY(window,window->ScrollMax.y);frame();}

@@ -1,0 +1,71 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1919,6 +1919,46 @@
+ 	csqc_poly_startidx = cl_numstrisidx;
+ }
+ 
++
++// ReyondBroom native face pass begin. Versioned, bounds-checked QC buffer ABI.
++typedef struct {
++ int node,count,brushEnd,shader;float alpha,radius,distance;
++ vec3_t color,center,normal,brushCenter;float brushRadius;
++ unsigned int points,uv,vertices,triangles;int enabled;
++} editorqcface_t;
++void QCBUILTIN PF_ReyondBroom_DrawFaces(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4);
++ editorqcface_t *faces;int *access,previous=-1,visible=false,drawn=0,saved[15];unsigned int i;
++ vec3_t forward,right,up;float tx,ty;
++ G_INT(OFS_RETURN)=-1;
++ if(stride!=sizeof(editorqcface_t))return;
++ if(!total){G_INT(OFS_RETURN)=0;return;}
++ if(total>2000000 || !offset || offset>prinst->stringtablesize || total>(prinst->stringtablesize-offset)/stride || !accessOffset || accessOffset>prinst->stringtablesize || accessCount>(prinst->stringtablesize-accessOffset)/sizeof(int)){
++  PR_BIError(prinst,"ReyondBroom: invalid face pass buffer\n");return;
++ }
++ faces=(editorqcface_t*)(prinst->stringtable+offset);access=(int*)(prinst->stringtable+accessOffset);
++ if(r_refdef.dirty)V_ApplyRefdef();
++ AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(i=0;i<total;i++){
++  editorqcface_t *face=&faces[i];vec3_t delta;float depth,radius;
++  if(face->node!=previous){
++   previous=face->node;visible=face->enabled && face->node>=0 && (unsigned)face->node<accessCount && (access[face->node]&1);
++   VectorSubtract(face->brushCenter,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=face->brushRadius;
++   if(depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))visible=false;
++  }
++  if(!visible){if(face->brushEnd>i && (unsigned)face->brushEnd<=total)i=face->brushEnd-1;continue;}
++  if(face->count<3 || face->count>64)continue;
++  if(face->alpha==1 && DotProduct(r_refdef.vieworg,face->normal)<face->distance-.01)continue;
++  VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=face->radius;
++  if(depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;
++  G_INT(OFS_PARM0)=face->shader;G_INT(OFS_PARM1)=3;G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=face->triangles;G_INT(OFS_PARM4)=(face->count-2)*3;
++  PF_R_AddTrisoup_Simple(prinst,pr_globals);drawn++;
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
++}
++// ReyondBroom native face pass end.
+ 
+ qboolean csqc_rebuildmatricies;
+ float csqc_proj_matrix[16];
+@@ -2999,6 +3039,12 @@
+ 	trace = World_Move (&csqc_world, v1, mins, maxs, v2, nomonsters|MOVE_IGNOREHULL, (wedict_t*)ent);
+ 
+ 	cs_settracevars(prinst, &trace);
++}
++// Label tests need only visibility, not a copy of every trace result into QC.
++static void QCBUILTIN PF_ReyondBroom_LineVisible(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
++{
++ trace_t trace=World_Move(&csqc_world,G_VECTOR(OFS_PARM0),vec3_origin,vec3_origin,G_VECTOR(OFS_PARM1),MOVE_NOMONSTERS|MOVE_IGNOREHULL,(wedict_t*)csqc_world.edicts);
++ G_INT(OFS_RETURN)=trace.fraction>=.999f;
+ }
+ static void QCBUILTIN PF_cs_tracebox(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+ {
+@@ -7166,6 +7212,8 @@
+ 	{"R_EndPolygon",			PF_R_PolygonEnd,	308},				// #308 void() R_EndPolygon (EXT_CSQC_???)
+ 	{"R_EndPolygonRibbon",		PF_R_PolygonEndRibbon, 0},
+ 	{"addtrisoup_simple",		PF_R_AddTrisoup_Simple,	0},
++	{"ftebroom_draw_faces",PF_ReyondBroom_DrawFaces,0},
++	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
+ 
+ 	{"getproperty",				PF_R_GetViewFlag,	309},				// #309 vector/float(float property) getproperty (EXT_CSQC_1)
+ 

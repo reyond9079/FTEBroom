@@ -86,7 +86,7 @@ static void() perf_renderscene =
 };
 
 float fb_benchmark_start,fb_benchmark_frames;
-float fb_profile_sum[6];
+float fb_profile_sum[9];
 string fb_view_cache_key[4];
 float fb_view_cache_time[4];
 string fb_view_cache_signature(int type,vector mn,vector sz)
@@ -248,7 +248,23 @@ void() wrap_renderscene =
     if(!activeType) {setproperty(VF_PERSPECTIVE,TRUE);setproperty(VF_MINDIST,4);setproperty(VF_MAXDIST,0);setproperty(VF_AFOV,fb_camera_zoom);}
     fb_view_prepare();
     float profileTime=gettime(1);
-    if(!fb_build_preview_active){ftebroom_prepare();fb_visual_prepare();}
+    if(!fb_build_preview_active){
+        ftebroom_prepare();
+        // Keep independent cache builds in separate VM calls on entity-heavy maps.
+        // The runaway guard remains enabled; no geometry or overlays are omitted.
+        static int warmGeometry=-1,warmStage;
+        if(warmGeometry!=fb_grid_geometry_epoch){warmGeometry=fb_grid_geometry_epoch;warmStage=0;}
+        if(fb_node_count>8192 && warmStage<3) {
+            cvar_set("ftebroom_large_map_ready","0");
+            if(warmStage==1)fb_render_faces_prepare();
+            if(warmStage==2){clearscene();fb_surfacegrid(FALSE);}
+            warmStage++;
+            drawfill(getproperty(VF_MIN),getproperty(VF_SIZE),'0.05 0.05 0.05',1,0);
+            drawstring(getproperty(VF_MIN)+'16 16 0',sprintf("Preparing large map: %i / 3",warmStage),'12 12 0','1 1 1',1,0);
+            return;
+        }
+        cvar_set("ftebroom_large_map_ready","1");fb_visual_prepare();
+    }
     fb_profile_sum[0]+=gettime(1)-profileTime;
     // Render the focused viewport last so legacy console tools retain its projection.
     for(int pass=0;pass<count;pass++) {
@@ -296,7 +312,7 @@ void() wrap_renderscene =
         fb_profile_sum[3]+=gettime(1)-profileTime;profileTime=gettime(1);
         perf_renderscene();
         fb_profile_sum[4]+=gettime(1)-profileTime;
-        if(!cached) {fb_pick_draw_entities(TRUE);fb_visual_labels();}
+        if(!cached) {fb_label_native_traces=fb_label_full_traces=0;fb_label_trace_seconds=fb_label_draw_seconds=0;profileTime=gettime(1);fb_pick_draw_entities(TRUE);fb_profile_sum[5]+=gettime(1)-profileTime;fb_profile_sum[7]+=fb_label_trace_seconds;fb_profile_sum[8]+=fb_label_draw_seconds;profileTime=gettime(1);fb_visual_labels();fb_profile_sum[6]+=gettime(1)-profileTime;if(cvar("ftebroom_benchmark"))cvar_set("ftebroom_label_stats",sprintf("%i %i",fb_label_native_traces,fb_label_full_traces));}
         fb_view_render_cache=FALSE;
         drawresetcliparea();
         if(cached) {
@@ -311,11 +327,11 @@ void() wrap_renderscene =
     cvar_set("ca_brush_view",itos(activeType));
     cvar_set("ftebroom_ctx_view",itos(activeType==3?1:(activeType==2?2:(activeType==1?3:0))));
     if(cvar("ftebroom_benchmark")) {
-        if(!fb_benchmark_start) {fb_benchmark_start=gettime(0);fb_benchmark_frames=0;for(int p=0;p<6;p++)fb_profile_sum[p]=0;for(int v=0;v<4;v++){fb_visual_profile[v]=0;fb_frame_profile[v]=0;}}
+        if(!fb_benchmark_start) {fb_benchmark_start=gettime(0);fb_benchmark_frames=0;for(int p=0;p<9;p++)fb_profile_sum[p]=0;for(int v=0;v<4;v++){fb_visual_profile[v]=0;fb_frame_profile[v]=0;}}
         fb_benchmark_frames++;
         if(gettime(0)-fb_benchmark_start>=8) {
             print(sprintf("FTEBROOM_BENCHMARK %g FPS (%g frames)\n",fb_benchmark_frames/(gettime(0)-fb_benchmark_start),fb_benchmark_frames));
-            for(int p=0;p<5;p++)print(sprintf("FTEBROOM_PROFILE %i %g ms/frame\n",p,fb_profile_sum[p]*1000/fb_benchmark_frames));
+            for(int p=0;p<9;p++)print(sprintf("FTEBROOM_PROFILE %i %g ms/frame\n",p,fb_profile_sum[p]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_VISUAL_PROFILE %i %g ms/frame\n",v,fb_visual_profile[v]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_FRAME_PROFILE %i %g ms/frame\n",v,fb_frame_profile[v]*1000/fb_benchmark_frames));
             cvar_set("ftebroom_benchmark","0");fb_benchmark_start=0;

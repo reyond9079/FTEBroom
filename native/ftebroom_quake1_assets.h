@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ftebroom_quake1.h"
 #include "ftebroom_quake_palette.h"
+#include "ftebroom_map_wads.h"
 static std::string q1Palette(){
   size_t size=0;auto data=(char*)files->LoadFile("gfx/palette.lmp",&size);
   if(!data)return ftebroom::defaultQuakePalette();
@@ -12,9 +13,11 @@ static std::map<std::string,std::string> q1MaterialWad,q1WadLabels;
 static std::vector<qhandle_t> q1ShaderHandles;
 static std::string q1Read(const std::filesystem::path& path) {return ftebroom::pak::read(path);}
 static std::vector<std::filesystem::path> q1ResolvedWads;
+static std::vector<std::filesystem::path> q1MissingMapWads, q1MissingWads;
 static std::filesystem::path q1DocumentPak;
 static const std::vector<std::filesystem::path>& q1WadPaths(){return q1ResolvedWads;}
-static void q1FindWads(){
+static void q1FindWads(bool strict=false){
+  q1MissingWads=q1MissingMapWads;
   q1ResolvedWads.clear();q1WadLabels.clear();std::vector<std::filesystem::path> sources;
   char builtin[4096]={};if(files->NativePath("quake1-editor.wad",(fs_relative)5,builtin,sizeof builtin))sources.push_back(std::filesystem::u8path(builtin));
   std::vector<std::string> roots={q1Authoring(),gameRuntime()};if(roots[0]==roots[1])roots.pop_back();
@@ -34,10 +37,19 @@ static void q1FindWads(){
   std::istringstream input(q1Wads);std::string line;
   while(std::getline(input,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(line.empty())continue;auto path=std::filesystem::u8path(line);if(path.is_relative())path=std::filesystem::u8path(q1Authoring())/path;sources.push_back(path);}
   char writable[4096]={};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,writable,sizeof writable))throw std::runtime_error("No writable editor cache.");auto cache=std::filesystem::u8path(writable).parent_path()/"cache/wads";std::filesystem::create_directories(cache);
-  for(const auto& source:sources){std::filesystem::path archive;std::string member;if(ftebroom::pak::split(source,archive,member)){
+  std::set<std::filesystem::path> seen;
+  for(const auto& source:sources){if(!seen.insert(source.lexically_normal()).second)continue;
+    if(!ftebroom::pak::exists(source)){if(std::find(q1MissingWads.begin(),q1MissingWads.end(),source)==q1MissingWads.end())q1MissingWads.push_back(source);continue;}
+    std::filesystem::path archive;std::string member;if(ftebroom::pak::split(source,archive,member)){
       auto bytes=q1Read(source);ftebroom::quake1::wad(bytes);auto id=std::to_string(std::hash<std::string>{}(source.generic_u8string()));auto target=cache/(id+"-"+source.filename().u8string());std::ofstream out(target,std::ios::binary);out.write(bytes.data(),bytes.size());out.close();if(!out)throw std::runtime_error("Cannot cache packed WAD.");q1ResolvedWads.push_back(target);q1WadLabels[target.u8string()]=archive.filename().u8string()+"/"+member;
     }else q1ResolvedWads.push_back(source);
   }
+  // A user can reconnect a relocated archive without editing the original MAP.
+  q1MissingWads.erase(std::remove_if(q1MissingWads.begin(),q1MissingWads.end(),[&](const auto& missing){
+    return std::any_of(sources.begin(),sources.end(),[&](const auto& present){return missing.filename()==present.filename() && ftebroom::pak::exists(present);});
+  }),q1MissingWads.end());
+  for(const auto& path:q1MissingWads)core->Print(("ReyondBroom: missing WAD archive: "+path.u8string()+"\n").c_str());
+  if(strict && !q1MissingWads.empty())throw std::runtime_error("Missing WAD archive: "+q1MissingWads.front().u8string()+". Reconnect the archive in Material / Add WAD(s) before compiling.");
 }
 static std::string q1WadList() {
   std::string list;for(auto& path:q1WadPaths()){auto name=path.generic_u8string();
@@ -47,7 +59,7 @@ static std::string q1WadList() {
 }
 // Compiler input uses ASCII relative paths, independent of external Unicode names.
 static std::string q1CompilerWads(const std::filesystem::path& folder) {
-  q1FindWads();
+  q1FindWads(true);
   auto directory=folder/"_ftebroom-wads";std::filesystem::create_directories(directory);
   std::string list;int index=0;
   // qbsp resolves the first matching texture; the editor gives the last WAD priority.
@@ -61,21 +73,13 @@ static std::string q1CompilerWads(const std::filesystem::path& folder) {
   return list;
 }
 static bool q1DiscoverWads(const std::string& source,const std::filesystem::path& map) {
-  if(*q1Wads)return false;
-  std::istringstream input(source);std::string line,list;
-  while(std::getline(input,line)) {
-    auto at=line.find_first_not_of(" \t");if(at==std::string::npos||line.compare(at,5,"\"wad\""))continue;
-    auto start=line.find('"',at+5),end=line.rfind('"');if(start==std::string::npos||end<=start)continue;
-    auto raw=line.substr(start+1,end-start-1);std::replace(raw.begin(),raw.end(),'\\','/');
-    std::istringstream entries(raw);std::string entry;
-    while(std::getline(entries,entry,';')){if(entry.empty())continue;auto path=std::filesystem::u8path(entry);
-      if(path.is_relative())path=map.parent_path()/path;
-      if(!std::filesystem::is_regular_file(path))path=std::filesystem::u8path(q1Authoring())/path.filename();
-      if(!std::filesystem::is_regular_file(path))path=std::filesystem::u8path(q1Authoring())/"textures"/path.filename();
-      if(std::filesystem::is_regular_file(path))list+=path.generic_u8string()+"\n";
-    }break;
-  }
-  if(list.empty())return false;
+  auto resolved=ftebroom::quake1::mapWads(source,map,std::filesystem::u8path(q1Authoring()),ftebroom::pak::exists);
+  bool changed=resolved.missing!=q1MissingMapWads;q1MissingMapWads=std::move(resolved.missing);
+  std::string list=q1Wads;std::set<std::filesystem::path> known;
+  std::istringstream input(list);std::string line;
+  while(std::getline(input,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(!line.empty())known.insert(std::filesystem::u8path(line).lexically_normal());}
+  for(const auto& path:resolved.found)if(known.insert(path.lexically_normal()).second){if(!list.empty()&&list.back()!='\n')list+='\n';list+=path.generic_u8string()+"\n";changed=true;}
+  if(!changed)return false;
   if(list.size()>=sizeof q1Wads)throw std::runtime_error("Map WAD list is too long.");
   std::snprintf(q1Wads,sizeof q1Wads,"%s",list.c_str());return true;
 }

@@ -1,0 +1,61 @@
+--- /dev/null
++++ b/engine/common/reyondbroom_trace.h
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#pragma once
++// Private any-hit query for editor labels; ordinary traces keep nearest-hit semantics.
++#define REYONDBROOM_MOVE_OCCLUSION (1u<<30)
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -19,6 +19,7 @@
+ */
+ 
+ #include "quakedef.h"
++#include "reyondbroom_trace.h"
+ #include "com_mesh.h"
+ 
+ /*
+@@ -3043,7 +3044,7 @@
+ // Label tests need only visibility, not a copy of every trace result into QC.
+ static void QCBUILTIN PF_ReyondBroom_LineVisible(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
+ {
+- trace_t trace=World_Move(&csqc_world,G_VECTOR(OFS_PARM0),vec3_origin,vec3_origin,G_VECTOR(OFS_PARM1),MOVE_NOMONSTERS|MOVE_IGNOREHULL,(wedict_t*)csqc_world.edicts);
++ trace_t trace=World_Move(&csqc_world,G_VECTOR(OFS_PARM0),vec3_origin,vec3_origin,G_VECTOR(OFS_PARM1),MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);
+  G_INT(OFS_RETURN)=trace.fraction>=.999f;
+ }
+ static void QCBUILTIN PF_cs_tracebox(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+--- a/engine/server/world.c
++++ b/engine/server/world.c
+@@ -20,6 +20,7 @@
+ // world.c -- world query functions
+ 
+ #include "quakedef.h"
++#include "reyondbroom_trace.h"
+ #include "pr_common.h"
+ 
+ #if defined(CSQC_DAT) || !defined(CLIENTONLY)
+@@ -2154,6 +2155,7 @@
+ 
+ 	for (i = 0; i < pe->num_entities; i++)
+ 	{
++		if((clip->type & REYONDBROOM_MOVE_OCCLUSION) && clip->trace.fraction<.999f)return;
+ 		touch = &pe->entities[i];
+ 		if (touch->number == skip)
+ 			continue; //can happen with deltalisten or certain evil hacks.
+@@ -2510,6 +2512,7 @@
+ 
+ // clip to world
+ 	clip.trace = World_ClipMoveToEntity (w, w->edicts, w->edicts->v->origin, w->edicts->v->angles, start, mins, maxs, end, hullnum, false, clip.capsule, clip.hitcontentsmask);
++	if((type & REYONDBROOM_MOVE_OCCLUSION) && clip.trace.fraction<.999f)return clip.trace;
+ 
+ 	clip.start = start;
+ 	clip.end = end;
+@@ -2696,6 +2699,8 @@
+ 		World_ClipToLinks(w, &w->portallist, &clip);
+ 	}
+ 
++	if((type & REYONDBROOM_MOVE_OCCLUSION) && clip.trace.fraction<.999f)return clip.trace;
++
+ #if defined(HAVE_CLIENT) && defined(CSQC_DAT)
+ 	{
+ 		extern world_t csqc_world;

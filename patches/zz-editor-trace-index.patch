@@ -1,0 +1,110 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -93,6 +93,76 @@
+ static void Terr_WorkerFailedSection(void *ctx, void *data, size_t a, size_t b);
+ 
+ static void Terr_Brush_DeleteIdx(heightmap_t *hm, size_t idx);
++
++// ReyondBroom trace index begin: main-thread broad phase, stable brush indices.
++typedef struct {vec3_t mins,maxs;unsigned int first,count,left,right;} editortracenode_t;
++typedef struct {heightmap_t *owner;editortracenode_t *nodes;unsigned int *indices,*hits;size_t count,capacity,used,age;} editortraceindex_t;
++static editortraceindex_t editortraceindices[16];
++static size_t editortraceage;
++static heightmap_t *editortracesorthm;
++static unsigned int editortracesortaxis;
++static int Terr_TraceCompare(const void *a,const void *b)
++{
++ unsigned int x=*(const unsigned int*)a,y=*(const unsigned int*)b;
++ double cx=(double)editortracesorthm->wbrushes[x].mins[editortracesortaxis]+editortracesorthm->wbrushes[x].maxs[editortracesortaxis];
++ double cy=(double)editortracesorthm->wbrushes[y].mins[editortracesortaxis]+editortracesorthm->wbrushes[y].maxs[editortracesortaxis];
++ return cx<cy?-1:cx>cy?1:x<y?-1:x>y;
++}
++static int Terr_TraceIndexCompare(const void *a,const void *b)
++{unsigned int x=*(const unsigned int*)a,y=*(const unsigned int*)b;return x<y?-1:x>y;}
++static unsigned int Terr_TraceBuild(editortraceindex_t *cache,unsigned int first,unsigned int count)
++{
++ unsigned int index=cache->used++,i,a,axis=0;editortracenode_t *node=&cache->nodes[index];
++ node->first=first;node->count=count;ClearBounds(node->mins,node->maxs);
++ for(i=first;i<first+count;i++){brushes_t *brush=&cache->owner->wbrushes[cache->indices[i]];for(a=0;a<3;a++){if(node->mins[a]>brush->mins[a])node->mins[a]=brush->mins[a];if(node->maxs[a]<brush->maxs[a])node->maxs[a]=brush->maxs[a];}}
++ if(count<=8)return index;
++ for(a=1;a<3;a++)if(node->maxs[a]-node->mins[a]>node->maxs[axis]-node->mins[axis])axis=a;
++ editortracesorthm=cache->owner;editortracesortaxis=axis;
++ qsort(cache->indices+first,count,sizeof(*cache->indices),Terr_TraceCompare);
++ node->left=Terr_TraceBuild(cache,first,count/2);node->right=Terr_TraceBuild(cache,first+count/2,count-count/2);node->count=0;
++ return index;
++}
++static void Terr_TraceInvalidate(heightmap_t *hm)
++{unsigned int c;if(!Sys_IsMainThread())return;for(c=0;c<16;c++)if(editortraceindices[c].owner==hm)editortraceindices[c].count=(size_t)-1;}
++static void Terr_TraceClear(heightmap_t *hm)
++{unsigned int c;if(!Sys_IsMainThread())return;for(c=0;c<16;c++)if(editortraceindices[c].owner==hm){BZ_Free(editortraceindices[c].nodes);BZ_Free(editortraceindices[c].indices);BZ_Free(editortraceindices[c].hits);memset(&editortraceindices[c],0,sizeof(editortraceindices[c]));}}
++static qboolean Terr_TraceNodeIntersects(editortracenode_t *node,const float *low,const float *high,const float *start,const float *end,qboolean point)
++{
++ unsigned int a;double enter=0,leave=1;
++ for(a=0;a<3;a++){
++  double minimum=node->mins[a]-1,maximum=node->maxs[a]+1,delta;
++  if(high[a]<minimum||low[a]>maximum)return false;
++  if(!point)continue;
++  delta=(double)end[a]-start[a];
++  if(fabs(delta)<1e-20){if(start[a]<minimum||start[a]>maximum)return false;}
++  else {double x=(minimum-start[a])/delta,y=(maximum-start[a])/delta,t;if(x>y){t=x;x=y;y=t;}if(enter<x)enter=x;if(leave>y)leave=y;if(enter>leave)return false;}
++ }
++ return true;
++}
++static void Terr_TraceQuery(editortraceindex_t *cache,unsigned int index,const float *low,const float *high,const float *start,const float *end,qboolean point,unsigned int *count)
++{
++ editortracenode_t *node=&cache->nodes[index];unsigned int i;
++ if(!Terr_TraceNodeIntersects(node,low,high,start,end,point))return;
++ if(node->count){for(i=node->first;i<node->first+node->count;i++)cache->hits[(*count)++]=cache->indices[i];}
++ else {Terr_TraceQuery(cache,node->left,low,high,start,end,point,count);Terr_TraceQuery(cache,node->right,low,high,start,end,point,count);}
++}
++static int Terr_TraceCandidates(heightmap_t *hm,const float *low,const float *high,const float *start,const float *end,qboolean point,unsigned int **hits)
++{
++ editortraceindex_t *cache=NULL;unsigned int c,oldest=0,count=0;size_t i;
++ *hits=NULL;if(!Sys_IsMainThread()||hm->numbrushes<256||hm->numbrushes>262144)return -1;
++ for(c=0;c<16;c++){if(editortraceindices[c].owner==hm){cache=&editortraceindices[c];break;}if(!editortraceindices[c].owner||editortraceindices[c].age<editortraceindices[oldest].age)oldest=c;}
++ if(!cache){cache=&editortraceindices[oldest];Terr_TraceClear(cache->owner);cache->owner=hm;cache->count=(size_t)-1;}
++ cache->age=++editortraceage;
++ if(cache->count!=hm->numbrushes){
++  if(cache->capacity<hm->numbrushes){BZ_Free(cache->nodes);BZ_Free(cache->indices);BZ_Free(cache->hits);cache->capacity=hm->numbrushes;cache->nodes=BZ_Malloc(cache->capacity*2*sizeof(*cache->nodes));cache->indices=BZ_Malloc(cache->capacity*sizeof(*cache->indices));cache->hits=BZ_Malloc(cache->capacity*sizeof(*cache->hits));}
++  cache->used=0;for(i=0;i<hm->numbrushes;i++)cache->indices[i]=i;
++  Terr_TraceBuild(cache,0,hm->numbrushes);cache->count=hm->numbrushes;
++ }
++ Terr_TraceQuery(cache,0,low,high,start,end,point,&count);
++ // Preserve the original collision tie order, including brush and face IDs.
++ qsort(cache->hits,count,sizeof(*cache->hits),Terr_TraceIndexCompare);*hits=cache->hits;return count;
++}
++// ReyondBroom trace index end.
+ 
+ // ReyondBroom brush index begin: bounded, per-model caches own indices, never pointers.
+ typedef struct {
+@@ -106,11 +176,13 @@
+ static qboolean editorbrushindexannounced;
+ static void Terr_BrushIndex_Invalidate(heightmap_t *hm)
+ {
++ Terr_TraceInvalidate(hm);
+  unsigned int c;
+  for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm)editorbrushindices[c].count=(size_t)-1;
+ }
+ static void Terr_BrushIndex_Clear(heightmap_t *hm)
+ {
++ Terr_TraceClear(hm);
+  unsigned int c;
+  for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm){BZ_Free(editorbrushindices[c].slots);memset(&editorbrushindices[c],0,sizeof(editorbrushindices[c]));}
+ }
+@@ -4401,10 +4473,12 @@
+ 	//now trace against the brushes.
+ 	//FIXME: optimise into the section grid
+ 	{
+-		brushes_t *brushes = hmtrace.hm->wbrushes;
+-		int count = hmtrace.hm->numbrushes;
+-		for (count = hmtrace.hm->numbrushes; count-->0; brushes++)
+-		{
++        brushes_t *brushes;unsigned int *traceindices=NULL;
++        int cursor,candidates=Terr_TraceCandidates(hmtrace.hm,hmtrace.absmins,hmtrace.absmaxs,hmtrace.start,hmtrace.end,hmtrace.shape==ispoint,&traceindices);
++        int count=candidates<0?hmtrace.hm->numbrushes:candidates;
++        for(cursor=0;cursor<count;cursor++)
++        {
++            brushes=&hmtrace.hm->wbrushes[traceindices?traceindices[cursor]:cursor];
+ 			if (brushes->contents & against)
+ 			{
+ 				int face;

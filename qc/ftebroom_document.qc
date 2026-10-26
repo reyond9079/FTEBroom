@@ -17,6 +17,7 @@ int fb_node_count,fb_node_capacity,fb_saved_revision,fb_seen_revision;
 entity fb_document_probe;
 int fb_grid_geometry_epoch;
 int *fb_point_nodes;
+vector *fb_point_group_bounds;int *fb_point_group_flags;
 int *fb_container_nodes;
 int *fb_patch_nodes;
 int fb_point_node_count,fb_container_node_count,fb_patch_node_count;
@@ -28,10 +29,21 @@ void fb_document_lists_prepare()
     memfree(fb_point_nodes);memfree(fb_container_nodes);memfree(fb_patch_nodes);
     fb_point_nodes=memalloc(max(1,count)*sizeof(int));fb_container_nodes=memalloc(max(1,count)*sizeof(int));fb_patch_nodes=memalloc(max(1,count)*sizeof(int));
     fb_point_node_count=fb_container_node_count=fb_patch_node_count=0;
+    memfree(fb_point_group_bounds);memfree(fb_point_group_flags);
+    int groups=(count+63)/64;
+    fb_point_group_bounds=memalloc(max(1,groups)*2*sizeof(vector));fb_point_group_flags=memalloc(max(1,groups)*sizeof(int));
+    static vector pointBounds[2];
     for(int n=2;n<count;n++){
         int kind=fb_nodes[n].kind;
-        if(kind==FB_NODE_ENTITY){if(substring(fb_nodes[n].fields["model"],0,1)!="*")fb_point_nodes[fb_point_node_count++]=n;}
-        if(kind==FB_NODE_ENTITY||kind==FB_NODE_GROUP)fb_container_nodes[fb_container_node_count++]=n;
+        if(kind==FB_NODE_ENTITY){if(substring(fb_nodes[n].fields["model"],0,1)!="*"){
+            int group=fb_point_node_count/64;fb_point_nodes[fb_point_node_count++]=n;
+            if(fb_entity_bounds(fb_nodes[n].id,pointBounds)){
+                if(!(fb_point_group_flags[group]&1)){fb_point_group_bounds[group*2]=pointBounds[0];fb_point_group_bounds[group*2+1]=pointBounds[1];fb_point_group_flags[group]|=1;}
+                else for(int a=0;a<3;a++){fb_point_group_bounds[group*2][a]=min(fb_point_group_bounds[group*2][a],pointBounds[0][a]);fb_point_group_bounds[group*2+1][a]=max(fb_point_group_bounds[group*2+1][a],pointBounds[1][a]);}
+            }
+            if(fb_entity_has_model(fb_nodes[n].id))fb_point_group_flags[group]|=2;
+        }}
+        if(kind==FB_NODE_GROUP || (kind==FB_NODE_ENTITY && substring(fb_nodes[n].fields["model"],0,1)=="*"))fb_container_nodes[fb_container_node_count++]=n;
         if(kind==FB_NODE_PATCH)fb_patch_nodes[fb_patch_node_count++]=n;
     }
 }

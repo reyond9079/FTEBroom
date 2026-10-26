@@ -1,0 +1,38 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1958,6 +1958,27 @@
+   PF_R_AddTrisoup_Simple(prinst,pr_globals);drawn++;
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
++}
++// Compact point snapshots are rebuilt by QC on document/filter/selection changes.
++typedef struct {int node,id,model;vec3_t center,label,color;float radius;int name;} editorqcpoint_t;
++static void QCBUILTIN PF_ReyondBroom_CullPoints(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),output=G_INT(OFS_PARM2),stride=G_INT(OFS_PARM3),i;int count=0;
++ vec3_t forward,right,up;float tx,ty;editorqcpoint_t *points;int *indices;
++ G_INT(OFS_RETURN)=-1;if(stride!=sizeof(editorqcpoint_t))return;
++ if(!total){G_INT(OFS_RETURN)=0;return;}
++ if(total>1000000 || !offset || offset>prinst->stringtablesize || total>(prinst->stringtablesize-offset)/stride || !output || output>prinst->stringtablesize || total>(prinst->stringtablesize-output)/sizeof(int)){
++  PR_BIError(prinst,"ReyondBroom: invalid point pass buffer\n");return;
++ }
++ points=(editorqcpoint_t*)(prinst->stringtable+offset);indices=(int*)(prinst->stringtable+output);
++ if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ for(i=0;i<total;i++){
++  editorqcpoint_t *p=&points[i];vec3_t delta;float depth,radius=p->radius;
++  VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
++  if(!p->model && (depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty)))continue;
++  indices[count++]=i;
++ }
++ G_INT(OFS_RETURN)=count;
+ }
+ // ReyondBroom native face pass end.
+ 
+@@ -7214,6 +7235,7 @@
+ 	{"R_EndPolygonRibbon",		PF_R_PolygonEndRibbon, 0},
+ 	{"addtrisoup_simple",		PF_R_AddTrisoup_Simple,	0},
+ 	{"ftebroom_draw_faces",PF_ReyondBroom_DrawFaces,0},
++	{"ftebroom_cull_points",PF_ReyondBroom_CullPoints,0},
+ 	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
+ 
+ 	{"getproperty",				PF_R_GetViewFlag,	309},				// #309 vector/float(float property) getproperty (EXT_CSQC_1)
