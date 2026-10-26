@@ -9,6 +9,60 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="medit71open"){
+    firstSetupStep=-1;setupNeeded=false;recentWindow=false;modelEditorShow("models/qa/test.md3");frame();
+    if(auto window=ImGui::FindWindowByName("Model editor")){ImGui::SetWindowPos(window,{10,40},ImGuiCond_Always);ImGui::SetWindowSize(window,{1250,740},ImGuiCond_Always);}frame();
+    expect(modelEditorActive&&!modelEditPlayer,"medit71_separate_editor");
+  }
+  if(std::string(mode)=="medit71check"){
+    expect(modelEditLoaded&&modelEditNodes.size()==3,"medit71_mesh_hierarchy");
+    if(modelEditNodes.size()==3){modelEditNodes[0].position={12,-8,6};modelEditNodes[0].rotation={10,20,30};modelEditNodes[0].scale={1.25f,.75f,1.5f};modelEditNodes[2].parent=1;modelEditNodes[1].position={2,3,4};modelEditChanged=true;modelEditPublish();
+      auto expected=modelEditWorld(2);auto actual=modelEditRead("ftebroom_modeleditor_transform_2_origin");expect(std::abs(actual[0]-expected.m[0][3])<.001&&std::abs(actual[1]-expected.m[1][3])<.001,"medit71_parent_propagates");}
+    modelViewerPlay=true;modelEditDisplay=0;frame();
+  }
+  if(std::string(mode)=="medit71wire"){expect(modelEditLoaded,"medit71_preview_ready");modelEditDisplay=2;frame();}
+  if(std::string(mode)=="medit71pixels"){
+    frame();auto path=documentPath("data/model-editor-rect.txt");std::filesystem::create_directories(path.parent_path());std::ofstream(path)<<modelEditViewMin.x<<' '<<modelEditViewMin.y<<' '<<modelEditViewSize.x<<' '<<modelEditViewSize.y;
+    expect(cvars->GetFloat("ftebroom_modeleditor_drawn")==2,"medit71_actual_surfaces_submitted");
+  }
+  if(std::string(mode)=="medit71solid"){modelEditDisplay=1;frame();}
+  if(std::string(mode)=="medit71export"){
+    modelEditDisplay=0;modelEditExport();modelConverterFormat=0;std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s/models/editor-out.md3",root);
+    cvars->SetString("ftebroom_convert_source",modelViewerPath.c_str());cvars->SetFloat("ftebroom_convert_sequence",-1);cvars->SetFloat("ftebroom_convert_frames",2);cvars->SetFloat("ftebroom_convert_fps",10);cvars->SetFloat("ftebroom_convert_status",0);modelConverterPending=true;command("ftebroom_model_extract\n");
+  }
+  if(std::string(mode)=="medit71exports"){
+    expect(!modelConverterPending&&std::filesystem::exists(std::filesystem::u8path(root)/"models/editor-out.md3"),"medit71_md3_export");
+    auto source=ftebroom::modelExport::parse(q1Read(documentPath("data/model-convert.mesh")));
+    for(int format:{1,2,3,4}){modelConverterFormat=format;std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s/models/editor-out%d%s",root,format,modelConverterExtension());modelConverterSave(source);}
+    expect(std::filesystem::exists(std::filesystem::u8path(root)/"models/editor-out2.mdl")&&std::filesystem::exists(std::filesystem::u8path(root)/"models/editor-out3.iqm")&&std::filesystem::exists(std::filesystem::u8path(root)/"models/editor-out4.md5mesh"),"medit71_all_export_files");modelConverterOpen=false;
+    modelEditDirty=false;modelEditorShow("models/qa/bones.iqm");modelViewerBones=true;modelViewerPlay=true;
+  }
+  if(std::string(mode)=="medit71bones"){
+    expect(cvars->GetFloat("ftebroom_modelviewer_bones")==2&&modelViewerBones,"medit71_bones_overlay");modelEditPlayer=false;modelEditDirty=false;modelEditorShow("models/qa/v_test.md3");
+  }
+  if(std::string(mode)=="medit71player"){
+    expect(modelEditPlayer&&cvars->GetFloat("ftebroom_modeleditor_player"),"medit71_viewmodel_auto_camera");auto eye=modelEditRead("ftebroom_modeleditor_eye");expect(eye==ModelEditV{0,0,0},"medit71_player_camera_origin");modelEditPlayer=false;modelEditTool=0;frame();
+  }
+  if(std::string(mode)=="medit71drag"){
+    auto a=modelEditGizmoStart[0],b=modelEditGizmoEnd[0];float x=a.x+(b.x-a.x)*.7f,y=a.y+(b.y-a.y)*.7f;auto before=modelEditNodes[0].position;
+    event(0,0,0,x,y,1280,800);event(1,mouseKeys[0],0,x,y,1280,800);event(0,0,0,x,y,1280,800);event(0,0,0,x+45,y+15,1280,800);event(2,mouseKeys[0],0,x+45,y+15,1280,800);frame();
+    expect(modelEditNodes[0].position!=before,"medit71_mouse_axis_move");
+  }
+  if(std::string(mode)=="medit71mdl"){modelEditDirty=false;modelEditorShow("models/editor-out2.mdl");frame();}
+  if(std::string(mode)=="medit71mdlwrite"){
+    modelEditNodes[0].position={3,-2,5};modelEditNodes[0].scale={.5f,1.2f,2};modelEditChanged=true;modelEditPublish();modelEditExport();
+    modelConverterFormat=2;std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s/models/editor-retained.mdl",root);
+    cvars->SetString("ftebroom_convert_source",modelViewerPath.c_str());cvars->SetFloat("ftebroom_convert_sequence",-1);cvars->SetFloat("ftebroom_convert_frames",2);cvars->SetFloat("ftebroom_convert_fps",10);cvars->SetFloat("ftebroom_convert_status",0);modelConverterPending=true;command("ftebroom_model_extract\n");
+  }
+  if(std::string(mode)=="medit71mdlcheck"){
+    auto before=q1Read(std::filesystem::u8path(root)/"models/editor-out2.mdl"),after=q1Read(std::filesystem::u8path(root)/"models/editor-retained.mdl");
+    size_t count=4+ftebroom::quake1::word(before,52)*ftebroom::quake1::word(before,56)+ftebroom::quake1::word(before,60)*12+ftebroom::quake1::word(before,64)*16;
+    expect(before.substr(84,count)==after.substr(84,count)&&before.size()==after.size()&&ftebroom::quake1::word(before,68)==ftebroom::quake1::word(after,68),"medit71_mdl_original_skins_uv_frames_retained");modelConverterOpen=false;
+  }
+  if(std::string(mode)=="medit71reloadobj"){modelEditDirty=false;modelEditorShow("models/editor-out1.obj");}
+  if(std::string(mode)=="medit71reloadiqm"){modelEditDirty=false;modelEditorShow("models/editor-out3.iqm");}
+  if(std::string(mode)=="medit71reloadmd5"){modelEditDirty=false;modelEditorShow("models/editor-out4.md5mesh");}
+  if(std::string(mode)=="medit71reloadcheck"){expect(modelEditLoaded&&modelEditNodes.size()==3&&cvars->GetFloat("ftebroom_modeleditor_drawn")==2,"medit71_export_reopened_in_fte");}
   if(std::string(mode)=="renderer65before") {
     cvars->SetFloat("ftebroom_test_restart_revision",cvars->GetFloat("ftebroom_revision"));
     cvars->SetFloat("vid_multisample",4);command("ftebroom_renderer_restart\n");

@@ -44,4 +44,4 @@ if [ ! -f "$deps/wl-clipboard/build/build.ninja" ]; then
   meson setup "$deps/wl-clipboard/build" "$deps/wl-clipboard" -Dbuildtype=release
 fi
 ninja -C "$deps/wl-clipboard/build"
-python3 "$src/scripts/package-linux.py" --deps "$deps" --output "$src/out/linux" --version 0.5.0-alpha.70
+python3 "$src/scripts/package-linux.py" --deps "$deps" --output "$src/out/linux" --version 0.5.0-alpha.71

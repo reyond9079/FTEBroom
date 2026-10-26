@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "ftebroom_model_export.h"
+#include <cstdint>
 namespace ftebroom::modelExport {
 struct Skin {unsigned width=0,height=0;std::vector<unsigned char> rgba;};
 // Preserve the source coordinate system. MDL quantization uses one bounding box

@@ -1,14 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ftebroom_model_import.h"
+#include <functional>
+#include "ftebroom_model_static_export.h"
+static bool modelConverterEditor=false;
+static int modelConverterSourceSkin=0;
+static std::function<void(ftebroom::modelExport::Mesh&)> modelConverterTransform;
+static std::function<std::string(const std::string&)> modelConverterMdlTransform;
 static bool modelConverterOpen=false,modelConverterPending=false,modelConverterAcceptLoss=false;
 static std::string modelConverterSource,modelConverterMessage;
 static int modelConverterFormat=0,modelConverterSequence=0,modelConverterFrames=1;
 static float modelConverterFPS=24;
 static char modelConverterDestination[4096]={};
+static std::filesystem::path modelConverterFolder;
+static bool modelConverterFolderOpen=false;
 static ImVec2 modelConverterBakeCenter;
-static const char* modelConverterExtension(){return modelConverterFormat==2?".mdl":modelConverterFormat==1?".obj":".md3";}
+static const char* modelConverterExtension(){return modelConverterFormat==4?".md5mesh":modelConverterFormat==3?".iqm":modelConverterFormat==2?".mdl":modelConverterFormat==1?".obj":".md3";}
 static void modelConverterShow(const std::string& source) {
   if(modelConverterPending||modelImportJob.valid())return;
+  modelConverterEditor=false;modelConverterTransform={};modelConverterMdlTransform={};modelConverterSourceSkin=0;
   modelImportExternal.clear();modelImportStage.clear();modelImportProfile=gameProfile;
   modelConverterSource=source;modelConverterOpen=true;modelConverterMessage.clear();modelConverterAcceptLoss=false;
   modelConverterFormat=gameProfile==2?2:0;modelConverterFrames=1;modelConverterSequence=0;
@@ -16,15 +25,25 @@ static void modelConverterShow(const std::string& source) {
   std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());
 }
 static void modelConverterSave(ftebroom::modelExport::Mesh mesh) {
+  std::vector<std::string> originalMaterials;for(auto& surface:mesh.surfaces)originalMaterials.push_back(surface.material);
+  if(modelConverterTransform)modelConverterTransform(mesh);
   if(gameProfile!=modelImportProfile)throw std::runtime_error("Game profile changed. Reopen the conversion in the intended profile.");
-  auto target=std::filesystem::u8path(modelConverterDestination);modFileValidate(target);
+  auto target=std::filesystem::u8path(modelConverterDestination);if(!modelConverterEditor)modFileValidate(target);
+  if(modelConverterEditor&&!target.is_absolute())throw std::runtime_error("Choose an absolute export path.");
   if(modFilePacked(target)||std::filesystem::exists(target))throw std::runtime_error("Choose a new loose filename inside the mod directory.");
   std::vector<ftebroom::modelExport::Skin> skins;
   std::string source;auto sourcePath=modelImportExternal.empty()?std::filesystem::u8path(modelConverterSource):modelImportExternal;
   if(entityLower(sourcePath.extension().u8string())==".mdl")source=modelImportExternal.empty()?modelResource(modelConverterSource):q1Read(modelImportExternal);
-  for(auto& surface:mesh.surfaces){
-    if(source.substr(0,4)=="IDPO"){
-      auto palette=modelResource("gfx/palette.lmp");auto mdl=ftebroom::readMdl(source);
+  if(modelConverterEditor&&modelConverterFormat==2&&modelConverterMdlTransform&&source.substr(0,4)=="IDPO"){
+    auto output=modelConverterMdlTransform(source);std::filesystem::create_directories(target.parent_path());auto temp=target;temp+=".ftebroom-convert.tmp";
+    if(std::filesystem::exists(temp))throw std::runtime_error("Export temporary file already exists.");
+    try{soundWrite(temp,output);std::filesystem::rename(temp,target);}catch(...){std::error_code ec;std::filesystem::remove(temp,ec);throw;}
+    command("fs_flush\n");modFilesRefresh=true;modelConverterMessage="Exported transformed Quake MDL. Original skins, UVs, frame groups and intervals retained.";return;
+  }
+  size_t surfaceIndex=0;for(auto& surface:mesh.surfaces){
+    bool materialChanged=surfaceIndex>=originalMaterials.size()||surface.material!=originalMaterials[surfaceIndex++];
+    if(source.substr(0,4)=="IDPO"&&!materialChanged){
+      auto palette=modelResource("gfx/palette.lmp");auto mdl=ftebroom::readMdl(source,modelConverterSourceSkin);
       skins.push_back(modelImportDecode(ftebroom::quake1::tga(mdl.skin,palette)));
     }else if(source.substr(0,4)=="IDST"&&surface.material.rfind("__hl_texture_",0)==0){
       auto skin=modelImportHalfLifeSkin(source,std::stoul(surface.material.substr(13)));
@@ -34,8 +53,8 @@ static void modelConverterSave(ftebroom::modelExport::Mesh mesh) {
   }
   auto skinFolder=target.parent_path()/(target.stem().u8string()+"-skins");
   if(modelConverterFormat!=2&&std::filesystem::exists(skinFolder))throw std::runtime_error("The destination skin directory already exists. Choose a new filename.");
-  for(size_t i=0;i<mesh.surfaces.size();i++)mesh.surfaces[i].material=modFileModelPath(skinFolder/(std::to_string(i)+".tga"));
-  std::string output=modelConverterFormat==2?ftebroom::modelExport::mdl(mesh,skins,modelResource("gfx/palette.lmp")):modelConverterFormat==1?ftebroom::modelExport::obj(mesh):ftebroom::modelExport::md3(mesh);
+  for(size_t i=0;i<mesh.surfaces.size();i++){auto path=skinFolder/(std::to_string(i)+".tga");auto name=modFileModelPath(path);mesh.surfaces[i].material=name.empty()?path.lexically_relative(target.parent_path()).generic_u8string():name;}
+  std::string output=modelConverterFormat==4?ftebroom::modelExport::md5mesh(mesh):modelConverterFormat==3?ftebroom::modelExport::iqm(mesh):modelConverterFormat==2?ftebroom::modelExport::mdl(mesh,skins,modelResource("gfx/palette.lmp")):modelConverterFormat==1?ftebroom::modelExport::obj(mesh):ftebroom::modelExport::md3(mesh);
   auto mtl=target;mtl.replace_extension(".mtl");std::string materialText;
   if(modelConverterFormat==1){
     if(std::filesystem::exists(mtl))throw std::runtime_error("The destination MTL already exists.");
@@ -74,7 +93,7 @@ static void modelConverterPanel() {
   }
   if(!modelConverterOpen)return;
   ImGui::SetNextWindowSize({720,520},ImGuiCond_FirstUseEver);
-  if(ImGui::Begin("Convert model",modelConverterPending?nullptr:&modelConverterOpen)) {
+  if(ImGui::Begin(modelConverterEditor?"Export model as...":"Convert model",modelConverterPending?nullptr:&modelConverterOpen)) {
     ImGui::TextWrapped("Source: %s",modelImportExternal.empty()?modelConverterSource.c_str():modelImportExternal.u8string().c_str());
     if(modelImportDownloading){
       static double nextRead=0;static float fraction=0;static std::string phase="Connecting";
@@ -83,20 +102,33 @@ static void modelConverterPanel() {
     }
     if(modelConverterPending&&!modelImportDownloading)ImGui::TextUnformatted("Baking model and textures. The editor remains usable.");
     ImGui::BeginDisabled(modelConverterPending);
-    if(modelImportProfile==1){int choice=modelConverterFormat==2?1:modelConverterFormat==1?2:0;if(ImGui::Combo("Target format",&choice,"MD3 (baked animation)\0Quake MDL (paletted skin)\0OBJ + MTL (static)\0")){modelConverterFormat=choice==1?2:choice==2?1:0;auto target=std::filesystem::u8path(modelConverterDestination);target.replace_extension(modelConverterExtension());std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());}}
+    if(modelImportProfile==1||modelConverterEditor){int choice=modelConverterFormat;if(ImGui::Combo("Target format",&choice,"MD3 (baked animation)\0OBJ + MTL (static)\0Quake MDL (paletted skin)\0IQM (static pose)\0MD5MESH (static pose)\0")){modelConverterFormat=choice;auto target=std::filesystem::u8path(modelConverterDestination);target.replace_extension(modelConverterExtension());std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());}}
     else ImGui::Text("Target: %s",modelImportProfile==2?"Quake MDL":"Quake III MD3");
     ImGui::InputText("Destination",modelConverterDestination,sizeof modelConverterDestination);
+    if(modelConverterEditor){
+      if(ImGui::Button("Choose folder...")){modelConverterFolder=std::filesystem::u8path(modelConverterDestination).parent_path();modelConverterFolderOpen=true;}
+      if(modelConverterFolderOpen)ImGui::OpenPopup("Export folder");
+      if(ImGui::BeginPopupModal("Export folder",&modelConverterFolderOpen,ImGuiWindowFlags_AlwaysAutoResize)){
+        ImGui::TextWrapped("%s",modelConverterFolder.u8string().c_str());
+        if(ImGui::Button("Up")&&modelConverterFolder.has_parent_path())modelConverterFolder=modelConverterFolder.parent_path();
+        ImGui::BeginChild("Export directories",{440*uiScale(),230*uiScale()},ImGuiChildFlags_Borders);
+        try{std::vector<std::filesystem::path> dirs;for(auto& e:std::filesystem::directory_iterator(modelConverterFolder,std::filesystem::directory_options::skip_permission_denied))if(e.is_directory()&&dirs.size()<512)dirs.push_back(e.path());std::sort(dirs.begin(),dirs.end());for(auto& d:dirs)if(ImGui::Selectable(d.filename().u8string().c_str())){modelConverterFolder=d;break;}}catch(const std::exception& e){ImGui::TextWrapped("%s",e.what());}
+        ImGui::EndChild();if(ImGui::Button("Use this folder")){auto target=modelConverterFolder/std::filesystem::u8path(modelConverterDestination).filename();std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());modelConverterFolderOpen=false;ImGui::CloseCurrentPopup();}ImGui::SameLine();if(ImGui::Button("Cancel##exportfolder")){modelConverterFolderOpen=false;ImGui::CloseCurrentPopup();}ImGui::EndPopup();
+      }
+    }
     bool bridge=!modelImportExternal.empty()&&modelImportBridge(modelImportExternal);
     if(bridge){modelImportFindBlender();ImGui::TextWrapped("Blender 5.0.0 is downloaded automatically on the first conversion (several hundred MB; allow 4 GiB of free space). No manual installation or path configuration is needed. Blender units become map units; no centering or size normalization is applied.");}
     ImGui::InputInt(bridge?"First Blender frame":"Animation / sequence",&modelConverterSequence);
     if(!bridge)ImGui::TextDisabled("Use -1 for consecutive MDL / MD2 poses.");
     ImGui::SliderInt("Baked frames",&modelConverterFrames,1,1024);ImGui::SliderFloat("Sampling FPS",&modelConverterFPS,1,120,"%.0f");
     ImGui::TextWrapped("Bones, tags, events and skin variants are baked or lost. OBJ retains only the first pose. Diffuse textures are retained; shader effects, transparency, normal/roughness maps are not. Quake MDL uses a 256-pixel tile per material and the active game palette (no fullbright colours); positions have 8-bit precision per axis. MD3 coordinates must fit -512 to 511.984 units. Missing textures stop conversion. The source is never overwritten.");
+    if(modelConverterFormat>=3)ImGui::TextWrapped("IQM/MD5MESH export the first sampled pose only, without the original rig or animation. Use MD3 or MDL for baked animation.");
+    if(modelConverterEditor&&modelConverterFormat==2&&modelConverterMdlTransform)ImGui::TextWrapped("Quake MDL to Quake MDL keeps all original skins, UVs, frames, frame groups and timings. Geometry is transformed at MDL precision; sampling options do not trim this lossless-skin path.");
     ImGui::Checkbox("I accept these conversion losses",&modelConverterAcceptLoss);
     ImGui::BeginDisabled(!modelConverterAcceptLoss);
     if(ImGui::Button("Bake and convert"))try{
       if(gameProfile!=modelImportProfile)throw std::runtime_error("The active game profile changed. Close and reopen this import.");
-      auto path=std::filesystem::u8path(modelConverterDestination);modFileValidate(path);
+      auto path=std::filesystem::u8path(modelConverterDestination);if(!modelConverterEditor)modFileValidate(path);
       if(modFilePacked(path)||std::filesystem::exists(path)||entityLower(path.extension().u8string())!=modelConverterExtension())throw std::runtime_error("Choose a new loose file with the target format extension.");
       if(modelConverterFormat==2&&modelResource("gfx/palette.lmp").size()!=768)throw std::runtime_error("Load the Quake palette before converting to MDL.");
       if(bridge){
@@ -140,7 +172,7 @@ static void modelConverterPanel() {
           }
           modelConverterSource=(modelImportStage/name).lexically_relative(modFileRoot()).generic_u8string();
         }
-        cvars->SetString("ftebroom_convert_source",modelConverterSource.c_str());cvars->SetFloat("ftebroom_convert_sequence",std::max(-1,modelConverterSequence));cvars->SetFloat("ftebroom_convert_frames",modelConverterFrames);cvars->SetFloat("ftebroom_convert_fps",modelConverterFPS);cvars->SetFloat("ftebroom_convert_status",0);command("fs_flush\nftebroom_model_extract\n");
+        cvars->SetString("ftebroom_convert_source",modelConverterSource.c_str());cvars->SetFloat("ftebroom_convert_skin",modelConverterSourceSkin);cvars->SetFloat("ftebroom_convert_sequence",std::max(-1,modelConverterSequence));cvars->SetFloat("ftebroom_convert_frames",modelConverterFrames);cvars->SetFloat("ftebroom_convert_fps",modelConverterFPS);cvars->SetFloat("ftebroom_convert_status",0);command("fs_flush\nftebroom_model_extract\n");
       }
       modelConverterPending=true;modelConverterMessage="Extracting model and textures...";
     }catch(const std::exception& e){modelConverterMessage=e.what();}

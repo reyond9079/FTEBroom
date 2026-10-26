@@ -1,0 +1,115 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -6686,7 +6686,7 @@
+     file = FS_OpenVFS("data/model-convert.mesh", "wb", FS_GAMEONLY);
+     if (!file) return;
+     VFS_PRINTF(file, "FTEBROOM_MESH 1 %d %d\n", frames, surfaces);
+-    memset(&entity, 0, sizeof(entity));entity.model = model;entity.scale = 1;entity.playerindex = -1;
++    memset(&entity, 0, sizeof(entity));entity.model = model;entity.scale = 1;entity.playerindex = -1;entity.skinnum = prinst->callargc>4?max(0,(int)G_FLOAT(OFS_PARM4)):0;
+     entity.framestate.g[FS_REG].lerpweight[0] = 1;
+     entity.framestate.g[FS_REG].endbone = 0x7fffffff;
+     for (frame = 0; frame < frames; frame++)
+@@ -6696,7 +6696,8 @@
+         for (surface = model->meshinfo, s = 0; surface; surface = surface->nextsurf, s++)
+         {
+             mesh_t mesh;
+-            const char *material = surface->numskins && surface->ofsskins && surface->ofsskins->frame ? surface->ofsskins->frame->shadername : "";
++            galiasskin_t *skin = surface->numskins && surface->ofsskins ? surface->ofsskins+min(entity.skinnum,surface->numskins-1) : NULL;
++            const char *material = skin && skin->frame ? skin->frame->shadername : "";
+             const char *c;
+             for (c = material; *c; c++) if (*c == '"' || *c == '\\' || *c == '\n' || *c == '\r') {VFS_CLOSE(file);Alias_FlushCache();return;}
+             memset(&mesh, 0, sizeof(mesh));Alias_FlushCache();
+@@ -6719,6 +6720,84 @@
+ }
+ 
+ /* Editor model metadata only; never executes model events or game code. */
++
++/* Surface-only editor preview. Source models and their cached vertices are immutable. */
++static void QCBUILTIN PF_editor_model_meshmeta(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
++{
++    world_t *w=prinst->parms->user;
++    model_t *model=w->Get_CModel(w,G_FLOAT(OFS_PARM0));
++    galiasinfo_t *surface;int s=0,v,a;char key[128],value[256];entity_t entity;
++    Cvar_Set(Cvar_Get("ftebroom_modeleditor_meshes","0",0,""),"0");
++    if(!model||model->loadstate!=MLS_LOADED||model->type!=mod_alias)return;
++    memset(&entity,0,sizeof(entity));entity.model=model;entity.scale=1;entity.playerindex=-1;
++    entity.framestate.g[FS_REG].lerpweight[0]=1;entity.framestate.g[FS_REG].endbone=0x7fffffff;
++    for(surface=model->meshinfo;surface&&s<256;surface=surface->nextsurf,s++){
++        mesh_t mesh;vec3_t low={FLT_MAX,FLT_MAX,FLT_MAX},high={-FLT_MAX,-FLT_MAX,-FLT_MAX};
++        memset(&mesh,0,sizeof(mesh));Alias_FlushCache();Alias_GAliasBuildMesh(&mesh,NULL,surface,s,&entity,false);
++        if(!mesh.xyz_array)break;
++        for(v=0;v<mesh.numvertexes;v++)for(a=0;a<3;a++){low[a]=min(low[a],mesh.xyz_array[v][a]);high[a]=max(high[a],mesh.xyz_array[v][a]);}
++        snprintf(key,sizeof(key),"ftebroom_modeleditor_mesh_%d_name",s);Cvar_Set(Cvar_Get(key,"",0,""),surface->surfacename);
++        snprintf(key,sizeof(key),"ftebroom_modeleditor_mesh_%d_low",s);snprintf(value,sizeof(value),"%.9g %.9g %.9g",low[0],low[1],low[2]);Cvar_Set(Cvar_Get(key,"",0,""),value);
++        snprintf(key,sizeof(key),"ftebroom_modeleditor_mesh_%d_high",s);snprintf(value,sizeof(value),"%.9g %.9g %.9g",high[0],high[1],high[2]);Cvar_Set(Cvar_Get(key,"",0,""),value);
++    }
++    Alias_FlushCache();snprintf(value,sizeof(value),"%d",s);Cvar_Set(Cvar_Get("ftebroom_modeleditor_meshes","0",0,""),value);
++}
++static void QCBUILTIN PF_editor_model_drawsurface(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
++{
++    csqcedict_t *in=(void*)G_EDICT(prinst,OFS_PARM0);entity_t ent;int selected=G_FLOAT(OFS_PARM1),mode=G_FLOAT(OFS_PARM2),sort;
++    batch_t *batches[SHADER_SORT_COUNT],*b;unsigned mi;int i,j,planes,drawn=0;
++    if(ED_ISFREE(in)||!in->entnum||!CopyCSQCEdictToEntity(in,&ent)||!ent.model||ent.model->loadstate!=MLS_LOADED||ent.model->type!=mod_alias)return;
++    memset(batches,0,sizeof(batches));planes=r_refdef.frustum_numplanes;r_refdef.frustum_numplanes=0;R_GAlias_GenerateBatches(&ent,batches);r_refdef.frustum_numplanes=planes;
++    for(sort=0;sort<SHADER_SORT_COUNT;sort++)for(b=batches[sort];b;b=b->next){
++        /* Build CPU geometry: render batches may otherwise contain GPU-only VBOs. */
++        for(mi=b->firstmesh;mi<b->meshes;mi++)if(selected<0||b->user.alias.surfrefs[mi]==selected){
++            mesh_t cpuMesh,*m=&cpuMesh;galiasinfo_t *source=ent.model->meshinfo;int sourceIndex=b->user.alias.surfrefs[mi],sourceWalk;
++            scenetris_t *t;vecV_t *posed=NULL;vec3_t tmp;
++            for(sourceWalk=0;source&&sourceWalk<sourceIndex;sourceWalk++)source=source->nextsurf;
++            if(!source)continue;
++            memset(&cpuMesh,0,sizeof(cpuMesh));Alias_FlushCache();Alias_GAliasBuildMesh(&cpuMesh,NULL,source,sourceIndex,&ent,false);
++            entity_t shaped=ent;
++            if(selected<0){int axis;char key[128];for(axis=0;axis<4;axis++){
++                if(axis<3)snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_%d",b->user.alias.surfrefs[mi]+1,axis);
++                else snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_origin",b->user.alias.surfrefs[mi]+1);
++                float *v=axis<3?shaped.axis[axis]:shaped.origin;
++                if(sscanf(Cvar_VariableString(key),"%f %f %f",&v[0],&v[1],&v[2])!=3){v[0]=v[1]=v[2]=0;if(axis<3)v[axis]=1;}
++            }}
++            if(!m->xyz_array||!m->indexes||m->numvertexes>65536||m->numindexes>393216)continue;
++            if(m->bones&&m->bonenums[0]&&m->boneweights[0]){
++                posed=BZ_Malloc(m->numvertexes*sizeof(*posed));
++                for(i=0;i<m->numvertexes;i++){
++                    VectorClear(posed[i]);
++                    for(j=0;j<4;j++){float weight=m->boneweights[0][i*4+j];const float *bone=&m->bones[12*m->bonenums[0][i*4+j]];int a;
++                        if(weight)for(a=0;a<3;a++)posed[i][a]+=weight*(bone[a*4+3]+bone[a*4]*m->xyz_array[i][0]+bone[a*4+1]*m->xyz_array[i][1]+bone[a*4+2]*m->xyz_array[i][2]);
++                    }
++                }
++            }
++            if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,sizeof(*cl_stris)*cl_maxstris);}
++            t=&cl_stris[cl_numstris++];memset(t,0,sizeof(*t));
++            shader_t *preview=R_RegisterShader(va("ftebroom/model-preview-%d-%d-%d",(int)in->v->modelindex,sourceIndex,ent.skinnum),SUF_NONE,"{\n program default2d\n {\n map $diffuse\n rgbgen vertex\n alphagen vertex\n }\n }\n");
++            if(preview->defaulttextures){if(b->skin)*preview->defaulttextures=*b->skin;else if(b->shader->defaulttextures)*preview->defaulttextures=*b->shader->defaulttextures;}
++            t->shader=mode?R_RegisterShader("ftebroom/editor-solid",SUF_NONE,"{\n program default2d\n {\n map $whiteimage\n rgbgen vertex\n alphagen vertex\n }\n }\n"):preview;
++            t->flags=BEF_NOSHADOWS|(mode==2?BEF_LINES:0)|(Cvar_Get("ftebroom_modeleditor_cull","0",0,"")->ival?0:BEF_FORCETWOSIDED);t->firstidx=cl_numstrisidx;t->firstvert=cl_numstrisvert;t->numvert=m->numvertexes;t->numidx=m->numindexes*(mode==2?2:1);
++            if(cl_numstrisidx+t->numidx>cl_maxstrisidx){cl_maxstrisidx=cl_numstrisidx+t->numidx;cl_strisidx=BZ_Realloc(cl_strisidx,sizeof(*cl_strisidx)*cl_maxstrisidx);}
++            if(cl_numstrisvert+t->numvert>cl_maxstrisvert)cl_stris_ExpandVerts(cl_numstrisvert+t->numvert);
++            for(i=0;i<m->numvertexes;i++){
++                vec3_t point;VectorCopy(posed?posed[i]:m->xyz_array[i],point);
++                if(!posed&&m->xyz2_array)for(j=0;j<3;j++)point[j]=m->xyz_array[i][j]*m->xyz_blendw[0]+m->xyz2_array[i][j]*m->xyz_blendw[1];
++                VectorMA(shaped.origin,point[0],shaped.axis[0],tmp);VectorMA(tmp,point[1],shaped.axis[1],tmp);VectorMA(tmp,point[2],shaped.axis[2],cl_strisvertv[t->firstvert+i]);
++                if(m->st_array)Vector2Copy(m->st_array[i],cl_strisvertt[t->firstvert+i]);else Vector2Set(cl_strisvertt[t->firstvert+i],0,0);
++                Vector4Set(cl_strisvertc[t->firstvert+i],mode==1?.65:1,mode==1?.65:1,mode==1?.65:1,1);
++            }
++            for(i=0;i<m->numindexes;i+=3){
++                if(mode==2)for(j=0;j<3;j++){cl_strisidx[cl_numstrisidx++]=m->indexes[i+j];cl_strisidx[cl_numstrisidx++]=m->indexes[i+(j+1)%3];}
++                else for(j=0;j<3;j++)cl_strisidx[cl_numstrisidx++]=m->indexes[i+j];
++            }
++            cl_numstrisvert+=t->numvert;drawn++;if(posed)BZ_Free(posed);
++        }
++    }
++    {char count[32];snprintf(count,sizeof(count),"%d",drawn);Cvar_Set(Cvar_Get("ftebroom_modeleditor_drawn","0",0,""),count);Alias_FlushCache();}
++}
++
+ static void QCBUILTIN PF_editor_model_info(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+ {
+     world_t *w = prinst->parms->user;
+@@ -7059,6 +7138,8 @@
+ 
+ 	{"editor_model_info", PF_editor_model_info, 0},
+ 	{"editor_model_extract", PF_editor_model_extract, 0},
++	{"editor_model_meshmeta", PF_editor_model_meshmeta, 0},
++	{"editor_model_drawsurface", PF_editor_model_drawsurface, 0},
+ 	{"modelframecount",			PF_modelframecount,			0},
+ 
+ //300

@@ -67,6 +67,7 @@ static void modFileImportMap(const std::filesystem::path& path,float x,float y) 
 #include "ftebroom_sound_editor.h"
 #include "ftebroom_image_viewer.h"
 #include "ftebroom_model_converter.h"
+#include "ftebroom_model_editor.h"
 static std::filesystem::path modFileCopy(const std::filesystem::path& source,const std::filesystem::path& folder) {
   modFileValidate(folder);
   if(wadBrowseFolder(folder))throw std::runtime_error("Use the texture importer to add images to a WAD.");
@@ -302,6 +303,7 @@ static void modFilesPanel() {
         if(ImGui::BeginDragDropSource()){auto value=path.u8string();ImGui::SetDragDropPayload("FTEBROOM_MOD_FILE",value.c_str(),value.size()+1);ImGui::TextUnformatted(label.c_str());ImGui::EndDragDropSource();}
         if(directory)modFilesTarget(path);
         if(ImGui::BeginPopupContextItem("file_actions")) {
+          if(!directory&&modelFile(path)&&ImGui::MenuItem("Open in model editor"))modelEditorShow(modFileModelPath(path));
           if(!directory&&modelFile(path)&&ImGui::MenuItem("Convert..."))modelConverterShow(modFileModelPath(path));
           if(ImGui::MenuItem("Copy")){modFilesClipboard=path;modFilesCut=false;}
           ImGui::BeginDisabled(wadBrowseMember(path));

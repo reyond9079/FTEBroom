@@ -5,6 +5,13 @@ string fb_modelviewer_path;
 float fb_modelviewer_skeleton;
 float fb_modelviewer_skinmodel;
 string fb_modelviewer_customskin;
+void(float model) editor_model_meshmeta = #0:editor_model_meshmeta;
+void(entity item,float surface,float mode) editor_model_drawsurface = #0:editor_model_drawsurface;
+vector fb_modeleditor_point(vector point,int node)
+{
+    string prefix=strcat("ftebroom_modeleditor_transform_",ftos(node));
+    return stov(cvar_string(strcat(prefix,"_origin")))+stov(cvar_string(strcat(prefix,"_0")))*point_x+stov(cvar_string(strcat(prefix,"_1")))*point_y+stov(cvar_string(strcat(prefix,"_2")))*point_z;
+}
 void fb_modelviewer_draw()
 {
     if(!cvar("ftebroom_modelviewer_open")) {
@@ -22,6 +29,8 @@ void fb_modelviewer_draw()
         fb_modelviewer_skeleton=skel_create(fb_modelviewer_entity.modelindex);
     }
     entity item=fb_modelviewer_entity;float model=item.modelindex;
+    float editing=cvar("ftebroom_modeleditor_active");
+    if(editing&&!cvar("ftebroom_modeleditor_meshes"))editor_model_meshmeta(model);
     if(model!=fb_modelviewer_skinmodel) {
         fb_modelviewer_skinmodel=model;
         int skinCount=0;
@@ -49,28 +58,38 @@ void fb_modelviewer_draw()
     cvar_set("ftebroom_modelviewer_bonename",bones?skel_get_bonename(fb_modelviewer_skeleton,selectedBone):"No skeletal bones");
     item.frame=sequence;item.frame1time=cvar("ftebroom_modelviewer_time");item.frame2=sequence;item.lerpfrac=0;
     vector low=editor_model_info(model,0,1),high=editor_model_info(model,0,2),center=(low+high)*0.5;
-    vector angles=[cvar("ftebroom_modelviewer_pitch"),cvar("ftebroom_modelviewer_yaw"),0];
-    makevectors(angles);vector eye=center-v_forward*max(8,vlen(high-low)*1.4)*max(.1,cvar("ftebroom_modelviewer_zoom"));
-    vector size=[bound(64,cvar("ftebroom_modelviewer_width"),1600),bound(64,cvar("ftebroom_modelviewer_height"),1200),0];
+    cvar_set("ftebroom_modeleditor_low",vtos(low));cvar_set("ftebroom_modeleditor_high",vtos(high));
+    vector viewAngles=[cvar("ftebroom_modelviewer_pitch"),cvar("ftebroom_modelviewer_yaw"),0];
+    makevectors(viewAngles);vector eye=center-v_forward*max(8,vlen(high-low)*1.4)*max(.1,cvar("ftebroom_modelviewer_zoom"));
+    float player=editing&&cvar("ftebroom_modeleditor_player");if(player){eye='0 0 0';viewAngles='0 0 0';}
+    cvar_set("ftebroom_modeleditor_eye",vtos(eye));cvar_set("ftebroom_modeleditor_angles",vtos(viewAngles));
+    vector size=[max(64,cvar("ftebroom_modelviewer_width")),max(64,cvar("ftebroom_modelviewer_height")),0];
+    float resolutionScale=min(1,min(1600/size_x,1200/size_y));size*=resolutionScale;size_x=max(1,floor(size_x));size_y=max(1,floor(size_y));
     vector oldOrigin=getproperty(VF_ORIGIN),oldAngles=getproperty(VF_ANGLES),oldMin=getproperty(VF_MIN),oldSize=getproperty(VF_SIZE),oldFov=getproperty(VF_FOV);
     float oldPerspective=getproperty(VF_PERSPECTIVE),oldNear=getproperty(VF_MINDIST),oldFar=getproperty(VF_MAXDIST);
     clearscene();setproperty(VF_PERSPECTIVE,TRUE);setproperty(VF_MINDIST,1);setproperty(VF_MAXDIST,0);setproperty(VF_RT_DESTCOLOUR,"ftebroom_modelviewer",-IMGFMT_R8G8B8A8,size);
-    setproperty(VF_MIN,'0 0 0');setproperty(VF_SIZE,size);setproperty(VF_ORIGIN,eye);setproperty(VF_ANGLES,angles);
+    setproperty(VF_MIN,'0 0 0');setproperty(VF_SIZE,size);setproperty(VF_ORIGIN,eye);setproperty(VF_ANGLES,viewAngles);
     setproperty(VF_DRAWWORLD,0);setproperty(VF_FOVY,45);setproperty(VF_FOVX,atan(tan(45*M_PI/360)*size_x/size_y)*360/M_PI);
-    drawfill('0 0 0',size,'0.08 0.09 0.11',1,0);item.effects=EF_FULLBRIGHT;addentity(item);
+    if(player){setproperty(VF_FOVX,90);setproperty(VF_FOVY,atan(size_y/size_x)*360/M_PI);setproperty(VF_MINDIST,.1);}
+    drawfill('0 0 0',size,'0.08 0.09 0.11',1,0);item.effects=EF_FULLBRIGHT;
+    if(editing&&cvar("ftebroom_modeleditor_count")>0){
+        item.renderflags=0;item.scale=1;setorigin(item,'0 0 0');item.angles='0 0 0';
+        editor_model_drawsurface(item,-1,cvar("ftebroom_modeleditor_display"));
+        item.renderflags=0;setorigin(item,'0 0 0');item.angles='0 0 0';
+    }else{item.renderflags=0;setorigin(item,'0 0 0');addentity(item);}
     if(cvar("ftebroom_modelviewer_showbones"))for(int bone=1;bone<=min(bones,512);bone++) {
         int parent=skel_get_boneparent(fb_modelviewer_skeleton,bone);
-        if(parent)fb_visual_line(gettaginfo(item,bone),gettaginfo(item,parent),'0.2 1 0.4',1,1,0);
+        if(parent){vector a=gettaginfo(item,bone),b=gettaginfo(item,parent);if(editing){int node=cvar("ftebroom_modeleditor_selected");if(node==0&&cvar("ftebroom_modeleditor_count")==1)node=1;a=fb_modeleditor_point(a,node);b=fb_modeleditor_point(b,node);}fb_visual_line(a,b,'0.2 1 0.4',1,1,0);}
     }
     renderscene();setproperty(VF_RT_DESTCOLOUR,"");
     setproperty(VF_ORIGIN,oldOrigin);setproperty(VF_ANGLES,oldAngles);setproperty(VF_MIN,oldMin);setproperty(VF_SIZE,oldSize);setproperty(VF_FOV,oldFov);setproperty(VF_DRAWWORLD,1);setproperty(VF_PERSPECTIVE,oldPerspective);setproperty(VF_MINDIST,oldNear);setproperty(VF_MAXDIST,oldFar);
 }
 
-float(float model,float sequence,float frames,float fps) editor_model_extract = #0:editor_model_extract;
+float(float model,float sequence,float frames,float fps,optional float skin) editor_model_extract = #0:editor_model_extract;
 int fb_model_extract_command()
 {
     if(argv(0)!="ftebroom_model_extract")return FALSE;
     entity model=spawn();setmodel(model,cvar_string("ftebroom_convert_source"));
-    int valid=editor_model_extract(model.modelindex,cvar("ftebroom_convert_sequence"),cvar("ftebroom_convert_frames"),cvar("ftebroom_convert_fps"));
+    int valid=editor_model_extract(model.modelindex,cvar("ftebroom_convert_sequence"),cvar("ftebroom_convert_frames"),cvar("ftebroom_convert_fps"),cvar("ftebroom_convert_skin"));
     remove(model);cvar_set("ftebroom_convert_status",valid?"1":"-1");return TRUE;
 }

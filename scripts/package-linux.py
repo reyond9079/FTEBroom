@@ -35,7 +35,7 @@ module = module_from_spec(spec)
 spec.loader.exec_module(module)
 module.bundle_compiler(root/'tools/q3map2/q3map2', a.deps/'compiler-library-sources')
 shutil.copytree(a.deps/'compiler-library-sources', root/'tools/q3map2/library-sources')
-shutil.copytree(src/'runtime', root/'ftebroom')
+shutil.copytree(src/'runtime', root/'ftebroom', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 shutil.copy2(src/'csaddon.dat', root/'ftebroom/csaddon.dat')
 for name in ('default.fmf','installed.lst'):
     shutil.copy2(src/'runtime'/name, root/name)

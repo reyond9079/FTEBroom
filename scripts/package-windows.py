@@ -43,7 +43,7 @@ shutil.copytree(source / "tools/audio", root / "tools/audio")
 if not (root / "tools/audio/ffmpeg.exe").is_file():
     raise RuntimeError("Build the audio helper with scripts/build-audio.sh first")
 shutil.copytree(bundle / "licenses", root / "licenses")
-shutil.copytree(source / "runtime", root / "ftebroom")
+shutil.copytree(source / "runtime", root / "ftebroom", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 for name in ("default.fmf", "installed.lst"):
     shutil.copy2(source / "runtime" / name, root / name)
 shutil.copy2(source / "csaddon.dat", root / "ftebroom/csaddon.dat")
@@ -66,7 +66,7 @@ for archive in archives:
 for path in source.glob("*.md"):
     shutil.copy2(path, root / path.name)
 for folder in ("docs", "scripts"):
-    shutil.copytree(source / folder, root / folder)
+    shutil.copytree(source / folder, root / folder, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 patches = ", ".join(path.name for path in sorted((source / "patches").glob("*.patch")))
 info = (
     f"ReyondBroom {args.version}\n"
