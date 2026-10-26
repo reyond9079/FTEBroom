@@ -248,7 +248,7 @@
    if(!allowed){if(face->brushEnd>(int)i && (unsigned int)face->brushEnd<=total)i=face->brushEnd-1;continue;}
    if(face->sky && !(params.flags&4))continue;VectorSubtract(r_refdef.vieworg,face->center,delta);if(DotProduct(delta,face->normal)<-.01f)continue;
    VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=face->radius;if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))continue;
-@@ -3220,10 +3358,165 @@
+@@ -3220,10 +3358,169 @@
   for(pass=0;pass<2;pass++){
    if(!(params.flags&(pass?2:1)))continue;
    G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
@@ -320,7 +320,7 @@
 +  if(slot>65536){RB_ClearMeshCache(group);return false;}
 +  cache->refs[i]=(rb_cached_grid_ref_t){slot-1,vertices};vertices+=f->vertices;indices+=f->indices;
 + }
-+ bytes+=(size_t)slot*sizeof(*cache->meshes);
++ bytes+=(size_t)slot*(sizeof(*cache->meshes)+47);
 + size_t resident=bytes;for(unsigned int i=0;i<3;i++)if(i!=group)resident+=rb_mesh_caches[i].bytes;
 + if(resident>320u*1024*1024){RB_ClearMeshCache(group);return false;}
 + cache->count=slot;cache->meshes=BZ_Malloc(slot*sizeof(*cache->meshes));memset(cache->meshes,0,slot*sizeof(*cache->meshes));
@@ -330,7 +330,11 @@
 + cache->indices=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);cache->scratch=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);memset(cache->indices,0,sizeof(index_t)*cache->indexCapacity);memset(cache->scratch,0,sizeof(index_t)*cache->indexCapacity);unsigned int indexOffset=0;
 + for(unsigned int i=0;i<slot;i++){
 +  rb_cached_mesh_t *m=&cache->meshes[i];unsigned int n=m->mesh.numvertexes;
-+  m->vertices=BZ_Malloc((sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t))*n);m->mesh.xyz_array=m->vertices;m->mesh.st_array=(vec2_t*)(m->mesh.xyz_array+n);m->mesh.colors4f_array[0]=(vec4_t*)(m->mesh.st_array+n);
++  // Each typed CPU array must satisfy FTE's vector alignment, including
++  // an odd-sized UV array. Keep the raw owner pointer for BZ_Free.
++  size_t stOffset=((size_t)n*sizeof(vecV_t)+15)&~(size_t)15,colorOffset=(stOffset+(size_t)n*sizeof(vec2_t)+15)&~(size_t)15;
++  m->vertices=BZ_Malloc(colorOffset+(size_t)n*sizeof(vec4_t)+15);unsigned char *aligned=(unsigned char*)(((uintptr_t)m->vertices+15)&~(uintptr_t)15);
++  m->mesh.xyz_array=(vecV_t*)aligned;m->mesh.st_array=(vec2_t*)(aligned+stOffset);m->mesh.colors4f_array[0]=(vec4_t*)(aligned+colorOffset);
 +  m->mesh.indexes=cache->indices+indexOffset;m->scratch=cache->scratch+indexOffset;m->mesh.vbofirstelement=indexOffset;indexOffset+=m->capacity;m->meshptr=&m->mesh;
 + }
 + for(unsigned int i=0;i<records;i++){
@@ -415,7 +419,7 @@
  typedef struct {unsigned int solid,wire;int model;} rb_point_geometry_t;
  typedef struct {int stride,flags,solidShader,wireShader;unsigned int solidIndices,wireIndices;int wireFlags;} rb_point_params_t;
  static void QCBUILTIN PF_ReyondBroom_DrawPointBoxes(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
-@@ -3242,6 +3535,135 @@
+@@ -3242,6 +3539,135 @@
   }
   memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
  }
@@ -551,7 +555,7 @@
  // ReyondBroom bulk overlay passes end.
  #if defined(__GNUC__) && !defined(__clang__)
  #pragma GCC pop_options
-@@ -7422,8 +7844,13 @@
+@@ -7422,8 +7848,13 @@
  	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
  	{"ftebroom_draw_labels",PF_ReyondBroom_DrawLabels,0},
  	{"ftebroom_draw_grid",PF_ReyondBroom_DrawGrid,0},
@@ -565,7 +569,7 @@
  
  	{"getproperty",				PF_R_GetViewFlag,	309},				// #309 vector/float(float property) getproperty (EXT_CSQC_1)
  
-@@ -8123,6 +8550,7 @@
+@@ -8123,6 +8554,7 @@
  
  void CSQC_Shutdown(void)
  {

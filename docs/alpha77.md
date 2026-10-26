@@ -32,7 +32,7 @@ The user's source MAP remains unchanged: SHA-256 `4d40ec4a51adfcd956e776f86bdf0c
 - Six large-map viewport comparisons, including outside, below, side and interior cameras, match the unculled reference pixel for pixel.
 - Small-map visual checks cover selection, face hover, multiple selection, patches, point entities, perspective and 2D views.
 - UV checks verify unsaved geometry, selection and Undo/Redo across an MSAA renderer restart on Windows and Linux.
-- Native tests cover retained-buffer lifetime, material changes, index bounds, complete scene batches, conservative visibility, VM arguments and entity-resend allocation guards.
+- Native tests cover retained-buffer lifetime, odd-vertex CPU-array alignment, material changes, index bounds, complete scene batches, conservative visibility, VM arguments and entity-resend allocation guards.
 - Engine patches are checked against their preceding source versions so the published source archives reproduce the modified files.
 
 ## What to check

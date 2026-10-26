@@ -16,6 +16,7 @@ shim = r'''
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 #define true 1
 #define false 0
 #define QR_OPENGL 1
@@ -51,11 +52,15 @@ int main(void){
  for(int pass=0;pass<2;pass++){rb_cached_mesh_t *m=&rb_grid_cache.meshes[pass];for(int f=0;f<2;f++)for(int i=0;i<4;i++)assert(m->mesh.xyz_array[f*4+i][0]==f*100+i+pass*4);assert(!memcmp(m->vbo.coord.data,m->mesh.xyz_array,m->vbo.coord.size));}
  rb_cached_mesh_t *m=&rb_grid_cache.meshes[0];m->pending=6;index_t expected[6]={0,1,2,0,2,3};memcpy(m->scratch,expected,sizeof(expected));RB_CachedIndices(&rb_grid_cache);assert(!memcmp(m->vbo.indicies.data,expected,sizeof(expected)));int before=uploads;RB_CachedIndices(&rb_grid_cache);assert(uploads==before);m->scratch[1]=3;RB_CachedIndices(&rb_grid_cache);assert(uploads==before+1&&alive==2);
  assert(RB_CacheGrid(&vm,faces,128,2,1)&&uploads==before+1);((qcvertex_t*)(vm.stringtable+1024))->xyz[0]=75;assert(RB_CacheGrid(&vm,faces,128,2,2));assert(rb_grid_cache.meshes[0].mesh.xyz_array[0][0]==75&&alive==2);CSQC_ReyondBroomClearMeshes();assert(alive==0&&!CSQC_ReyondBroomCachedBatch(&batch,0));
+ // Odd vertex counts must not leave the color array eight bytes off alignment.
+ faces[0].count=3;faces[1].count=4;assert(RB_CacheGrid(&vm,faces,128,2,3));
+ for(unsigned int i=0;i<rb_grid_cache.count;i++){m=&rb_grid_cache.meshes[i];assert(!((uintptr_t)m->mesh.xyz_array&15)&&!((uintptr_t)m->mesh.st_array&15)&&!((uintptr_t)m->mesh.colors4f_array[0]&15));}
+ CSQC_ReyondBroomClearMeshes();assert(alive==0);
  // Many faces force both vertex and index chunk boundaries without truncation.
  const int n=20000;unsigned int at=128+n*sizeof(*faces);for(int f=0;f<n;f++){faces[f].count=4;faces[f].vertices=at;at+=8*sizeof(qcvertex_t);assert(at<vm.stringtablesize);}
  assert(RB_CacheGrid(&vm,faces,128,n,3));unsigned int vertices=0,indices=0;for(unsigned int i=0;i<rb_grid_cache.count;i++){m=&rb_grid_cache.meshes[i];assert(m->mesh.numvertexes<=MAX_INDICIES&&m->capacity<=MAX_INDICIES);vertices+=m->mesh.numvertexes;indices+=m->capacity;}assert(vertices==n*8&&indices==n*14&&rb_grid_cache.count>=4);CSQC_ReyondBroomClearMeshes();assert(alive==0);
  qrenderer=2;assert(!RB_CacheGrid(&vm,faces,128,n,4));qrenderer=1;assert(!RB_CacheGrid(&vm,faces,128,500001,4));faces[0].vertices=vm.stringtablesize-1;assert(!RB_CacheGrid(&vm,faces,128,1,4));assert(alive==0);
- free(vm.stringtable);puts("PASS: retained attributes, index reuse/update, epoch rebuild, 20,000-face chunk limits, renderer fallback and complete resource release");
+ free(vm.stringtable);puts("PASS: retained attributes, index reuse/update, odd-vertex alignment, epoch rebuild, 20,000-face chunk limits, renderer fallback and complete resource release");
 }
 '''
 with tempfile.TemporaryDirectory() as folder:
