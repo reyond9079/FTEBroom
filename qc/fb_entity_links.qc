@@ -83,7 +83,7 @@ typedef struct {int from,to;} fb_entity_link_t;
 fb_entity_link_t *fb_entity_connections;int fb_entity_connection_count;int *fb_entity_reachable;int *fb_entity_link_selected;vector *fb_entity_centers;
 void fb_entity_links_prepare()
 {
-    static int revision=-1,geometry=-1,filters=-1,entityRevision=-1;int current=fb_document_revision();
+    static int revision=-1,geometry=-1,filters=-1;int current=fb_document_revision();
     if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;
     memfree(fb_entity_connections);fb_entity_connections=__NULL__;fb_entity_connection_count=0;
     memfree(fb_entity_reachable);fb_entity_reachable=memalloc(fb_node_count*sizeof(int));memfree(fb_entity_centers);fb_entity_centers=memalloc(fb_node_count*sizeof(vector));

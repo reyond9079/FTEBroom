@@ -305,6 +305,13 @@ void fb_pick_draw_entities_uncached(int labelsOnly)
 typedef struct {int node,id,model;vector center,label,color;float radius;string name;} fb_point_render_t;
 fb_point_render_t *fb_point_render;int fb_point_render_count;
 var float autocvar_ftebroom_point_cache=1;
+var float autocvar_ftebroom_native_overlays=1;
+vector(fb_point_render_t *points,int count,int stride,int mode) ftebroom_draw_labels=#0:ftebroom_draw_labels;
+typedef struct {trisoup_simple_vert_t *solid;trisoup_simple_vert_t *wire;int model;} fb_point_geometry_t;
+typedef struct {int stride,flags;string solidShader,wireShader;int *solidIndices;int *wireIndices;int wireFlags;} fb_point_params_t;
+int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_point_params_t *params) ftebroom_draw_point_boxes=#0:ftebroom_draw_point_boxes;
+fb_point_geometry_t *fb_point_geometry;int *fb_point_models;int fb_point_model_count;
+
 int(fb_point_render_t *points,int count,int *indices,int stride) ftebroom_cull_points=#0:ftebroom_cull_points;
 int *fb_point_visible;int fb_point_visible_capacity;
 void fb_point_render_prepare()
@@ -317,6 +324,7 @@ void fb_point_render_prepare()
     geometry=fb_grid_geometry_epoch;selection=fb_selection_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=currentRevision;entityRevision=fb_entity_render_epoch;
     strunzone(colors);colors=strzone(currentColors);
     fb_document_lists_prepare();memfree(fb_point_render);fb_point_render=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_render_t));fb_point_render_count=0;
+    memfree(fb_point_geometry);memfree(fb_point_models);fb_point_geometry=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_geometry_t));fb_point_models=memalloc(max(1,fb_point_node_count)*sizeof(int));fb_point_model_count=0;
     static vector bounds[2];
     for(int i=0;i<fb_point_node_count;i++){
         int node=fb_point_nodes[i],id=fb_nodes[node].id;
@@ -329,6 +337,9 @@ void fb_point_render_prepare()
         item->color=fb_entity_color(id);
         if(!fb_render_allowed(node,0))item->color=stov(cvar_string("ftebroom_color_locked"));
         if(fb_entity_selected(id))item->color=stov(cvar_string("ftebroom_color_selected"));
+        fb_entity_draw_box(id,item->color,FALSE,FALSE,"");
+        fb_point_geometry[fb_point_render_count-1].solid=fb_entity_vertices(id,TRUE);fb_point_geometry[fb_point_render_count-1].wire=fb_entity_vertices(id,FALSE);fb_point_geometry[fb_point_render_count-1].model=item->model;
+        if(item->model)fb_point_models[fb_point_model_count++]=id;
     }
 }
 void fb_pick_draw_entities(int labelsOnly)
@@ -338,6 +349,10 @@ void fb_pick_draw_entities(int labelsOnly)
     if(labelsOnly && (!names || fb_view_render_cache))return;
     fb_point_render_prepare();
     cvar_set("ftebroom_selected_entity",fb_entity_classname(fb_selected_entity()));
+    if(labelsOnly && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_labels)){
+        float nativeStarted=gettime(1);vector result=ftebroom_draw_labels(fb_point_render,fb_point_render_count,sizeof(fb_point_render_t),ortho?1:0);
+        if(result_x>=0){fb_label_native_traces+=(int)result_y;if(cvar("ftebroom_benchmark"))fb_label_trace_seconds+=gettime(1)-nativeStarted;return;}
+    }
     vector eye=getproperty(VF_ORIGIN),mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
     vector forward=v_forward,right=v_right,up=v_up;float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     string entityWire=ortho?"ftebroom/entitybounds2d":"ftebroom/entitybounds";
@@ -348,6 +363,11 @@ void fb_pick_draw_entities(int labelsOnly)
     if(!ortho && checkbuiltin(ftebroom_cull_points)){
         if(fb_point_visible_capacity<fb_point_render_count){fb_point_visible_capacity=fb_point_render_count;memfree(fb_point_visible);fb_point_visible=memalloc(max(1,fb_point_visible_capacity)*sizeof(int));}
         visibleCount=ftebroom_cull_points(fb_point_render,fb_point_render_count,fb_point_visible,sizeof(fb_point_render_t));
+    }
+    if(!labelsOnly && !ortho && visibleCount>=0 && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_point_boxes)){
+        fb_point_params_t params;params.stride=sizeof(fb_point_geometry_t);params.flags=1|(wire?2:0)|(models?4:0);params.solidShader="ftebroom/entitysolid";params.wireShader=entityWire;params.solidIndices=fb_entity_box_triangles;params.wireIndices=bbox_line_idxs;params.wireFlags=3|DRAWFLAG_LINES;
+        int nativeDrawn=ftebroom_draw_point_boxes(fb_point_geometry,fb_point_render_count,fb_point_visible,visibleCount,&params);
+        if(nativeDrawn>=0){if(models)for(int m=0;m<fb_point_model_count;m++)fb_entity_draw_model(fb_point_models[m]);return;}
     }
     int entries=visibleCount<0?fb_point_render_count:visibleCount;
     for(int visibleEntry=0;visibleEntry<entries;visibleEntry++){

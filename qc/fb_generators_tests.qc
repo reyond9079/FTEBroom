@@ -1,3 +1,4 @@
+float fb_benchmark_start,fb_benchmark_frames;
 #include "fb_bevel_extended_tests.qc"
 // SPDX-License-Identifier: GPL-3.0-or-later
 int fb_generators_test_history;
@@ -7,23 +8,51 @@ void fb_polygon_test_rectangle(vector center,float half,float height)
     fb_polygon_points[0]=center+[-half,-half,height];fb_polygon_points[1]=center+[half,-half,height];fb_polygon_points[2]=center+[half,half,height];fb_polygon_points[3]=center+[-half,half,height];
 }
 
+void fb_fullbench_tick()
+{
+    static int started;
+    if(!cvar("ftebroom_skip_setup") || !cvar("ftebroom_fullbench")){started=FALSE;return;}
+    if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
+    started=TRUE;print("RB_FULLBENCH_READY\n");
+    string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")){
+        localcmd("ftebroom_test_generators frame76\nin 3 set ftebroom_show_entity_names 0\nin 3 set ftebroom_occlusion_culling 0\nin 4 screenshot full76-baseline.png\nin 7 set ftebroom_occlusion_culling 2\nin 8 screenshot full76-geometry.png\nin 11 set ftebroom_show_entity_names 1\nin 11 set ftebroom_occlusion_culling 1\nin 12 screenshot full76-labels.png\nin 14 quit force\n");return;
+    }
+    localcmd(strcat("ftebroom_test_generators frame76\nin 3 screenshot ",name,".png\nin 4 set ftebroom_benchmark 1\nin 15 set ftebroom_right 1\nin 15 set ftebroom_benchmark 1\nin 26 set ftebroom_right 0\nin 27 ftebroom_test_generators bench76\nin 28 quit force\n"));
+}
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="bench76"){print(sprintf("RB_BENCH_STATE time=%g start=%g frames=%g enabled=%g labels=%s\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark"),cvar_string("ftebroom_label_stats")));return TRUE;}
+    if(argv(1)=="frame76"){
+        fb_document_tick();static vector allBounds[2];
+        if(fb_container_bounds(0,allBounds)){
+            vector center=(allBounds[0]+allBounds[1])*.5;
+            float radius=vlen(allBounds[1]-allBounds[0])*.5;
+            vector eye=center+normalize('-1 -1 0.65')*radius*3;
+            vector direction=center-eye,angles='0 0 0';
+            angles_x=atan2(-direction_z,vlen([direction_x,direction_y,0]))*180/M_PI;angles_y=atan2(direction_y,direction_x)*180/M_PI;
+            print(sprintf("FTEBROOM_FULLMAP_BOUNDS %v %v\n",allBounds[0],allBounds[1]));
+            localcmd(sprintf("ftebroom_camera_restore %g %g %g %g %g 0 90\n",eye_x,eye_y,eye_z,angles_x,angles_y));
+        }
+        return TRUE;
+    }
     if(argv(1)=="labels75"){
-        int mismatches=0,hitsBefore=fb_label_native_traces;
+        int mismatches=0,hitsBefore=fb_label_native_traces;float savedOcclusion=cvar("ftebroom_occlusion_culling");cvar_set("ftebroom_occlusion_culling","0");fb_prepare_occlusion();
         cvar_set("ftebroom_native_labels","1");
+        fb_point_render_prepare();
         for(int i=0;i<2048;i++){
             float a=(float)i*.017;
             vector target='-448 288 8',start=target+[cos(a)*1024,sin(a)*1024,128];
             if(i&1i)target_z+=1024;
+            if(fb_point_render_count>0)if(i&2i){int sample=i*31i;while(sample>=fb_point_render_count)sample-=fb_point_render_count;target=fb_point_render[sample].label;}
             if((i%8)==0)start='-448 288 8';
             int actual=fb_label_visible(start,target,1);
             traceline(start,target,TRUE,world);
             if(actual!=(trace_fraction>=.999))mismatches++;
         }
         fb_transform_expect(mismatches==0,"labels75_matches_full_traces");
-        fb_transform_expect(fb_label_native_traces>hitsBefore,"labels75_native_path_exercised");
+        fb_transform_expect(fb_label_native_traces>hitsBefore,"labels75_native_path_exercised");cvar_set("ftebroom_occlusion_culling",ftos(savedOcclusion));
 return TRUE;
     }
     if(argv(1)=="map75"){

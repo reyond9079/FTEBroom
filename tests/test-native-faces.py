@@ -29,7 +29,12 @@ static int errors,draws;
 static void V_ApplyRefdef(void){r_refdef.dirty=0;}
 static void AngleVectors(float *a,float *f,float *r,float *u){(void)a;memset(f,0,12);memset(r,0,12);memset(u,0,12);f[0]=r[1]=u[2]=1;}
 static void PR_BIError(pubprogfuncs_t *p,const char *s){(void)p;(void)s;errors++;}
-static void PF_R_AddTrisoup_Simple(pubprogfuncs_t *p,struct globalvars_s *pr_globals){(void)p;assert(G_INT(OFS_PARM0)==23&&G_INT(OFS_PARM1)==3&&G_INT(OFS_PARM4)==6);draws++;}
+typedef struct {int flags;} rb_soup_context_t;
+static const char *PR_GetStringOfs(pubprogfuncs_t *p,int o){(void)p;(void)o;return "test";}
+static rb_soup_context_t RB_SoupContext(const char *n,int flags){(void)n;rb_soup_context_t c={flags};return c;}
+static void RB_AddIndexedSoup(rb_soup_context_t *c,pubprogfuncs_t *p,unsigned int v,unsigned int n,unsigned int indices,unsigned int total){(void)p;assert(c->flags==3&&v==2048&&n==4&&indices==3072&&total==6);draws++;}
+static int occluded;
+static int RB_OccludedSphere(int n,const float *center,float r){(void)n;(void)center;(void)r;return occluded;}
 '''
 checks=r'''
 int main(void){

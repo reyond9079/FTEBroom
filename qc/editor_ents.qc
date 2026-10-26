@@ -78,6 +78,12 @@ int fb_entity_box_triangles[]={0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,1
 
 static entedit_t *editents;
 static int numents;
+trisoup_simple_vert_t *fb_entity_vertices(int index,int solid)
+{
+    if(index<0 || index>=numents)return __NULL__;
+    if(solid)return &editents[index].solidverts[0];
+    return &editents[index].bboxverts[0];
+}
 string fb_entity_classname(int index){if(index>=0 && index<numents)return editents[index].fields["classname"];return "";}
 int fb_entity_has_model(int index){if(index<0 || index>=numents)return FALSE;return editents[index].modelindex && !editents[index].isbsp;}
 void fb_entity_draw_box(int index,vector colour,int solid,int wire,string shader)

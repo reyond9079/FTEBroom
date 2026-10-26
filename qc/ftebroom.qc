@@ -339,8 +339,15 @@ typedef struct {
     vector center,normal;vector *points;
     float spacing,radius;
     trisoup_simple_vert_t *vertices;
-    int *triangles,*lines;
+    int *triangles,*lines;int occluder;
 } fb_grid_face_t;
+int fb_occlusion_revision;int fb_generator_count,fb_render_access_count;int *fb_render_access;
+typedef struct {int stride,flags;string gridShader,edgeShader;int *visible;} fb_grid_native_params_t;
+int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid=#0:ftebroom_draw_grid;
+int(fb_grid_face_t *faces,int count,int *access,int accessCount,int stride,int mode,int revision) ftebroom_prepare_occlusion=#0:ftebroom_prepare_occlusion;
+var float autocvar_ftebroom_occlusion_culling=1;
+int fb_face_occluder(brushface_t *face,int contents,int node,int model);
+int fb_grid_built_epoch;
 fb_grid_face_t *fb_grid_faces;
 int fb_grid_face_count,fb_grid_face_capacity;
 int *fb_grid_visible;int fb_grid_visible_count;
@@ -353,7 +360,7 @@ int fb_sky_material(string material);
 var float autocvar_ftebroom_sky_overlays=0;
 void fb_surfacegrid(int geometryOnly)
 {
-    static int epoch,valid;
+    static int epoch,valid,materialEpoch;
     static brushface_t gridPlanes[MAX_BRUSHFACES];
     static vector lastEye,lastAngles,lastSize,lastMin,lastFov;
     static float lastGrid,lastAlpha,lastRotation;
@@ -361,9 +368,9 @@ void fb_surfacegrid(int geometryOnly)
     vector eye=getproperty(VF_ORIGIN),angles=getproperty(VF_ANGLES),size=getproperty(VF_SIZE);
     vector viewport=getproperty(VF_MIN),fov=getproperty(VF_FOV);
     float grid=fb_grid(),alpha=bound(0,cvar("ftebroom_grid_alpha"),1);
-    int rebuild=!valid || epoch!=fb_grid_geometry_epoch;
+    int currentMaterials=cvar("ftebroom_material_tag_epoch");int rebuild=!valid || epoch!=fb_grid_geometry_epoch || materialEpoch!=currentMaterials;
     if(rebuild) {
-        epoch=fb_grid_geometry_epoch;valid=TRUE;
+        epoch=fb_grid_geometry_epoch;valid=TRUE;materialEpoch=currentMaterials;
         // Four contiguous allocations replace four allocations per face. The
         // QC heap otherwise spends seconds walking hundreds of thousands of blocks.
         int required=0,vertexOffset=0;static vector gridBounds[2];
@@ -386,7 +393,7 @@ void fb_surfacegrid(int geometryOnly)
           if(brush_getfacepoints(model,id,0,gridBounds,2)==2){fb_grid_brush_bounds[b*2]=(gridBounds[0]+gridBounds[1])*.5;fb_grid_brush_bounds[b*2+1]=[vlen(gridBounds[1]-gridBounds[0])*.5+.1,0,0];}
           else fb_grid_brush_bounds[b*2+1]='1000000000 0 0';
           int firstFace=fb_grid_face_count;
-          int planeCount=brush_get(model,id,gridPlanes,MAX_BRUSHFACES,__NULL__);
+          int gridContents;int planeCount=brush_get(model,id,gridPlanes,MAX_BRUSHFACES,&gridContents);
           for(int f=1;f<=min(planeCount,MAX_BRUSHFACES);f++) {
             int n=brush_getfacepoints(model,id,f,facepoints,MAX_FACEPOINTS);
             if(n<3) break;
@@ -409,6 +416,7 @@ void fb_surfacegrid(int geometryOnly)
             memcpy(face.points,facepoints,sizeof(vector)*n);
             face.normal=gridPlanes[f-1].planenormal;
             face.sky=(gridPlanes[f-1].surfaceflags&4)!=0 || fb_sky_material(gridPlanes[f-1].shadername);
+            face.occluder=fb_face_occluder(&gridPlanes[f-1],gridContents,b,model);
             face.u=0;face.v=1;
             if(fabs(face.normal[0])>fabs(face.normal[1]) && fabs(face.normal[0])>fabs(face.normal[2])) {face.u=1;face.v=2;}
             else if(fabs(face.normal[1])>fabs(face.normal[2])) {face.u=0;face.v=2;}
@@ -418,7 +426,7 @@ void fb_surfacegrid(int geometryOnly)
         }
           for(int face=firstFace;face<fb_grid_face_count;face++)fb_grid_faces[face].brushEnd=fb_grid_face_count;
         }
-        memfree(fb_grid_visible);fb_grid_visible=memalloc(max(1,fb_grid_face_count)*sizeof(int));
+        memfree(fb_grid_visible);fb_grid_visible=memalloc(max(1,fb_grid_face_count)*sizeof(int));fb_grid_built_epoch=fb_grid_geometry_epoch;fb_occlusion_revision++;
     }
     if(geometryOnly) {lastGrid=-1;wasPreview=TRUE;return;}
     static vector lastGridOrigin,lastGridX,lastGridY,lastGridZ;
@@ -456,6 +464,11 @@ void fb_surfacegrid(int geometryOnly)
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int gridVisible=cvar("ftebroom_grid_visible"),edges=cvar("ftebroom_show_edges");
     shaderforname("ftebroom/brushedges","{\ncull none\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\n}\n}");
+    if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
+        fb_render_allowed(0,FB_PICK_LOCKED);fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;
+        int nativeCount=ftebroom_draw_grid(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);
+        if(nativeCount>=0){fb_grid_visible_count=nativeCount;return;}
+    }
     // Visibility is shared by the grid and edge passes.
     if(recull){fb_grid_visible_count=0;
     for(int i=0;i<fb_grid_face_count;i++) {
@@ -484,6 +497,13 @@ void fb_surfacegrid(int geometryOnly)
     }
 }
 
+void fb_prepare_occlusion()
+{
+    if(!checkbuiltin(ftebroom_prepare_occlusion))return;
+    int enabled=autocvar_ftebroom_occlusion_culling && cvar("ftebroom_quake1") && !cvar("ca_brush_view") && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP && cvar("ftebroom_render_faces")!=2 && fb_grid_built_epoch==fb_grid_geometry_epoch;
+    int mode=enabled?2:0;fb_render_allowed(0,FB_PICK_LOCKED);
+    ftebroom_prepare_occlusion(fb_grid_faces,fb_grid_face_count,fb_render_access,fb_render_access_count,sizeof(fb_grid_face_t),mode,fb_occlusion_revision);
+}
 #include "ftebroom_edit.qc"
 
 void ftebroom_prepare()

@@ -5,6 +5,8 @@ p=argparse.ArgumentParser();p.add_argument('--engine',type=Path,required=True);p
 source=(a.engine/'gl/gl_heightmap.c').read_text();code=source.split('// ReyondBroom trace index begin:',1)[1].split('// ReyondBroom trace index end.',1)[0];code=code[code.index('\ntypedef'):]
 shim=r'''
 #include <stdlib.h>
+#include <stdint.h>
+#define World_ReyondBroomInvalidateLabels() ((void)0)
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -46,11 +48,15 @@ int main(void){
  hm.wbrushes[17]=hm.wbrushes[--hm.numbrushes];Terr_TraceInvalidate(&hm);Terr_TraceCandidates(&hm,lo,hi,s,e,1,&hits);
  mainThread=0;assert(Terr_TraceCandidates(&hm,lo,hi,s,e,1,&hits)==-1&&hits==NULL);mainThread=1;
  Terr_TraceClear(&hm);free(hm.wbrushes);
- heightmap_t models[24]={0};
- for(int m=0;m<24;m++){models[m].numbrushes=256;models[m].wbrushes=calloc(256,sizeof(brushes_t));for(int i=0;i<256;i++)for(int a=0;a<3;a++){models[m].wbrushes[i].mins[a]=-1;models[m].wbrushes[i].maxs[a]=1;}}
- for(int repeat=0;repeat<2;repeat++)for(int m=0;m<24;m++)assert(Terr_TraceCandidates(&models[m],lo,hi,s,e,1,&hits)==256);
- for(int m=0;m<24;m++){Terr_TraceClear(&models[m]);free(models[m].wbrushes);}
+ heightmap_t models[288]={0};
+ for(int m=0;m<288;m++){models[m].numbrushes=32;models[m].wbrushes=calloc(32,sizeof(brushes_t));for(int i=0;i<32;i++)for(int a=0;a<3;a++){models[m].wbrushes[i].mins[a]=-1;models[m].wbrushes[i].maxs[a]=1;}}
+ for(int repeat=0;repeat<2;repeat++)for(int m=0;m<288;m++)assert(Terr_TraceCandidates(&models[m],lo,hi,s,e,1,&hits)==32);
+ for(int m=0;m<288;m++){Terr_TraceClear(&models[m]);free(models[m].wbrushes);}
 
+ heightmap_t large[3]={0};
+ for(int m=0;m<3;m++){large[m].numbrushes=262144;large[m].wbrushes=calloc(262144,sizeof(brushes_t));float far[3]={100,100,100};Terr_TraceCandidates(&large[m],far,far,far,far,1,&hits);assert(editortracebytes<=RB_TRACE_CACHE_BUDGET);}
+ assert(!Terr_TraceOwnerFind(&large[0]));
+ for(int m=0;m<3;m++){Terr_TraceClear(&large[m]);free(large[m].wbrushes);}assert(editortracebytes==0);
  puts("PASS: 49 million box comparisons, segment coverage, stable order, edit/delete invalidation, bounded eviction and worker fallback");
 }
 '''

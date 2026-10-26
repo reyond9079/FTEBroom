@@ -36,6 +36,15 @@ int fb_filter_face_tags(brushface_t *face,int contents)
     if(contents&536870912i)tags|=FB_TAG_TRANSLUCENT;
     return tags;
 }
+int fb_face_occluder(brushface_t *face,int contents,int node,int model)
+{
+    if(!cvar("ftebroom_quake1"))return 0;
+    string name=fb_material_key(face->shadername);if(substring(name,0,1)=="{" || substring(name,0,1)=="*")return 0;
+    int tags=fb_filter_face_tags(face,contents);if(tags&(FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_TRANSLUCENT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL))return 0;
+    if(node<fb_filter_tag_count)if(fb_filter_tags[node]&FB_TAG_TRIGGER)return 0;
+    if(model==1 && ((face->surfaceflags&4)||fb_sky_material(name)))return 2;
+    return 3;
+}
 void fb_filter_prepare()
 {
     static int epoch=-1,materials=-1;static string previous="";
@@ -86,10 +95,11 @@ int fb_render_allowed(int node,int flags)
     static int geometry=-1,filters=-1,visibility=-1;
     if(geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch) {
         geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;
-        memfree(fb_render_access);fb_render_access_count=fb_node_count;
+        fb_occlusion_revision++;memfree(fb_render_access);fb_render_access_count=fb_node_count;
         fb_render_access=memalloc(fb_node_count*sizeof(int));
         for(int n=0;n<fb_node_count;n++) {
             if(fb_pick_allowed(n,FB_PICK_LOCKED))fb_render_access[n]|=1;
+            if(n>=fb_filter_tag_count || !(fb_filter_tags[n]&FB_TAG_TRIGGER))fb_render_access[n]|=4;
             if(fb_pick_allowed(n,0))fb_render_access[n]|=2;
         }
     }

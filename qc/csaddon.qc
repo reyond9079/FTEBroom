@@ -263,7 +263,7 @@ void() wrap_renderscene =
             drawstring(getproperty(VF_MIN)+'16 16 0',sprintf("Preparing large map: %i / 3",warmStage),'12 12 0','1 1 1',1,0);
             return;
         }
-        cvar_set("ftebroom_large_map_ready","1");fb_visual_prepare();
+        cvar_set("ftebroom_large_map_ready","1");fb_visual_prepare();fb_fullbench_tick();
     }
     fb_profile_sum[0]+=gettime(1)-profileTime;
     // Render the focused viewport last so legacy console tools retain its projection.
@@ -305,6 +305,7 @@ void() wrap_renderscene =
         else if(autocvar_ca_editormode==MODE_LIGHTEDIT) editor_lights_addentities();
         else if(autocvar_ca_editormode==MODE_TERRAINEDIT) editor_terrain_addentities(curmousepos);
         fb_profile_sum[1]+=gettime(1)-profileTime;profileTime=gettime(1);
+        fb_prepare_occlusion();
         fb_terrain_frame(curmousepos);
         ftebroom_frame();
         fb_profile_sum[2]+=gettime(1)-profileTime;profileTime=gettime(1);

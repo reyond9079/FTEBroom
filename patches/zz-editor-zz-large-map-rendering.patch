@@ -1,0 +1,534 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1921,6 +1921,37 @@
+ }
+ 
+ 
++#if defined(__GNUC__) && !defined(__clang__)
++#pragma GCC push_options
++#pragma GCC optimize ("O3")
++#endif
++// Preserve shared vertices instead of expanding every triangle/line index.
++static qboolean RB_QCBuffer(pubprogfuncs_t *vm,unsigned int p,unsigned int n,unsigned int stride){return p && p<=vm->stringtablesize && stride && n<=(vm->stringtablesize-p)/stride;}
++typedef struct {shader_t *shader;unsigned int flags;qboolean twod;} rb_soup_context_t;
++static rb_soup_context_t RB_SoupContext(const char *name,unsigned int flags){
++ rb_soup_context_t c;c.twod=flags&DRAWFLAG_2D;c.shader=PR_R_PolygonShader(name,c.twod);c.flags=BEF_NOSHADOWS;
++ if((flags&3)==DRAWFLAG_ADD)c.flags|=BEF_FORCEADDITIVE;else if((flags&3)==DRAWFLAG_MODULATE)c.flags|=BEF_FORCETRANSPARENT;
++ if(flags&DRAWFLAG_TWOSIDED)c.flags|=BEF_FORCETWOSIDED;if(flags&DRAWFLAG_LINES)c.flags|=BEF_LINES;return c;
++}
++static void RB_AddIndexedSoup(rb_soup_context_t *c,pubprogfuncs_t *vm,unsigned int voffset,unsigned int vcount,unsigned int ioffset,unsigned int icount){
++ unsigned int i,first;const qcvertex_t *vertices;const unsigned int *indices;
++ if(!vcount||!icount)return;
++ if(vcount>MAX_INDICIES || icount>MAX_INDICIES || !RB_QCBuffer(vm,voffset,vcount,sizeof(*vertices)) || !RB_QCBuffer(vm,ioffset,icount,sizeof(*indices))){PR_BIError(vm,"ReyondBroom: invalid indexed overlay\n");return;}
++ vertices=(qcvertex_t*)(vm->stringtable+voffset);indices=(unsigned int*)(vm->stringtable+ioffset);
++ if(R2D_Flush && (R2D_Flush!=CSQC_PolyFlush || csqc_poly_shader!=c->shader || csqc_poly_flags!=c->flags || csqc_poly_2d!=c->twod))R2D_Flush();
++ if(!R2D_Flush){csqc_poly_origvert=cl_numstrisvert;csqc_poly_origidx=cl_numstrisidx;}
++ first=cl_numstrisvert-csqc_poly_origvert;
++ if(first+vcount>MAX_INDICIES || (unsigned int)(cl_numstrisidx-csqc_poly_origidx)+icount>MAX_INDICIES){if(R2D_Flush)R2D_Flush();first=0;csqc_poly_origvert=cl_numstrisvert;csqc_poly_origidx=cl_numstrisidx;}
++ R2D_Flush=CSQC_PolyFlush;csqc_poly_shader=c->shader;csqc_poly_flags=c->flags;csqc_poly_2d=c->twod;
++ if(cl_numstrisidx+icount>cl_maxstrisidx){cl_maxstrisidx=max(cl_maxstrisidx*2,cl_numstrisidx+icount+1024);cl_strisidx=BZ_Realloc(cl_strisidx,sizeof(*cl_strisidx)*cl_maxstrisidx);}
++ if(cl_numstrisvert+vcount>cl_maxstrisvert)cl_stris_ExpandVerts(max(cl_maxstrisvert*2,cl_numstrisvert+vcount+1024));
++ for(i=0;i<vcount;i++){VectorCopy(vertices[i].xyz,cl_strisvertv[cl_numstrisvert]);Vector2Copy(vertices[i].st,cl_strisvertt[cl_numstrisvert]);Vector4Copy(vertices[i].rgba,cl_strisvertc[cl_numstrisvert]);cl_numstrisvert++;}
++ for(i=0;i<icount;i++)cl_strisidx[cl_numstrisidx++]=first+(indices[i]<vcount?indices[i]:0);
++ csqc_poly_startvert=cl_numstrisvert;csqc_poly_startidx=cl_numstrisidx;
++}
++static qboolean RB_OccludedPoint(const float *point);
++static qboolean RB_LabelsComplete(void);
++static qboolean RB_LabelOrigin(const float *origin);
+ // ReyondBroom native face pass begin. Versioned, bounds-checked QC buffer ABI.
+ typedef struct {
+  int node,count,brushEnd,shader;float alpha,radius,distance;
+@@ -1931,7 +1962,7 @@
+ {
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4);
+  editorqcface_t *faces;int *access,previous=-1,visible=false,drawn=0,saved[15];unsigned int i;
+- vec3_t forward,right,up;float tx,ty;
++ vec3_t forward,right,up;float tx,ty;int lastShader=-1;rb_soup_context_t context;
+  G_INT(OFS_RETURN)=-1;
+  if(stride!=sizeof(editorqcface_t))return;
+  if(!total){G_INT(OFS_RETURN)=0;return;}
+@@ -1955,7 +1986,7 @@
+   VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=face->radius;
+   if(depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;
+   G_INT(OFS_PARM0)=face->shader;G_INT(OFS_PARM1)=3;G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=face->triangles;G_INT(OFS_PARM4)=(face->count-2)*3;
+-  PF_R_AddTrisoup_Simple(prinst,pr_globals);drawn++;
++  if(lastShader!=face->shader){lastShader=face->shader;context=RB_SoupContext(PR_GetStringOfs(prinst,OFS_PARM0),3);}RB_AddIndexedSoup(&context,prinst,face->vertices,face->count,face->triangles,(face->count-2)*3);drawn++;
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
+ }
+@@ -3065,9 +3096,156 @@
+ // Label tests need only visibility, not a copy of every trace result into QC.
+ static void QCBUILTIN PF_ReyondBroom_LineVisible(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
+ {
++ if(RB_LabelOrigin(G_VECTOR(OFS_PARM0)) && RB_LabelsComplete()){G_INT(OFS_RETURN)=!RB_OccludedPoint(G_VECTOR(OFS_PARM1));return;}
++ if(RB_LabelOrigin(G_VECTOR(OFS_PARM0)) && RB_OccludedPoint(G_VECTOR(OFS_PARM1))){G_INT(OFS_RETURN)=0;return;}
+  trace_t trace=World_Move(&csqc_world,G_VECTOR(OFS_PARM0),vec3_origin,vec3_origin,G_VECTOR(OFS_PARM1),MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);
+  G_INT(OFS_RETURN)=trace.fraction>=.999f;
+ }
++// ReyondBroom bulk overlay passes begin. QC snapshots retain ownership.
++static void QCBUILTIN PF_ReyondBroom_DrawLabels(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),stride=G_INT(OFS_PARM2),mode=G_INT(OFS_PARM3),i;
++ int saved[18],argc=vm->callargc,drawn=0,tested=0;vec3_t forward,right,up;float tx,ty;editorqcpoint_t *points;
++ G_VECTOR(OFS_RETURN)[0]=-1;G_VECTOR(OFS_RETURN)[1]=G_VECTOR(OFS_RETURN)[2]=0;
++ if(stride!=sizeof(editorqcpoint_t))return;if(!total){G_VECTOR(OFS_RETURN)[0]=0;return;}
++ if(total>1000000 || !RB_QCBuffer(vm,offset,total,stride)){PR_BIError(vm,"ReyondBroom: invalid label snapshot\n");return;}
++ points=(editorqcpoint_t*)(vm->stringtable+offset);if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(i=0;i<total;i++){
++  editorqcpoint_t *p=&points[i];vec3_t delta,pixel;float depth,width;const char *name;
++  VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
++  if(!(mode&1) && !p->model && (depth+p->radius<0||fabs(DotProduct(delta,right))>depth*tx+p->radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+p->radius*(1+ty)))continue;
++  VectorSubtract(p->label,r_refdef.vieworg,delta);if(!(mode&1)&&DotProduct(delta,forward)<=0)continue;
++  G_INT(OFS_PARM0)=p->name;name=PR_GetStringOfs(vm,OFS_PARM0);width=strlen(name)*8;
++  VectorCopy(p->label,G_VECTOR(OFS_PARM0));PF_cs_project(vm,pr_globals);VectorCopy(G_VECTOR(OFS_RETURN),pixel);pixel[2]=0;
++  if(pixel[0]+((mode&2)?0:width)<r_refdef.grect.x||pixel[1]+((mode&2)?0:8)<r_refdef.grect.y||pixel[0]>=r_refdef.grect.x+r_refdef.grect.width||pixel[1]>=r_refdef.grect.y+r_refdef.grect.height)continue;
++  if(!(mode&1) && RB_OccludedPoint(p->label))continue;
++  if(!(mode&1) && !RB_LabelsComplete()){trace_t tr=World_Move(&csqc_world,r_refdef.vieworg,vec3_origin,vec3_origin,p->label,MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);tested++;if(tr.fraction<.999f)continue;}
++  VectorCopy(pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=1;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;
++  PF_CL_drawcolouredstring(vm,pr_globals);drawn++;
++ }
++ vm->callargc=argc;memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));VectorSet(G_VECTOR(OFS_RETURN),drawn,tested,0);
++}
++typedef struct {int id,model,node,count,u,v,sky,brushEnd;vec3_t center,normal;unsigned int points;float spacing,radius;unsigned int vertices,triangles,lines;int occluder;} rb_grid_face_t;
++// The renderer remains unchanged; only entity-label visibility uses this index.
++static struct {qboolean valid;int mode;vec3_t eye;} rb_occ;
++static qboolean RB_LabelOrigin(const float *origin){return rb_occ.valid&&!memcmp(origin,rb_occ.eye,sizeof(vec3_t));}
++typedef struct {vec3_t low,high;unsigned int face;} rb_label_face_t;
++typedef struct {vec3_t low,high;unsigned int first,count,left,right;} rb_label_node_t;
++static struct {rb_label_face_t *faces;rb_label_node_t *nodes;unsigned int *order,count,used,capacity,revision,offset,total,accessOffset,accessCount;pubprogfuncs_t *vm;char *base;qboolean valid,complete;} rb_labels;
++static qboolean RB_LabelsComplete(void){return rb_occ.valid&&(rb_occ.mode&2)&&rb_labels.valid&&rb_labels.complete;}
++static unsigned int rb_label_axis,rb_label_generation;
++static int RB_LabelCompare(const void *a,const void *b){unsigned int x=*(const unsigned int*)a,y=*(const unsigned int*)b;double cx=(double)rb_labels.faces[x].low[rb_label_axis]+rb_labels.faces[x].high[rb_label_axis],cy=(double)rb_labels.faces[y].low[rb_label_axis]+rb_labels.faces[y].high[rb_label_axis];return cx<cy?-1:cx>cy?1:x<y?-1:x>y;}
++static unsigned int RB_LabelBuild(unsigned int first,unsigned int count){
++ unsigned int at=rb_labels.used++,i,a,axis=0;rb_label_node_t *node=&rb_labels.nodes[at];node->first=first;node->count=count;
++ for(a=0;a<3;a++){node->low[a]=1e30f;node->high[a]=-1e30f;}
++ for(i=first;i<first+count;i++){rb_label_face_t *f=&rb_labels.faces[rb_labels.order[i]];for(a=0;a<3;a++){if(node->low[a]>f->low[a])node->low[a]=f->low[a];if(node->high[a]<f->high[a])node->high[a]=f->high[a];}}
++ if(count<=8)return at;for(a=1;a<3;a++)if(node->high[a]-node->low[a]>node->high[axis]-node->low[axis])axis=a;rb_label_axis=axis;qsort(rb_labels.order+first,count,sizeof(*rb_labels.order),RB_LabelCompare);
++ node->left=RB_LabelBuild(first,count/2);node->right=RB_LabelBuild(first+count/2,count-count/2);node->count=0;return at;
++}
++static void RB_LabelPrepare(pubprogfuncs_t *vm,unsigned int offset,unsigned int total,unsigned int accessOffset,unsigned int accessCount,unsigned int revision){
++ if(rb_labels.valid&&rb_labels.vm==vm&&rb_labels.base==vm->stringtable&&rb_labels.offset==offset&&rb_labels.total==total&&rb_labels.accessOffset==accessOffset&&rb_labels.accessCount==accessCount&&rb_labels.revision==revision)return;
++ rb_labels.valid=false;rb_labels.complete=true;if(total>500000)return;
++ rb_labels.vm=vm;rb_labels.base=vm->stringtable;rb_labels.offset=offset;rb_labels.total=total;rb_labels.accessOffset=accessOffset;rb_labels.accessCount=accessCount;rb_labels.revision=revision;rb_labels.count=rb_labels.used=0;
++ if(total>rb_labels.capacity){rb_labels.capacity=total;rb_labels.faces=BZ_Realloc(rb_labels.faces,total*sizeof(*rb_labels.faces));rb_labels.nodes=BZ_Realloc(rb_labels.nodes,total*2*sizeof(*rb_labels.nodes));rb_labels.order=BZ_Realloc(rb_labels.order,total*sizeof(*rb_labels.order));}
++ rb_grid_face_t *faces=(rb_grid_face_t*)(vm->stringtable+offset);int *access=(int*)(vm->stringtable+accessOffset);
++ for(unsigned int i=0;i<total;i++){
++  rb_grid_face_t *f=&faces[i];if(!(f->occluder&2)||f->node<0||(unsigned int)f->node>=accessCount||(access[f->node]&5)!=5)continue;
++  if(f->count<3||f->count>256||!RB_QCBuffer(vm,f->points,f->count,sizeof(vec3_t))){rb_labels.complete=false;continue;}
++  rb_label_face_t *entry=&rb_labels.faces[rb_labels.count];vec3_t *points=(vec3_t*)(vm->stringtable+f->points);entry->face=i;
++  for(int a=0;a<3;a++){entry->low[a]=entry->high[a]=points[0][a];for(int j=1;j<f->count;j++){if(entry->low[a]>points[j][a])entry->low[a]=points[j][a];if(entry->high[a]<points[j][a])entry->high[a]=points[j][a];}entry->low[a]-=.01f;entry->high[a]+=.01f;}
++  rb_labels.order[rb_labels.count]=rb_labels.count;rb_labels.count++;
++ }
++ if(rb_labels.count)RB_LabelBuild(0,rb_labels.count);rb_labels.valid=true;rb_label_generation++;
++}
++static qboolean RB_LabelBox(const float *low,const float *high,const double *inverse,const float *end){
++ double enter=0,leave=1;for(int a=0;a<3;a++){
++  if(!inverse[a]){if(rb_occ.eye[a]<low[a]||rb_occ.eye[a]>high[a])return false;}
++  else{double entryTime=((double)low[a]-rb_occ.eye[a])*inverse[a],exitTime=((double)high[a]-rb_occ.eye[a])*inverse[a],temp;if(entryTime>exitTime){temp=entryTime;entryTime=exitTime;exitTime=temp;}if(enter<entryTime)enter=entryTime;if(leave>exitTime)leave=exitTime;if(enter>leave)return false;}
++ }return true;
++}
++static unsigned int rb_label_last_face;
++static qboolean RB_LabelPolygon(unsigned int faceIndex,const vec3_t direction,double limit){
++ rb_grid_face_t *faces=(rb_grid_face_t*)(rb_labels.vm->stringtable+rb_labels.offset);
++ rb_grid_face_t *f=&faces[faceIndex];double denominator=DotProduct(direction,f->normal);if(denominator>=-1e-8)return false;
++  vec3_t planeDelta;VectorSubtract(f->center,rb_occ.eye,planeDelta);double t=DotProduct(planeDelta,f->normal)/denominator;if(!(t>0&&t<limit))return false;
++  double point[3];for(int a=0;a<3;a++)point[a]=rb_occ.eye[a]+t*direction[a];int axis=0;for(int a=1;a<3;a++)if(fabs(f->normal[a])>fabs(f->normal[axis]))axis=a;int u=(axis+1)%3,v=(axis+2)%3,sign=0,j;vec3_t *points=(vec3_t*)(rb_labels.vm->stringtable+f->points);
++  for(j=0;j<f->count;j++){int next=(j+1)%f->count;double cross=((double)points[next][u]-points[j][u])*(point[v]-points[j][v])-((double)points[next][v]-points[j][v])*(point[u]-points[j][u]);int side=cross>0?1:-1;if(fabs(cross)<1e-6||(sign&&side!=sign))break;sign=side;}return j==f->count;
++
++}
++static qboolean RB_LabelQuery(unsigned int at,const float *end,const vec3_t direction,const double *inverse,double limit){
++ rb_label_node_t *node=&rb_labels.nodes[at];if(!RB_LabelBox(node->low,node->high,inverse,end))return false;
++ if(!node->count){double left=0,right=0;for(int a=0;a<3;a++){left+=((double)rb_labels.nodes[node->left].low[a]+rb_labels.nodes[node->left].high[a]-2*rb_occ.eye[a])*direction[a];right+=((double)rb_labels.nodes[node->right].low[a]+rb_labels.nodes[node->right].high[a]-2*rb_occ.eye[a])*direction[a];}unsigned int first=left<right?node->left:node->right,second=left<right?node->right:node->left;return RB_LabelQuery(first,end,direction,inverse,limit)||RB_LabelQuery(second,end,direction,inverse,limit);}
++ for(unsigned int i=node->first;i<node->first+node->count;i++){
++  rb_label_face_t *entry=&rb_labels.faces[rb_labels.order[i]];if(!RB_LabelBox(entry->low,entry->high,inverse,end))continue;
++  if(RB_LabelPolygon(entry->face,direction,limit)){rb_label_last_face=entry->face;return true;}
++ }return false;
++}
++static qboolean RB_OccludedPoint(const float *point){
++ if(!rb_occ.valid||!(rb_occ.mode&2)||!rb_labels.valid||!rb_labels.count)return false;
++ vec3_t direction;double inverse[3],length=0;VectorSubtract(point,rb_occ.eye,direction);for(int a=0;a<3;a++){inverse[a]=fabs(direction[a])>1e-20?1.0/direction[a]:0;length+=(double)direction[a]*direction[a];}if(length<.01)return false;
++ typedef struct {unsigned int bits[3],generation,face;} hint_t;static hint_t hints[262144];unsigned int bits[3],hash=2166136261u;memcpy(bits,point,sizeof(bits));for(int a=0;a<3;a++)hash=(hash^bits[a])*16777619u;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;hash*=0x846ca68bu;hash^=hash>>16;hint_t *hint=&hints[hash&262143];double limit=1-.05/sqrt(length);
++ if(hint->generation==rb_label_generation&&!memcmp(hint->bits,bits,sizeof(bits))&&hint->face<rb_labels.total&&RB_LabelPolygon(hint->face,direction,limit))return true;
++ if(!RB_LabelQuery(0,point,direction,inverse,limit))return false;memcpy(hint->bits,bits,sizeof(bits));hint->generation=rb_label_generation;hint->face=rb_label_last_face;return true;
++}
++static void QCBUILTIN PF_ReyondBroom_PrepareOcclusion(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),mode=G_INT(OFS_PARM5),revision=G_INT(OFS_PARM6);
++ rb_occ.valid=false;G_INT(OFS_RETURN)=-1;
++ if(!mode){rb_labels.valid=false;G_INT(OFS_RETURN)=0;return;}
++ if(stride!=sizeof(rb_grid_face_t))return;
++ if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(rb_grid_face_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))){if(!total){G_INT(OFS_RETURN)=0;return;}PR_BIError(vm,"ReyondBroom: invalid occluder snapshot\n");return;}
++ if(r_refdef.dirty)V_ApplyRefdef();VectorCopy(r_refdef.vieworg,rb_occ.eye);rb_occ.mode=mode;
++ RB_LabelPrepare(vm,offset,total,accessOffset,accessCount,revision);rb_occ.valid=true;G_INT(OFS_RETURN)=rb_labels.count;
++}
++typedef struct {int stride,flags,gridShader,edgeShader;unsigned int visible;} rb_grid_params_t;
++static void QCBUILTIN PF_ReyondBroom_DrawGrid(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),boundsOffset=G_INT(OFS_PARM2),accessOffset=G_INT(OFS_PARM3),accessCount=G_INT(OFS_PARM4),paramsOffset=G_INT(OFS_PARM5),i;
++ rb_grid_params_t params;rb_grid_face_t *faces;vec3_t *bounds,forward,right,up;int *access,*visible,previous=-1,allowed=0,count=0,pass,saved[18];float tx,ty;
++ G_INT(OFS_RETURN)=-1;
++ if(!RB_QCBuffer(vm,paramsOffset,1,sizeof(params)))return;memcpy(&params,vm->stringtable+paramsOffset,sizeof(params));if(params.stride!=sizeof(rb_grid_face_t))return;
++ if(!total){G_INT(OFS_RETURN)=0;return;}
++ if(total>2000000 || accessCount>1000000 || !RB_QCBuffer(vm,offset,total,sizeof(*faces)) || !RB_QCBuffer(vm,boundsOffset,accessCount*2,sizeof(vec3_t)) || !RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int)) || !RB_QCBuffer(vm,params.visible,total,sizeof(int))){PR_BIError(vm,"ReyondBroom: invalid grid snapshot\n");return;}
++ faces=(rb_grid_face_t*)(vm->stringtable+offset);bounds=(vec3_t*)(vm->stringtable+boundsOffset);access=(int*)(vm->stringtable+accessOffset);visible=(int*)(vm->stringtable+params.visible);
++ if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ for(i=0;i<total;i++){
++  rb_grid_face_t *face=&faces[i];vec3_t delta;float depth,extent;
++  if(face->node!=previous){previous=face->node;allowed=face->node>=0&&(unsigned int)face->node<accessCount&&(access[face->node]&1);if(allowed){VectorSubtract(bounds[face->node*2],r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=bounds[face->node*2+1][0];if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))allowed=0;}}
++  if(!allowed){if(face->brushEnd>(int)i && (unsigned int)face->brushEnd<=total)i=face->brushEnd-1;continue;}
++  if(face->sky && !(params.flags&4))continue;VectorSubtract(r_refdef.vieworg,face->center,delta);if(DotProduct(delta,face->normal)<-.01f)continue;
++  VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=face->radius;if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))continue;
++  visible[count++]=i;
++ }
++ memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(pass=0;pass<2;pass++){
++  if(!(params.flags&(pass?2:1)))continue;
++  G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
++  for(i=0;i<(unsigned int)count;i++){rb_grid_face_t *face=&faces[visible[i]];if(face->count<3||face->count>256)continue;G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;G_INT(OFS_PARM1)=3|(pass?DRAWFLAG_LINES:0);G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=pass?face->lines:face->triangles;G_INT(OFS_PARM4)=pass?face->count*2:(face->count-2)*3;RB_AddIndexedSoup(&context,vm,face->vertices,face->count*2,pass?face->lines:face->triangles,pass?face->count*2:(face->count-2)*3);}
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=count;
++}
++typedef struct {unsigned int solid,wire;int model;} rb_point_geometry_t;
++typedef struct {int stride,flags,solidShader,wireShader;unsigned int solidIndices,wireIndices;int wireFlags;} rb_point_params_t;
++static void QCBUILTIN PF_ReyondBroom_DrawPointBoxes(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),visibleOffset=G_INT(OFS_PARM2),visibleCount=G_INT(OFS_PARM3),paramsOffset=G_INT(OFS_PARM4),i;rb_point_params_t params;rb_point_geometry_t *geometry;int *visible,saved[15],pass,drawn=0;
++ G_INT(OFS_RETURN)=-1;if(!RB_QCBuffer(vm,paramsOffset,1,sizeof(params)))return;memcpy(&params,vm->stringtable+paramsOffset,sizeof(params));if(params.stride!=sizeof(rb_point_geometry_t))return;
++ if(!total||!visibleCount){G_INT(OFS_RETURN)=0;return;}
++ if(total>1000000||visibleCount>total||!RB_QCBuffer(vm,offset,total,sizeof(*geometry))||!RB_QCBuffer(vm,visibleOffset,visibleCount,sizeof(int))||!RB_QCBuffer(vm,params.solidIndices,36,sizeof(int))||!RB_QCBuffer(vm,params.wireIndices,24,sizeof(int))){PR_BIError(vm,"ReyondBroom: invalid point geometry snapshot\n");return;}
++ geometry=(rb_point_geometry_t*)(vm->stringtable+offset);visible=(int*)(vm->stringtable+visibleOffset);memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(pass=0;pass<2;pass++){
++  if(!(params.flags&(pass?2:1)))continue;
++  G_INT(OFS_PARM0)=pass?params.wireShader:params.solidShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),pass?params.wireFlags:3);
++  for(i=0;i<visibleCount;i++){int index=visible[i];rb_point_geometry_t *g;if(index<0||(unsigned int)index>=total)continue;g=&geometry[index];if(!pass&&(params.flags&4)&&g->model)continue;
++   G_INT(OFS_PARM0)=pass?params.wireShader:params.solidShader;G_INT(OFS_PARM1)=pass?params.wireFlags:3;G_INT(OFS_PARM2)=pass?g->wire:g->solid;G_INT(OFS_PARM3)=pass?params.wireIndices:params.solidIndices;G_INT(OFS_PARM4)=pass?24:36;RB_AddIndexedSoup(&context,vm,pass?g->wire:g->solid,pass?8:24,pass?params.wireIndices:params.solidIndices,pass?24:36);drawn++;
++  }
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
++}
++// ReyondBroom bulk overlay passes end.
++#if defined(__GNUC__) && !defined(__clang__)
++#pragma GCC pop_options
++#endif
+ static void QCBUILTIN PF_cs_tracebox(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+ {
+ 	float	*v1, *v2, *mins, *maxs;
+@@ -7242,6 +7420,10 @@
+ 	{"ftebroom_draw_faces",PF_ReyondBroom_DrawFaces,0},
+ 	{"ftebroom_cull_points",PF_ReyondBroom_CullPoints,0},
+ 	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
++	{"ftebroom_draw_labels",PF_ReyondBroom_DrawLabels,0},
++	{"ftebroom_draw_grid",PF_ReyondBroom_DrawGrid,0},
++	{"ftebroom_prepare_occlusion",PF_ReyondBroom_PrepareOcclusion,0},
++	{"ftebroom_draw_point_boxes",PF_ReyondBroom_DrawPointBoxes,0},
+ 
+ 	{"getproperty",				PF_R_GetViewFlag,	309},				// #309 vector/float(float property) getproperty (EXT_CSQC_1)
+ 
+--- a/engine/server/world.c
++++ b/engine/server/world.c
+@@ -24,6 +24,7 @@
+ #include "pr_common.h"
+ 
+ #if defined(CSQC_DAT) || !defined(CLIENTONLY)
++static unsigned int rb_label_geometry_epoch;
+ /*
+ 
+ entities never clip against themselves, or their owner
+@@ -512,6 +513,7 @@
+ */
+ void QDECL World_LinkEdict (world_t *w, wedict_t *ent, qboolean touch_triggers)
+ {
++ World_ReyondBroomInvalidateLabels();
+ 	pvec_t *mins;
+ 	pvec_t *maxs;
+ 	int solid;
+@@ -1813,6 +1815,21 @@
+ 		}
+ 	}
+ }
++// Sparse occupancy avoids scanning an entire empty CSQC area grid per label ray.
++typedef struct {int x,y;} rb_grid_cell_t;
++static qboolean RB_ClipOccupiedGrid(world_t *w,moveclip_t *clip,int *ming,int *maxg){
++ static world_t *owner;static void *areas;static double time;static unsigned int epoch;static int width,height,count,capacity;static rb_grid_cell_t *cells;
++ int x,y,i;size_t total;
++ if(!Sys_IsMainThread() || w->gridsize[0]<=0 || w->gridsize[1]<=0)return false;
++ total=(size_t)w->gridsize[0]*w->gridsize[1];if(total>1000000)return false;
++ if(owner!=w || areas!=w->gridareas || time!=realtime || epoch!=rb_label_geometry_epoch || width!=w->gridsize[0] || height!=w->gridsize[1]){
++  owner=w;areas=w->gridareas;time=realtime;epoch=rb_label_geometry_epoch;width=w->gridsize[0];height=w->gridsize[1];count=0;
++  if((size_t)capacity<total){capacity=total;cells=BZ_Realloc(cells,total*sizeof(*cells));}
++  for(x=0;x<width;x++)for(y=0;y<height;y++){areagridlink_t *cell=&w->gridareas[x+y*width];if(cell->l.next!=&cell->l){cells[count].x=x;cells[count++].y=y;}}
++ }
++ for(i=0;i<count;i++){x=cells[i].x;y=cells[i].y;if(x>=ming[0]&&x<maxg[0]&&y>=ming[1]&&y<maxg[1])World_ClipToLinks(w,&w->gridareas[x+y*width],clip);}
++ return true;
++}
+ static void World_ClipToAllLinks (world_t *w, moveclip_t *clip)
+ {
+ 	int ming[2], maxg[2], g[2];
+@@ -1820,6 +1837,7 @@
+ 	World_ClipToLinks(w, &w->jumboarea, clip);
+ 
+ 	CALCAREAGRIDBOUNDS(w, clip->boxmins, clip->boxmaxs);
++    if((clip->type & REYONDBROOM_MOVE_OCCLUSION) && RB_ClipOccupiedGrid(w,clip,ming,maxg))return;
+ 
+ 	for (    g[0] = ming[0]; g[0] < maxg[0]; g[0]++)
+ 		for (g[1] = ming[1]; g[1] < maxg[1]; g[1]++)
+@@ -2124,11 +2142,73 @@
+ }
+ #endif
+ 
++void World_ReyondBroomInvalidateLabels(void){rb_label_geometry_epoch++;}
++// Do not send the private hull marker to BSP/alias/third-party trace functions.
++static int World_EditorOcclusionHull(model_t *model,int hull,unsigned int type)
++{
++#ifdef TERRAIN
++ if((type & REYONDBROOM_MOVE_OCCLUSION) && model && model->funcs.NativeTrace==Heightmap_Trace_Test)return REYONDBROOM_OCCLUSION_HULL;
++#endif
++ return hull;
++}
+ #if defined(HAVE_CLIENT) && defined(CSQC_DAT)
++// Main-thread, editor-only broad phase. All candidate collision tests stay unchanged.
++typedef struct {vec3_t low,high;int source;} rb_net_box_t;
++typedef struct {vec3_t low,high;unsigned int first,count,left,right;} rb_net_node_t;
++static struct {rb_net_box_t *boxes;rb_net_node_t *nodes;unsigned int *order,*hits,count,used,capacity,epoch;packet_entities_t *packet;void *entities;unsigned int entityCount;double time;float serverTime;} rb_net;
++static unsigned int rb_net_axis;
++static int RB_NetCompare(const void *a,const void *b){
++ unsigned int x=*(const unsigned int*)a,y=*(const unsigned int*)b;
++ double cx=(double)rb_net.boxes[x].low[rb_net_axis]+rb_net.boxes[x].high[rb_net_axis],cy=(double)rb_net.boxes[y].low[rb_net_axis]+rb_net.boxes[y].high[rb_net_axis];
++ return cx<cy?-1:cx>cy?1:x<y?-1:x>y;
++}
++static int RB_NetSourceCompare(const void *a,const void *b){int x=*(const int*)a,y=*(const int*)b;return x<y?-1:x>y;}
++static unsigned int RB_NetBuild(unsigned int first,unsigned int count){
++ unsigned int at=rb_net.used++,i,a,axis=0;rb_net_node_t *node=&rb_net.nodes[at];node->first=first;node->count=count;
++ for(a=0;a<3;a++){node->low[a]=FLT_MAX;node->high[a]=-FLT_MAX;}
++ for(i=first;i<first+count;i++){rb_net_box_t *box=&rb_net.boxes[rb_net.order[i]];for(a=0;a<3;a++){if(node->low[a]>box->low[a])node->low[a]=box->low[a];if(node->high[a]<box->high[a])node->high[a]=box->high[a];}}
++ if(count<=8)return at;
++ for(a=1;a<3;a++)if(node->high[a]-node->low[a]>node->high[axis]-node->low[axis])axis=a;
++ rb_net_axis=axis;qsort(rb_net.order+first,count,sizeof(*rb_net.order),RB_NetCompare);
++ node->left=RB_NetBuild(first,count/2);node->right=RB_NetBuild(first+count/2,count-count/2);node->count=0;return at;
++}
++static qboolean RB_NetIntersects(const float *low,const float *high,const float *start,const float *end){
++ double enter=0,leave=1;int a;
++ for(a=0;a<3;a++){double delta=(double)end[a]-start[a],lo=(double)low[a]-1,hi=(double)high[a]+1;
++  if(fabs(delta)<1e-20){if(start[a]<lo||start[a]>hi)return false;}
++  else{double near=(lo-start[a])/delta,far=(hi-start[a])/delta,temp;if(near>far){temp=near;near=far;far=temp;}if(enter<near)enter=near;if(leave>far)leave=far;if(enter>leave)return false;}
++ }return true;
++}
++static void RB_NetQuery(unsigned int at,const float *start,const float *end,unsigned int *count){
++ rb_net_node_t *node=&rb_net.nodes[at];unsigned int i;
++ if(!RB_NetIntersects(node->low,node->high,start,end))return;
++ if(node->count){for(i=node->first;i<node->first+node->count;i++){rb_net_box_t *b=&rb_net.boxes[rb_net.order[i]];if(RB_NetIntersects(b->low,b->high,start,end))rb_net.hits[(*count)++]=b->source;}}
++ else{RB_NetQuery(node->left,start,end,count);RB_NetQuery(node->right,start,end,count);}
++}
++static int RB_NetCandidates(packet_entities_t *pe,const float *start,const float *end,unsigned int **indices){
++ unsigned int i,a,count=0;
++ *indices=NULL;if(!Sys_IsMainThread()||pe->num_entities>262144)return -1;
++ if(rb_net.packet!=pe || rb_net.entities!=pe->entities || rb_net.entityCount!=pe->num_entities || rb_net.time!=realtime || rb_net.serverTime!=pe->servertime || rb_net.epoch!=rb_label_geometry_epoch){
++  rb_net.packet=pe;rb_net.entities=pe->entities;rb_net.entityCount=pe->num_entities;rb_net.time=realtime;rb_net.serverTime=pe->servertime;rb_net.epoch=rb_label_geometry_epoch;rb_net.count=rb_net.used=0;
++  if(rb_net.capacity<(unsigned int)pe->num_entities){rb_net.capacity=pe->num_entities;rb_net.boxes=BZ_Realloc(rb_net.boxes,rb_net.capacity*sizeof(*rb_net.boxes));rb_net.nodes=BZ_Realloc(rb_net.nodes,rb_net.capacity*2*sizeof(*rb_net.nodes));rb_net.order=BZ_Realloc(rb_net.order,rb_net.capacity*sizeof(*rb_net.order));rb_net.hits=BZ_Realloc(rb_net.hits,rb_net.capacity*sizeof(*rb_net.hits));}
++  for(i=0;i<(unsigned int)pe->num_entities;i++){
++   entity_state_t *ent=&pe->entities[i];model_t *model;rb_net_box_t *box;float radius=0;
++   if(ent->solidsize!=ES_SOLID_BSP||ent->modelindex<=0||ent->modelindex>=MAX_PRECACHE_MODELS)continue;
++   model=cl.model_precache[ent->modelindex];if(!model||model->loadstate!=MLS_LOADED||!model->funcs.NativeTrace)continue;
++   box=&rb_net.boxes[rb_net.count];box->source=i;
++   if(ent->angles[0]||ent->angles[1]||ent->angles[2])for(a=0;a<3;a++){if(radius<fabs(model->mins[a]))radius=fabs(model->mins[a]);if(radius<fabs(model->maxs[a]))radius=fabs(model->maxs[a]);}
++   if(radius)radius*=1.732051f;for(a=0;a<3;a++){box->low[a]=ent->origin[a]+(radius?-radius:model->mins[a]);box->high[a]=ent->origin[a]+(radius?radius:model->maxs[a]);}
++   rb_net.order[rb_net.count]=rb_net.count;rb_net.count++;
++  }
++  if(rb_net.count)RB_NetBuild(0,rb_net.count);
++ }
++ if(rb_net.count)RB_NetQuery(0,start,end,&count);
++ qsort(rb_net.hits,count,sizeof(*rb_net.hits),RB_NetSourceCompare);*indices=rb_net.hits;return count;
++}
+ //The logic of this function is seriously handicapped vs the other types of trace we could be doing.
+ static void World_ClipToNetwork (world_t *w, moveclip_t *clip)
+ {
+-	int i, candidateIndex, hintedIndex=-1;
++	int i, candidateIndex, hintedIndex=-1, candidateCount=-1;unsigned int *candidateIndices=NULL;
+ 	// A bounded hint cache only changes any-hit query order. Every hint is retraced.
+ 	typedef struct { unsigned int endbits[3], number; int index; qboolean valid; } rb_occluder_hint_t;
+ 	static rb_occluder_hint_t hints[8192];
+@@ -2167,11 +2247,11 @@
+ 		   hint->index>=0 && hint->index<pe->num_entities &&
+ 		   pe->entities[hint->index].number==hint->number)hintedIndex=hint->index;
+ 	}
+-	for (i = 0; i < pe->num_entities; i++)
++    if(clip->type & REYONDBROOM_MOVE_OCCLUSION)candidateCount=RB_NetCandidates(pe,clip->start,clip->end,&candidateIndices);
++	for (i = hintedIndex>=0?-1:0; i < (candidateCount<0?pe->num_entities:candidateCount); i++)
+ 	{
+ 		if((clip->type & REYONDBROOM_MOVE_OCCLUSION) && clip->trace.fraction<.999f)return;
+-		candidateIndex=i;
+-		if(hintedIndex>=0){if(i==0)candidateIndex=hintedIndex;else if(i==hintedIndex)candidateIndex=0;}
++		candidateIndex=i<0?hintedIndex:(candidateIndices?(int)candidateIndices[i]:i);
+ 		touch = &pe->entities[candidateIndex];
+ 		if (touch->number == skip)
+ 			continue; //can happen with deltalisten or certain evil hacks.
+@@ -2259,7 +2339,7 @@
+ 		framestate.g[FS_REG].frame[0] = touch->frame;
+ 		framestate.g[FS_REG].lerpweight[0] = 1;
+ 
+-		if (World_TransformedTrace(model, 0, &framestate, clip->start, clip->end, clip->mins, clip->maxs, clip->capsule, &trace, touch->origin, ang, clip->hitcontentsmask))
++		if (World_TransformedTrace(model, World_EditorOcclusionHull(model,0,clip->type), &framestate, clip->start, clip->end, clip->mins, clip->maxs, clip->capsule, &trace, touch->origin, ang, clip->hitcontentsmask))
+ 		{
+ 	// if using hitmodel, we know it hit the bounding box, so try a proper trace now.
+ 			/*if (clip->type & MOVE_HITMODEL && (trace.fraction != 1 || trace.startsolid) && !model)
+@@ -2532,7 +2612,7 @@
+ #endif
+ 
+ // clip to world
+-	clip.trace = World_ClipMoveToEntity (w, w->edicts, w->edicts->v->origin, w->edicts->v->angles, start, mins, maxs, end, hullnum, false, clip.capsule, clip.hitcontentsmask);
++	clip.trace = World_ClipMoveToEntity (w, w->edicts, w->edicts->v->origin, w->edicts->v->angles, start, mins, maxs, end, World_EditorOcclusionHull(w->worldmodel,hullnum,type), false, clip.capsule, clip.hitcontentsmask);
+ 	if((type & REYONDBROOM_MOVE_OCCLUSION) && clip.trace.fraction<.999f)return clip.trace;
+ 
+ 	clip.start = start;
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -7,6 +7,7 @@
+ //FIXME: sort texture blend names to reduce combinations
+ 
+ #include "quakedef.h"
++#include "reyondbroom_trace.h"
+ 
+ #ifdef TERRAIN
+ #include "glquake.h"
+@@ -97,7 +98,15 @@
+ // ReyondBroom trace index begin: main-thread broad phase, stable brush indices.
+ typedef struct {vec3_t mins,maxs;unsigned int first,count,left,right;} editortracenode_t;
+ typedef struct {heightmap_t *owner;editortracenode_t *nodes;unsigned int *indices,*hits;size_t count,capacity,used,age;} editortraceindex_t;
+-static editortraceindex_t editortraceindices[16];
++#define RB_TRACE_CACHE_SLOTS 256
++#define RB_TRACE_CACHE_BUDGET (64u*1024u*1024u)
++static editortraceindex_t editortraceindices[RB_TRACE_CACHE_SLOTS];
++static unsigned short editortraceowners[1024];static size_t editortracebytes;
++static unsigned int Terr_TraceOwnerHash(heightmap_t *hm){uintptr_t key=(uintptr_t)hm;key^=key>>16;key*=0x9e3779b1u;key^=key>>16;return (unsigned int)key&1023;}
++static void Terr_TraceOwnerInsert(unsigned int i){unsigned int slot=Terr_TraceOwnerHash(editortraceindices[i].owner);while(editortraceowners[slot])slot=(slot+1)&1023;editortraceowners[slot]=i+1;}
++static editortraceindex_t *Terr_TraceOwnerFind(heightmap_t *hm){unsigned int slot=Terr_TraceOwnerHash(hm);while(editortraceowners[slot]){editortraceindex_t *cache=&editortraceindices[editortraceowners[slot]-1];if(cache->owner==hm)return cache;slot=(slot+1)&1023;}return NULL;}
++static size_t Terr_TraceBytes(size_t capacity){return capacity*(2*sizeof(editortracenode_t)+2*sizeof(unsigned int));}
++static void Terr_TraceRelease(editortraceindex_t *cache){unsigned int i;editortracebytes-=Terr_TraceBytes(cache->capacity);BZ_Free(cache->nodes);BZ_Free(cache->indices);BZ_Free(cache->hits);memset(cache,0,sizeof(*cache));memset(editortraceowners,0,sizeof(editortraceowners));for(i=0;i<RB_TRACE_CACHE_SLOTS;i++)if(editortraceindices[i].owner)Terr_TraceOwnerInsert(i);}
+ static size_t editortraceage;
+ static heightmap_t *editortracesorthm;
+ static unsigned int editortracesortaxis;
+@@ -123,9 +132,10 @@
+  return index;
+ }
+ static void Terr_TraceInvalidate(heightmap_t *hm)
+-{unsigned int c;if(!Sys_IsMainThread())return;for(c=0;c<16;c++)if(editortraceindices[c].owner==hm)editortraceindices[c].count=(size_t)-1;}
++{unsigned int c;if(!Sys_IsMainThread())return;World_ReyondBroomInvalidateLabels();for(c=0;c<RB_TRACE_CACHE_SLOTS;c++)if(editortraceindices[c].owner==hm)editortraceindices[c].count=(size_t)-1;}
+ static void Terr_TraceClear(heightmap_t *hm)
+-{unsigned int c;if(!Sys_IsMainThread())return;for(c=0;c<16;c++)if(editortraceindices[c].owner==hm){BZ_Free(editortraceindices[c].nodes);BZ_Free(editortraceindices[c].indices);BZ_Free(editortraceindices[c].hits);memset(&editortraceindices[c],0,sizeof(editortraceindices[c]));}}
++{editortraceindex_t *cache;if(!hm||!Sys_IsMainThread())return;cache=Terr_TraceOwnerFind(hm);if(cache)Terr_TraceRelease(cache);}
++
+ static qboolean Terr_TraceNodeIntersects(editortracenode_t *node,const float *low,const float *high,const float *start,const float *end,qboolean point)
+ {
+  unsigned int a;double enter=0,leave=1;
+@@ -149,12 +159,19 @@
+ static int Terr_TraceCandidates(heightmap_t *hm,const float *low,const float *high,const float *start,const float *end,qboolean point,unsigned int **hits)
+ {
+  editortraceindex_t *cache=NULL;unsigned int c,oldest=0,count=0;size_t i;
+- *hits=NULL;if(!Sys_IsMainThread()||hm->numbrushes<256||hm->numbrushes>262144)return -1;
+- for(c=0;c<16;c++){if(editortraceindices[c].owner==hm){cache=&editortraceindices[c];break;}if(!editortraceindices[c].owner||editortraceindices[c].age<editortraceindices[oldest].age)oldest=c;}
+- if(!cache){cache=&editortraceindices[oldest];Terr_TraceClear(cache->owner);cache->owner=hm;cache->count=(size_t)-1;}
++ *hits=NULL;if(!Sys_IsMainThread()||hm->numbrushes<32||hm->numbrushes>262144)return -1;
++ cache=Terr_TraceOwnerFind(hm);
++ if(!cache){for(c=0;c<RB_TRACE_CACHE_SLOTS;c++){if(!editortraceindices[c].owner){oldest=c;break;}if(editortraceindices[c].age<editortraceindices[oldest].age)oldest=c;}
++  cache=&editortraceindices[oldest];if(cache->owner)Terr_TraceRelease(cache);cache->owner=hm;cache->count=(size_t)-1;Terr_TraceOwnerInsert(oldest);
++ }
+  cache->age=++editortraceage;
+  if(cache->count!=hm->numbrushes){
+-  if(cache->capacity<hm->numbrushes){BZ_Free(cache->nodes);BZ_Free(cache->indices);BZ_Free(cache->hits);cache->capacity=hm->numbrushes;cache->nodes=BZ_Malloc(cache->capacity*2*sizeof(*cache->nodes));cache->indices=BZ_Malloc(cache->capacity*sizeof(*cache->indices));cache->hits=BZ_Malloc(cache->capacity*sizeof(*cache->hits));}
++  if(cache->capacity<hm->numbrushes){
++   size_t required=Terr_TraceBytes(hm->numbrushes);if(required>RB_TRACE_CACHE_BUDGET)return -1;
++   editortracebytes-=Terr_TraceBytes(cache->capacity);BZ_Free(cache->nodes);BZ_Free(cache->indices);BZ_Free(cache->hits);cache->nodes=NULL;cache->indices=cache->hits=NULL;cache->capacity=0;
++   while(editortracebytes+required>RB_TRACE_CACHE_BUDGET){editortraceindex_t *victim=NULL;for(c=0;c<RB_TRACE_CACHE_SLOTS;c++)if(&editortraceindices[c]!=cache && editortraceindices[c].capacity && (!victim||editortraceindices[c].age<victim->age))victim=&editortraceindices[c];if(!victim)return -1;Terr_TraceRelease(victim);}
++   cache->capacity=hm->numbrushes;cache->nodes=BZ_Malloc(cache->capacity*2*sizeof(*cache->nodes));cache->indices=BZ_Malloc(cache->capacity*sizeof(*cache->indices));cache->hits=BZ_Malloc(cache->capacity*sizeof(*cache->hits));editortracebytes+=required;
++  }
+   cache->used=0;for(i=0;i<hm->numbrushes;i++)cache->indices[i]=i;
+   Terr_TraceBuild(cache,0,hm->numbrushes);cache->count=hm->numbrushes;
+  }
+@@ -182,6 +199,7 @@
+ }
+ static void Terr_BrushIndex_Clear(heightmap_t *hm)
+ {
++ World_ReyondBroomInvalidateLabels();
+  Terr_TraceClear(hm);
+  unsigned int c;
+  for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm){BZ_Free(editorbrushindices[c].slots);memset(&editorbrushindices[c],0,sizeof(editorbrushindices[c]));}
+@@ -4474,11 +4492,25 @@
+ 	//FIXME: optimise into the section grid
+ 	{
+         brushes_t *brushes;unsigned int *traceindices=NULL;
+-        int cursor,candidates=Terr_TraceCandidates(hmtrace.hm,hmtrace.absmins,hmtrace.absmaxs,hmtrace.start,hmtrace.end,hmtrace.shape==ispoint,&traceindices);
+-        int count=candidates<0?hmtrace.hm->numbrushes:candidates;
+-        for(cursor=0;cursor<count;cursor++)
++        // Hints contain indices/IDs, never brush pointers. Re-test live planes on every query.
++        typedef struct {heightmap_t *owner;unsigned int endbits[3],id;int index;} editorbrushhint_t;
++        static editorbrushhint_t hints[16384];editorbrushhint_t *hint=NULL;
++        unsigned int endbits[3],hash=(unsigned int)(uintptr_t)hmtrace.hm;int hintIndex=-1;
++        int cursor,count=hmtrace.hm->numbrushes;
++        if(hulloverride==REYONDBROOM_OCCLUSION_HULL && hmtrace.shape==ispoint && Sys_IsMainThread()){
++            int axis;memcpy(endbits,hmtrace.end,sizeof(endbits));
++            for(axis=0;axis<3;axis++)hash=(hash^endbits[axis])*16777619u;
++            hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;hash*=0x846ca68bu;hash^=hash>>16;hint=&hints[hash&16383];
++            if(hint->owner==hmtrace.hm && !memcmp(hint->endbits,endbits,sizeof(endbits)) && hint->index>=0 && hint->index<count && hmtrace.hm->wbrushes[hint->index].id==hint->id)hintIndex=hint->index;
++        }
++        for(cursor=hintIndex>=0?-1:0;cursor<count;cursor++)
+         {
+-            brushes=&hmtrace.hm->wbrushes[traceindices?traceindices[cursor]:cursor];
++            if(cursor==0){
++                int candidates=Terr_TraceCandidates(hmtrace.hm,hmtrace.absmins,hmtrace.absmaxs,hmtrace.start,hmtrace.end,hmtrace.shape==ispoint,&traceindices);
++                count=candidates<0?hmtrace.hm->numbrushes:candidates;if(!count)break;
++            }
++            int brushIndex=cursor<0?hintIndex:(traceindices?traceindices[cursor]:cursor);
++            brushes=&hmtrace.hm->wbrushes[brushIndex];
+ 			if (brushes->contents & against)
+ 			{
+ 				int face;
+@@ -4504,6 +4536,10 @@
+ 					trace->brush_id = brushes->id;
+ 					trace->brush_face = face;
+ 				}
++                if(hint && hmtrace.nearfrac<.999f && hmtrace.truefrac<.999f){
++                    hint->owner=hmtrace.hm;hint->index=brushIndex;hint->id=brushes->id;
++                    memcpy(hint->endbits,endbits,sizeof(endbits));break;
++                }
+ 			}
+ 		}
+ 	}
+@@ -4525,6 +4561,8 @@
+ qboolean Heightmap_Trace_Test(struct model_s *model, int hulloverride, const framestate_t *framestate, const vec3_t mataxis[3], const vec3_t start, const vec3_t end, const vec3_t mins, const vec3_t maxs, qboolean capsule, unsigned int against, struct trace_s *trace)
+ {
+ 	qboolean ret = Heightmap_Trace(model, hulloverride, framestate, mataxis, start, end, mins, maxs, capsule, against, trace);
++    // The result is already occluded; the endpoint-solid repair cannot make it clear.
++    if(hulloverride==REYONDBROOM_OCCLUSION_HULL && trace->fraction<.999f)return ret;
+ 	
+ 	if (!trace->startsolid)
+ 	{	//FIXME: this code should not be needed.
+@@ -7710,7 +7748,7 @@
+ 			}
+ #endif
+ #ifdef HAVE_CLIENT
+-	if (cls.state && modelindex > 0 && Terr_BrushNetworkEnabled())
++			if (cls.state && modelindex > 0 && Terr_BrushNetworkEnabled())
+ 			{
+ 				MSG_WriteByte(&cls.netchan.message, clcfte_brushedit);
+ 				MSG_WriteShort(&cls.netchan.message, modelindex);
+@@ -8093,7 +8131,7 @@
+ 	}
+ #endif
+ #ifdef HAVE_CLIENT
+-			if (cls.state && modelindex > 0 && Terr_BrushNetworkEnabled())
++	if (cls.state && modelindex > 0 && Terr_BrushNetworkEnabled())
+ 	{
+ 		MSG_WriteByte(&cls.netchan.message, clcfte_brushedit);
+ 		MSG_WriteShort(&cls.netchan.message, modelindex);
+--- a/engine/common/reyondbroom_trace.h
++++ b/engine/common/reyondbroom_trace.h
+@@ -2,3 +2,9 @@
+ #pragma once
+ // Private any-hit query for editor labels; ordinary traces keep nearest-hit semantics.
+ #define REYONDBROOM_MOVE_OCCLUSION (1u<<30)
++// A private hull marker is passed only to the terrain trace implementation.
++#define REYONDBROOM_OCCLUSION_HULL (-21058)
++#ifdef TERRAIN
++qboolean Heightmap_Trace_Test(struct model_s *, int, const framestate_t *, const vec3_t [3], const vec3_t, const vec3_t, const vec3_t, const vec3_t, qboolean, unsigned int, struct trace_s *);
++#endif
++void World_ReyondBroomInvalidateLabels(void);
