@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+project(ReyondBroomRubblePlugin LANGUAGES CXX)
+add_library(rubble SHARED rubble.cpp)
+target_compile_features(rubble PRIVATE cxx_std_17)
+target_include_directories(rubble PRIVATE ../../sdk)
+set_target_properties(rubble PROPERTIES PREFIX "")
+if(UNIX AND NOT APPLE)
+    set_target_properties(rubble PROPERTIES SUFFIX ".so")
+endif()
+add_custom_command(TARGET rubble POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
+    "${CMAKE_CURRENT_SOURCE_DIR}/plugin.ini" "$<TARGET_FILE_DIR:rubble>/plugin.ini")

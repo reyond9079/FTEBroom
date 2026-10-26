@@ -36,7 +36,7 @@ function Preserve([string]$name){
   if(!$oldManifest.ContainsKey($p)){return $true}
   if((FileHash $existing) -ne $oldManifest[$p]){return $true}
  }
- return ($p -match '^(downloads|updates|ftebroom/(autosave|cache))/') -or ($leaf -match '^(ftebroom-(project|game-profile|quake1|build|preferences|run|camera).*\.(txt|cfg)|appearance\.cfg|workspace\.ini|config\.cfg|fte\.cfg|installed\.lst)$')
+ return ($p -match '^(downloads|updates|ftebroom/(autosave|cache))/') -or ($leaf -match '^(ftebroom-(project|game-profile|quake1|build|preferences|run|plugins|camera).*\.(txt|cfg)|appearance\.cfg|workspace\.ini|config\.cfg|fte\.cfg|installed\.lst)$')
 }
 $mutex=$null;$stage=$null;$backup=$null;$changed=@();$process=$null
 try {

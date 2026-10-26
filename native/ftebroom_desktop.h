@@ -28,7 +28,7 @@ static BOOL CALLBACK desktopFind(HWND h,LPARAM){DWORD pid=0;GetWindowThreadProce
 static LRESULT CALLBACK desktopProc(HWND h,UINT message,WPARAM w,LPARAM l){
  if(message==WM_CLOSE && modEmbedded)modEmbedEnd();
  if(message==WM_ACTIVATE && LOWORD(w)!=WA_INACTIVE)cvars->SetFloat("ftebroom_focus_time",float(core->GetMilliseconds())/1000.f);
- if(message==WM_SETCURSOR&&LOWORD(l)==HTCLIENT&&ready&&!sceneLook&&!modCaptured){
+ if(message==WM_SETCURSOR&&LOWORD(l)==HTCLIENT&&ready&&!sceneLook&&!modCaptured&&!modelEditCameraCaptured){
   auto cursor=ImGui::GetMouseCursor();LPCSTR id=nullptr;
   switch(cursor){case ImGuiMouseCursor_ResizeNS:id=IDC_SIZENS;break;case ImGuiMouseCursor_ResizeEW:id=IDC_SIZEWE;break;case ImGuiMouseCursor_ResizeNESW:id=IDC_SIZENESW;break;case ImGuiMouseCursor_ResizeNWSE:id=IDC_SIZENWSE;break;case ImGuiMouseCursor_ResizeAll:id=IDC_SIZEALL;break;case ImGuiMouseCursor_TextInput:id=IDC_IBEAM;break;case ImGuiMouseCursor_Hand:id=IDC_HAND;break;default:break;}
   if(id){SetCursor(LoadCursorA(nullptr,id));return TRUE;}

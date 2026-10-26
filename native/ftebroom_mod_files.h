@@ -221,7 +221,7 @@ static void modFilesTree(const std::filesystem::path& folder,std::filesystem::pa
       bool expanded=ImGui::TreeNodeEx("node",flags,"%s%s",archive?(ftebroom::pak::zipFile(path)?"[PK3] ":"[PAK] "):"",path.filename().u8string().c_str());
       if(ImGui::IsItemClicked()&&!ImGui::IsItemToggledOpen()&&entry.first)navigate=path;
       if(ImGui::IsItemHovered()&&ImGui::IsMouseDoubleClicked(0)&&!entry.first) {
-        if(modelFile(path))modelViewerShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
+        if(modelFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
       }
       if(entry.first&&expanded){modFilesTree(path,navigate,depth+1,budget);ImGui::TreePop();}ImGui::PopID();
     }
@@ -297,7 +297,7 @@ static void modFilesPanel() {
         if(col)ImGui::SameLine();ImGui::PushID(i);auto p=ImGui::GetCursorScreenPos();
         if(ImGui::Selectable("##file",false,ImGuiSelectableFlags_AllowDoubleClick,{modFilesGrid?tileSize+8:ImGui::GetContentRegionAvail().x,rowHeight-ImGui::GetStyle().ItemSpacing.y})&&directory)navigate=path;
         if(ImGui::IsItemHovered()&&ImGui::IsMouseDoubleClicked(0)&&!directory) {
-          if(modelFile(path))modelViewerShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
+          if(modelFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
         }
         if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",label.c_str());
         if(ImGui::BeginDragDropSource()){auto value=path.u8string();ImGui::SetDragDropPayload("FTEBROOM_MOD_FILE",value.c_str(),value.size()+1);ImGui::TextUnformatted(label.c_str());ImGui::EndDragDropSource();}

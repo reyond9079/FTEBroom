@@ -80,6 +80,7 @@ fb_spin.qc
 fb_rock.qc
 fb_sculpt.qc
 fb_generators.qc
+fb_plugin_batch.qc
 fb_spin_tool.qc
 fb_bend.qc
 fb_polygon.qc

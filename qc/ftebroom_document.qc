@@ -152,6 +152,9 @@ void fb_document_rebuild()
 }
 void fb_document_tick()
 {
+    static float assetsEpoch=-1;
+    float currentAssets=cvar("ftebroom_entity_assets_epoch");
+    if(assetsEpoch!=currentAssets){assetsEpoch=currentAssets;fb_entity_definitions_load();editor_ents_reload();fb_grid_geometry_epoch++;}
     int revision=fb_document_revision();
     cvar_set("ftebroom_revision",itos(revision));
     if(revision!=fb_saved_revision || cvar("ftebroom_terrain_dirty")) cvar_set("ftebroom_dirty","1");

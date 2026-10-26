@@ -21,12 +21,17 @@ output.mkdir(parents=True, exist_ok=False)
 root = output / "ReyondBroom-Windows-x64"
 root.mkdir()
 (root / "bin").mkdir()
+if not (bundle/'plugins/rubble/rubble.dll').is_file():
+    raise RuntimeError('Build bundled plugins with scripts/build-plugins.py first')
+shutil.copytree(bundle/'plugins',root/'plugins')
 for name in (
     "ReyondBroom.exe", "fteqw64.exe", "fteplug_ftebroom_x64.dll", "zlib1.dll", "libpng16.dll",
     "libjpeg.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll", "Launch-ReyondBroom.cmd",
 ):
     if name == "fteqw64.exe":
         engine = bundle / "bin" / name
+        if b'ftebroom_reload_asset_models' not in (engine if engine.is_file() else bundle / name).read_bytes():
+            raise RuntimeError("Rebuild the engine with model-resource-reload.patch before packaging")
         shutil.copy2(engine if engine.is_file() else bundle / name, root / "bin" / name)
     else:
         shutil.copy2(bundle / name, root / name)

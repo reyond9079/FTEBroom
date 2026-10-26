@@ -352,6 +352,7 @@ static bool terrainCreateWindow;
 #include "ftebroom_array.h"
 #include "ftebroom_spawn_master.h"
 #include "ftebroom_unity.h"
+#include "ftebroom_plugins.h"
 #include "ftebroom_texture_folders.h"
 #include "ftebroom_prefabs.h"
 #include "ftebroom_entity_list.h"
@@ -524,7 +525,7 @@ static void panel(float w, float h)
   ImGui::BeginDisabled(modEmbedded);
   if (ImGui::BeginMainMenuBar())
   {
-    actionMenus();
+    actionMenus();pluginsMenu();
     if (ImGui::BeginMenu("Workspace"))
     {
       ImGui::MenuItem("Mod file manager",nullptr,&modFilesOpen);
@@ -536,7 +537,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 71");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 72");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1192,7 +1193,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 71");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 72");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1213,6 +1214,7 @@ static void panel(float w, float h)
   terrainPanel();
   modFilesPanel();
   modelViewerPanel();
+  pluginsPanel();
   symmetryPanel();generatorPanel();arrayPanel();settlePanel();spawnMasterPanel();unityPanel();textureFolderPanel();prefabPanel();entityListPanel();
   importDialog();
   desktopAttach();
@@ -1222,7 +1224,7 @@ static void panel(float w, float h)
   linuxPlatformTestPanel();
 #endif
 #ifndef _WIN32
-  linuxCursorUpdate(sceneLook,uiScale());
+  linuxCursorUpdate(sceneLook||modelEditCameraCaptured,uiScale());
 #endif
   render();
   modEmbedTick(w,h);
@@ -1233,6 +1235,10 @@ event(int type, int key, int unicode, float x, float y, float w, float h)
 {
   initialize();
   auto& io = ImGui::GetIO();
+  if(modelEditorInput(type,key,x,y)){
+    if(type==0){io.AddMousePosEvent(modelEditCameraCursor.x,modelEditCameraCursor.y);panel(w,h);}
+    return qtrue;
+  }
   // Restore absolute mode only after our existing menu regains focus.
   if (cameraCursorPending && input->HasMenuFocus())
   {
@@ -1605,9 +1611,10 @@ static void QDECL actionFocusTick(int)
   clipboardPump();
   documentTick();
   // Compiler jobs must advance even while the UI is occluded or another menu owns focus.
-  if(ready){runTick();buildTick();}
+  if(ready){runTick();buildTick();pluginsTick();}
   if (!ready || input->HasMenuFocus())
     return;
+  modelEditorCameraEnd(false);
   if(modCaptured)modReleaseInput();
   ctrlHeld = shiftHeld = altHeld = false;
   std::fill(std::begin(moveHeld), std::end(moveHeld), false);
@@ -1986,6 +1993,7 @@ static void testModControls()
 }
 static void shutdownEditor()
 {
+  pluginsShutdown();
   settleCancel=true;if(settleJob.valid())settleJob.wait();
   textureFolderCancel=true;if(textureFolderJob.valid())textureFolderJob.wait();
   soundStop();

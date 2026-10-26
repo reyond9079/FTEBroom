@@ -727,6 +727,7 @@ float(string cmd) CSQC_ConsoleCommand =
     if (fb_bend_command()) return TRUE;
     if (fb_array_command()) return TRUE;
     if (fb_generator_command()) return TRUE;
+    if (fb_plugin_batch_command()) return TRUE;
     if (fb_settle_command()) return TRUE;
     if (fb_land_command()) return TRUE;
     if (fb_bevel_command()) return TRUE;
@@ -793,6 +794,7 @@ void(float prevprogs) init =
     registercommand("ftebroom_document_reload");
     registercommand("ftebroom_spawn_master");
     registercommand("ftebroom_entity_definitions_loaded");
+    registercommand("ftebroom_plugin_batch");
     registercommand("ftebroom_undo");
     registercommand("ftebroom_redo");
     registercommand("ftebroom_delete");

@@ -10,6 +10,22 @@ void fb_polygon_test_rectangle(vector center,float half,float height)
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="rubble72setup"){
+        fb_cancel();fb_selection_clear();fb_createbox('0 0 160','256 32 256');fb_generators_test_history=history;fb_document_tick();return TRUE;
+    }
+    if(argv(1)=="rubble72check"){
+        fb_transform_expect(cvar("ftebroom_plugin_status")==1&&cvar("ftebroom_settle_applied")==1&&selectedbrushcount==12,"rubble72_pipeline_complete");
+        float rubbleCenter=0;for(int rubbleB=0;rubbleB<selectedbrushcount;rubbleB++){fb_poly_t rubblePoly={0};if(fb_poly_from_brush(selectedbrushes[rubbleB].model,selectedbrushes[rubbleB].id,&rubblePoly)){vector rubbleMid='0 0 0';for(int rubbleP=0;rubbleP<rubblePoly.nv;rubbleP++)rubbleMid+=rubblePoly.vertices[rubbleP];rubbleCenter+=rubbleMid_z/(float)rubblePoly.nv;}fb_poly_free(&rubblePoly);}
+        fb_transform_expect(rubbleCenter/max(1,selectedbrushcount)<cvar("ftebroom_plugin_result_center_z")-2,"rubble72_fragments_fell");
+        brush_undo();fb_transform_expect(selectedbrushcount==12,"rubble72_undo_settle");brush_undo();fb_transform_expect(history==fb_generators_test_history&&selectedbrushcount==1,"rubble72_undo_geometry");
+        brush_redo();brush_redo();fb_transform_expect(selectedbrushcount==12,"rubble72_redo_pipeline");return TRUE;
+    }
+    if(argv(1)=="rubble72invalid"){
+        fb_selection_clear();fb_createbox('600 0 160','64 32 64');int rubbleBefore=history;
+        cvar_set("ftebroom_hole_min","10000");cvar_set("ftebroom_hole_max","10000");
+        tokenize("ftebroom_plugin_batch perforate fracture");fb_plugin_batch_command();
+        fb_transform_expect(history==rubbleBefore&&selectedbrushcount==1&&cvar("ftebroom_plugin_status")==-1,"rubble72_invalid_request_atomic");return TRUE;
+    }
     if(argv(1)=="symmetry54patch"){fb_symmetry_patch_match_tests();return TRUE;}
     if(argv(1)=="symmetry54reload"){fb_symmetry_metadata_reload_test();return TRUE;}
     if(argv(1)=="symmetry54relink"){fb_symmetry_relink_tests();return TRUE;}

@@ -56,6 +56,7 @@ $bundle = Join-Path $out 'ReyondBroom-Windows-x64'
 New-Item -ItemType Directory -Force "$bundle/ftebroom", "$bundle/licenses" | Out-Null
 Run 'g++' @('-std=c++17', '-O2', '-shared', '-static', "-I$bullet/src", "-I$fte/plugins", "-I$imgui", "$src/native/ftebroom.cpp", "$imgui/imgui.cpp", "$imgui/imgui_draw.cpp", "$imgui/imgui_tables.cpp", "$imgui/imgui_widgets.cpp", "$deps/bullet-build/lib/libBulletDynamics.a", "$deps/bullet-build/lib/libBulletCollision.a", "$deps/bullet-build/lib/libLinearMath.a", '-lz', '-lole32', '-lwindowscodecs', '-lcomdlg32', '-lshell32', '-o', "$bundle/fteplug_ftebroom_x64.dll")
 Copy-Item $enginePath "$bundle/fteqw64.exe" -Force
+Run 'python' @("$src/scripts/build-plugins.py", '--compiler', "$MinGW/g++.exe", '--output', "$bundle/plugins")
 Set-Content "$out/launcher.rc" ('1 ICON "'+($fte.Replace('\','/')+'/engine/client/fte_eukaranopng.ico')+'"')
 Run 'windres' @("$out/launcher.rc",'-O','coff','-o',"$out/launcher-icon.o")
 Run 'g++' @('-std=c++17','-O2','-s','-static','-municode','-mwindows',"$src/native/ftebroom_launcher.cpp","$out/launcher-icon.o",'-o',"$bundle/ReyondBroom.exe")
@@ -82,7 +83,7 @@ Copy-Item "$src/tools/ericw" "$bundle/tools" -Recurse -Force
 if(!(Test-Path "$src/tools/audio/ffmpeg.exe")){throw 'Build the audio helper first: scripts/build-audio.sh'}
 Copy-Item "$src/tools/audio" "$bundle/tools" -Recurse -Force
 New-Item -ItemType Directory -Force "$bundle/sources/ftebroom" | Out-Null
-Copy-Item "$src/qc", "$src/native", "$src/runtime", "$src/scripts", "$src/patches", "$src/imgui-patches", "$src/tests", "$src/screenshots", "$src/docs", "$src/assets" "$bundle/sources/ftebroom" -Recurse -Force
+Copy-Item "$src/qc", "$src/native", "$src/runtime", "$src/scripts", "$src/patches", "$src/imgui-patches", "$src/tests", "$src/screenshots", "$src/docs", "$src/assets", "$src/sdk", "$src/plugins" "$bundle/sources/ftebroom" -Recurse -Force
 Copy-Item "$src/*.md", "$src/*LICENSE.txt" "$bundle/sources/ftebroom" -Force
 Copy-Item "$src/scripts/build-windows.ps1" "$bundle/sources" -Force
 Copy-Item "$src/runtime/*" "$bundle/ftebroom" -Recurse -Force

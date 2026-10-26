@@ -7,6 +7,69 @@ static bool modelEditLoaded=false,modelEditChanged=true,modelEditPlayer=false,mo
 static bool modelEditOriginAxes=true;
 static bool modelEditCull=false;
 static ImVec2 modelEditViewMin,modelEditViewSize;
+static ModelEditV modelEditRead(const std::string& key);
+static void modelEditSet(const std::string& key,ModelEditV v);
+static bool modelEditFloor=true,modelEditCameraFree=false,modelEditCameraCaptured=false;
+static int modelEditCameraButton=0;
+static bool modelEditCameraKeys[6]={},modelEditCameraShift=false,modelEditCameraAlt=false;
+static ModelEditV modelEditCameraEye{};
+static ImVec2 modelEditCameraCursor;
+static bool modelEditCameraRestore=false;
+static void modelEditorCameraEnd(bool restore){
+  bool captured=modelEditCameraCaptured;modelEditCameraCaptured=false;modelEditCameraButton=0;
+  std::fill(std::begin(modelEditCameraKeys),std::end(modelEditCameraKeys),false);modelEditCameraShift=modelEditCameraAlt=false;
+  if(captured&&!restore)modelEditCameraRestore=true;
+  if(captured&&restore){input->SetMenuFocus(qtrue,"",0,0,1);ImGui::GetIO().AddMousePosEvent(modelEditCameraCursor.x,modelEditCameraCursor.y);}
+}
+static bool modelEditorZoom(float wheel){
+  if(!modelEditorActive||!modelEditCameraFree)return false;
+  float yaw=modelViewerYaw*.01745329252f,pitch=modelViewerPitch*.01745329252f,amount=wheel*20*std::clamp(cvars->GetFloat("ftebroom_move_speed"),.01f,20.f);
+  if(cvars->GetFloat("ftebroom_wheel_invert"))amount=-amount;
+  ModelEditV forward{std::cos(pitch)*std::cos(yaw),std::cos(pitch)*std::sin(yaw),-std::sin(pitch)};
+  for(int a=0;a<3;a++)modelEditCameraEye[a]=std::clamp(modelEditCameraEye[a]+forward[a]*amount,-1e7f,1e7f);return true;
+}
+static void modelEditCameraBeginFree(){if(!modelEditCameraFree){modelEditCameraEye=modelEditRead("ftebroom_modeleditor_eye");modelEditCameraFree=true;}}
+static bool modelEditorInput(int type,int key,float x,float y){
+  if(modelEditCameraRestore&&input->HasMenuFocus()){modelEditCameraRestore=false;input->SetMenuFocus(qtrue,"",0,0,1);ImGui::GetIO().AddMousePosEvent(modelEditCameraCursor.x,modelEditCameraCursor.y);}
+  if(!modelEditorActive||!modelViewerOpen)return false;
+  if(type==3&&modelEditCameraCaptured){
+    float yaw=modelViewerYaw*.01745329252f,pitch=modelViewerPitch*.01745329252f;
+    if(modelEditCameraButton==2){float speed=std::clamp(cvars->GetFloat("ftebroom_pan_speed"),.01f,20.f);ModelEditV right{std::sin(yaw),-std::cos(yaw),0},up{std::sin(pitch)*std::cos(yaw),std::sin(pitch)*std::sin(yaw),std::cos(pitch)};for(int a=0;a<3;a++)modelEditCameraEye[a]+=(-x*right[a]+y*up[a])*speed;}
+    else{float speed=std::clamp(cvars->GetFloat("ftebroom_look_speed"),.01f,5.f);if(cvars->GetFloat("ftebroom_invert_horizontal"))x=-x;if(cvars->GetFloat("ftebroom_invert_vertical"))y=-y;modelViewerYaw-=x*speed;modelViewerPitch=std::clamp(modelViewerPitch+y*speed,-89.f,89.f);}return true;
+  }
+  if(type!=1&&type!=2)return modelEditCameraCaptured;
+  auto code=[&](const char* name){return input->GetKeyCode(name,nullptr);};bool down=type==1;
+  bool inside=x>=modelEditViewMin.x&&y>=modelEditViewMin.y&&x<modelEditViewMin.x+modelEditViewSize.x&&y<modelEditViewMin.y+modelEditViewSize.y;
+  ImGuiWindow *hovered=nullptr,*underMoving=nullptr;ImGui::FindHoveredWindowEx({x,y},true,&hovered,&underMoving);auto editorWindow=ImGui::FindWindowByName("Model editor");
+  inside=inside&&hovered&&editorWindow&&hovered->RootWindow==editorWindow->RootWindow;
+  if(key==code("shift"))modelEditCameraShift=down;if(key==code("alt"))modelEditCameraAlt=down;
+  const char* names[]={"w","s","a","d","q","x"};
+  if(!modelEditCameraCaptured&&!modelEditPlayer)for(int i=0;i<6;i++)if(key==code(names[i])&&((!down&&modelEditCameraKeys[i])||(down&&inside&&!ImGui::GetIO().WantTextInput&&!ImGui::GetIO().KeyCtrl&&!ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId)))){
+    if(down)modelEditCameraBeginFree();modelEditCameraKeys[i]=down;return true;
+  }
+  if(down&&!modelEditCameraCaptured&&!modelEditPlayer&&inside&&!ImGui::GetIO().WantTextInput&&!ImGui::IsPopupOpen(nullptr,ImGuiPopupFlags_AnyPopupId)&&(key==code("mouse2")||key==code("mouse3"))){
+    modelEditCameraBeginFree();modelEditCameraCaptured=true;modelEditCameraButton=key==code("mouse3")?2:1;modelEditCameraCursor={x,y};input->SetMenuFocus(qtrue,nullptr,0,0,1);return true;
+  }
+  if(!modelEditCameraCaptured)return false;
+  if((!down&&(key==code("mouse2")||key==code("mouse3")))||(down&&key==code("escape"))){modelEditorCameraEnd();return true;}
+  for(int i=0;i<6;i++)if(key==code(names[i]))modelEditCameraKeys[i]=down;
+  return true;
+}
+static void modelEditorCameraStep(){
+  static auto previous=std::chrono::steady_clock::now();auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-previous).count(),0.f,.05f);previous=now;
+  if(!modelViewerOpen||modelEditPlayer){modelEditorCameraEnd();return;}
+  bool moving=std::any_of(std::begin(modelEditCameraKeys),std::end(modelEditCameraKeys),[](bool held){return held;});
+  if((modelEditCameraCaptured||moving)&&!input->HasMenuFocus()){modelEditorCameraEnd(false);return;}
+  if(ImGui::GetIO().WantTextInput&&!modelEditCameraCaptured){std::fill(std::begin(modelEditCameraKeys),std::end(modelEditCameraKeys),false);moving=false;}
+  if(modelEditCameraCaptured||moving){float yaw=modelViewerYaw*.01745329252f,pitch=modelViewerPitch*.01745329252f;
+    ModelEditV forward{std::cos(pitch)*std::cos(yaw),std::cos(pitch)*std::sin(yaw),-std::sin(pitch)},right{std::sin(yaw),-std::cos(yaw),0},motion{};
+    float length=0;for(int a=0;a<3;a++){motion[a]=forward[a]*(int(modelEditCameraKeys[0])-int(modelEditCameraKeys[1]))+right[a]*(int(modelEditCameraKeys[3])-int(modelEditCameraKeys[2]));if(a==2)motion[a]+=int(modelEditCameraKeys[4])-int(modelEditCameraKeys[5]);length+=motion[a]*motion[a];}
+    float speed=std::clamp(cvars->GetFloat("ftebroom_fly_speed"),100.f,10000.f)*dt*(modelEditCameraShift?2.f:1.f)*(modelEditCameraAlt?.5f:1.f)/std::max(1.f,std::sqrt(length));
+    for(int a=0;a<3;a++)modelEditCameraEye[a]=std::clamp(modelEditCameraEye[a]+motion[a]*speed,-1e7f,1e7f);
+  }
+  cvars->SetFloat("ftebroom_modeleditor_freecamera",modelEditCameraFree);if(modelEditCameraFree)modelEditSet("ftebroom_modeleditor_camera",modelEditCameraEye);
+}
+
 static int modelEditSelected=0,modelEditTool=0,modelEditDisplay=0,modelEditDrag=-1;
 static ImVec2 modelEditMouseStart;
 static ModelEditV modelEditPositionStart{},modelEditRotationStart{};
@@ -27,9 +90,9 @@ static void modelEditBounds(){
 static ModelEditV modelEditPivot(){return modelEditWorld(modelEditSelected).point(modelEditNodes[modelEditSelected].pivot);}
 static void modelEditMoveTo(ModelEditV target){auto& n=modelEditNodes[modelEditSelected];auto p=ftebroom::modelEdit::inverse(modelEditWorld(n.parent)).point(target);for(int a=0;a<3;a++)n.position[a]=p[a]-n.pivot[a];modelEditChanged=modelEditDirty=true;}
 static void modelEditorShow(const std::string& path){
-  modelViewerShow(path);modelEditorActive=true;modelEditLoaded=false;modelEditNodes.clear();modelEditChanged=true;modelEditDirty=false;modelEditSelected=0;modelEditDrag=-1;modelEditMessage.clear();
+  modelEditorCameraEnd();modelViewerLoad(path);modelEditorActive=true;modelEditLoaded=false;modelEditNodes.clear();modelEditChanged=true;modelEditDirty=false;modelEditSelected=0;modelEditDrag=-1;modelEditMessage.clear();
   auto name=entityLower(std::filesystem::u8path(path).filename().u8string());modelEditPlayer=name.rfind("v_",0)==0;
-  modelEditDisplay=0;modelEditTool=0;cvars->SetFloat("ftebroom_modeleditor_meshes",0);cvars->SetFloat("ftebroom_modeleditor_active",1);cvars->SetFloat("ftebroom_modeleditor_count",0);
+  modelEditCameraFree=false;cvars->SetFloat("ftebroom_modeleditor_freecamera",0);modelEditDisplay=0;modelEditTool=0;cvars->SetFloat("ftebroom_modeleditor_meshes",0);cvars->SetFloat("ftebroom_modeleditor_active",1);cvars->SetFloat("ftebroom_modeleditor_count",0);
 }
 static void modelEditLoad(){
   int count=std::clamp(int(cvars->GetFloat("ftebroom_modeleditor_meshes")),0,256);if(modelEditLoaded||!count)return;
@@ -38,7 +101,7 @@ static void modelEditLoad(){
   modelEditLoaded=true;modelEditChanged=true;
 }
 static void modelEditPublish(){
-  cvars->SetFloat("ftebroom_modeleditor_player",modelEditPlayer);cvars->SetFloat("ftebroom_modeleditor_display",modelEditDisplay);cvars->SetFloat("ftebroom_modeleditor_cull",modelEditCull);cvars->SetFloat("ftebroom_modeleditor_selected",modelEditSelected);
+  cvars->SetFloat("ftebroom_modeleditor_floor",modelEditFloor);cvars->SetFloat("ftebroom_modeleditor_axes",modelEditOriginAxes);cvars->SetFloat("ftebroom_modeleditor_player",modelEditPlayer);cvars->SetFloat("ftebroom_modeleditor_display",modelEditDisplay);cvars->SetFloat("ftebroom_modeleditor_cull",modelEditCull);cvars->SetFloat("ftebroom_modeleditor_selected",modelEditSelected);
   if(!modelEditChanged||!modelEditLoaded)return;
   if(!modelEditValid()){cvars->SetFloat("ftebroom_modeleditor_count",0);return;}
   modelEditBounds();
@@ -71,11 +134,11 @@ static void modelEditExport(){
   }catch(const std::exception& e){modelEditMessage=e.what();modelConverterOpen=false;}
 }
 static void modelEditorCloseCheck(bool open){
-  static bool pending=false;if(!open){if(modelEditDirty)pending=true;else modelViewerOpen=false;}
+  static bool pending=false;if(!open){if(modelEditDirty)pending=true;else {modelViewerOpen=false;modelEditorCameraEnd();}}
   if(pending)ImGui::OpenPopup("Close model editor?");
   if(ImGui::BeginPopupModal("Close model editor?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)){
     ImGui::TextWrapped("Editor transforms are temporary. Export the model before closing if you want to keep them.");
-    if(ImGui::Button("Discard and close")){modelViewerOpen=false;modelEditDirty=false;pending=false;ImGui::CloseCurrentPopup();}ImGui::SameLine();
+    if(ImGui::Button("Discard and close")){modelViewerOpen=false;modelEditorCameraEnd();modelEditDirty=false;pending=false;ImGui::CloseCurrentPopup();}ImGui::SameLine();
     if(ImGui::Button("Keep editing")){pending=false;ImGui::CloseCurrentPopup();}ImGui::EndPopup();
   }
 }
@@ -84,7 +147,9 @@ static void modelEditorMenus(){
     if(ImGui::BeginMenu("File")){if(ImGui::MenuItem("Export model as..."))modelEditExport();ImGui::EndMenu();}
     if(ImGui::BeginMenu("View")){
       ImGui::MenuItem("View from player perspective",nullptr,&modelEditPlayer);ImGui::MenuItem("View bones",nullptr,&modelViewerBones);
-      ImGui::MenuItem("Origin guide axes",nullptr,&modelEditOriginAxes);
+      ImGui::MenuItem("Floor grid",nullptr,&modelEditFloor);
+      ImGui::MenuItem("Origin axes",nullptr,&modelEditOriginAxes);
+      if(ImGui::MenuItem("Frame model / reset camera")){modelEditorCameraEnd();modelEditCameraFree=false;modelViewerYaw=135;modelViewerPitch=15;modelViewerZoom=1;cvars->SetFloat("ftebroom_modeleditor_freecamera",0);}
       ImGui::MenuItem("Backface culling",nullptr,&modelEditCull);
       for(int i=0;i<3;i++)if(ImGui::MenuItem(i==0?"Textured":i==1?"Untextured":"Wireframe",nullptr,modelEditDisplay==i))modelEditDisplay=i;
       ImGui::EndMenu();
@@ -132,18 +197,6 @@ static bool modelEditorOverlay(ImVec2 p,ImVec2 size){
   auto project=[&](ModelEditV v,ImVec2& out){for(int a=0;a<3;a++)v[a]-=eye[a];float z=dot(v,forward);if(z<=.01f)return false;out={p.x+size.x*.5f+f*dot(v,right)/z,p.y+size.y*.5f-f*dot(v,up)/z};return true;};
   auto dl=ImGui::GetWindowDrawList();dl->PushClipRect(p,{p.x+size.x,p.y+size.y},true);
   ImVec2 zero;if(project({0,0,0},zero)){dl->AddCircle(zero,5,IM_COL32(255,220,70,255));dl->AddLine({zero.x-9,zero.y},{zero.x+9,zero.y},IM_COL32(255,220,70,255));dl->AddLine({zero.x,zero.y-9},{zero.x,zero.y+9},IM_COL32(255,220,70,255));dl->AddText({zero.x+8,zero.y+7},IM_COL32(255,220,70,255),"0, 0, 0");}else if(modelEditPlayer)dl->AddText({p.x+10,p.y+10},IM_COL32(255,220,70,255),"Camera / origin: 0, 0, 0");
-  if(modelEditOriginAxes){
-    ImU32 colours[]={IM_COL32(245,80,75,180),IM_COL32(80,225,105,180),IM_COL32(90,155,255,180)};
-    bool atOrigin=project({0,0,0},zero);float originDistance=std::sqrt(dot(eye,eye)),guideLength=std::max(.1f,originDistance*.15f);
-    for(int axis=0;axis<3;axis++){
-      ImVec2 start,end;ModelEditV direction{};direction[axis]=guideLength;
-      if(atOrigin){start=zero;if(!project(direction,end))continue;}
-      else if(modelEditPlayer){start={p.x+48*uiScale(),p.y+size.y-48*uiScale()};ModelEditV unit{};unit[axis]=1;end={start.x+dot(unit,right)*32*uiScale(),start.y-dot(unit,up)*32*uiScale()};if(std::hypot(end.x-start.x,end.y-start.y)<2){dl->AddCircle(start,5,colours[axis]);end={start.x+10,start.y+10};}}
-      else continue;
-      for(int segment=0;segment<16;segment+=2){float a=segment/16.f,b=(segment+1)/16.f;dl->AddLine({start.x+(end.x-start.x)*a,start.y+(end.y-start.y)*a},{start.x+(end.x-start.x)*b,start.y+(end.y-start.y)*b},colours[axis],1);}
-      dl->AddText(end,colours[axis],axis==0?"world X":axis==1?"world Y":"world Z");
-    }
-  }
   auto pivot=modelEditPivot();if(modelEditSelected==0){ModelEditV center{};auto& root=modelEditNodes[0];for(int a=0;a<3;a++)center[a]=(root.low[a]+root.high[a])*.5f;pivot=modelEditWorld(0).point(center);}
   ImVec2 center;bool visible=project(pivot,center);float distance=0;for(int a=0;a<3;a++)distance+=(pivot[a]-eye[a])*(pivot[a]-eye[a]);float length=std::max(.1f,std::sqrt(distance)*.18f);
   ImU32 colours[]={IM_COL32(245,80,75,255),IM_COL32(80,225,105,255),IM_COL32(90,155,255,255)};
@@ -160,5 +213,5 @@ static bool modelEditorOverlay(ImVec2 p,ImVec2 size){
     if(modelEditTool==1){float angle=std::atan2(mouse.y-center.y,mouse.x-center.x)-std::atan2(modelEditMouseStart.y-center.y,modelEditMouseStart.x-center.x);n.rotation=modelEditRotationStart;n.rotation[axis]+=angle*57.295779513f;modelEditChanged=modelEditDirty=true;}
     else {auto end=modelEditAnchorStart;end[axis]+=length;ImVec2 a,b;if(project(modelEditAnchorStart,a)&&project(end,b)){float x=b.x-a.x,y=b.y-a.y,delta=(dx*x+dy*y)/std::max(25.f,x*x+y*y)*length;auto target=modelEditPositionStart;target[axis]+=delta;if(modelEditTool==0)modelEditMoveTo(target);else{n.scale[axis]=std::clamp(modelEditScaleStart[axis]*(1+delta/length),.001f,1000.f);modelEditChanged=modelEditDirty=true;}}}
   }
-  bool captured=modelEditDrag>=0||inside&&hovered>=0;if(ImGui::IsMouseReleased(0))modelEditDrag=-1;dl->PopClipRect();return captured||modelEditPlayer;
+  bool captured=modelEditDrag>=0||inside&&hovered>=0;if(ImGui::IsMouseReleased(0))modelEditDrag=-1;dl->PopClipRect();return captured||modelEditPlayer||modelEditCameraCaptured;
 }

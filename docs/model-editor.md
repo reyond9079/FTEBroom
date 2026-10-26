@@ -17,9 +17,9 @@ Alternatively, enter values in the inspector:
   Both are numeric fields, with no sliders.
 
 Mesh pivots initially use their bounds centre; the root pivot is the model's
-original origin. The gold marker highlights world zero. Dashed RGB guide axes
-start there. The solid gizmo edits the selection. In player view, an orientation
-indicator is shown when world zero coincides with the camera.
+original origin. The gold marker highlights world zero. Long RGB axes cross
+world zero in both directions; the floor grid is at Z=0. The solid gizmo edits
+the selection.
 
 The Parent selector builds an editing hierarchy. Moving, rotating or scaling a
 parent affects its children. Changing a parent retains local transforms, so it
@@ -32,14 +32,19 @@ original object hierarchy.
 Use the triangle Play button to start animation and the Pause button to stop.
 The existing sequence, frame and skin controls remain available.
 
-The View menu offers Textured, Untextured, Wireframe, View bones, Origin guide
-axes and Backface culling. Bones are drawn over the model. Textured mode shows
+The View menu offers Textured, Untextured, Wireframe, View bones, Floor grid,
+Origin axes and Backface culling. Bones are drawn over the model. Textured mode shows
 diffuse textures with neutral lighting; it does not reproduce every runtime
 shader effect.
 
 **View from player perspective** uses a static camera at the model origin,
 looking along positive X with a 90-degree horizontal field of view. It starts
-enabled for filenames beginning with `v_`. Disable it to orbit the model.
+enabled for filenames beginning with `v_`. Disable it to orbit or fly.
+
+Hover the preview and use WASD/QX to fly; hold RMB to look around. Shift speeds up movement; Alt slows it.
+MMB pans; the wheel zooms or moves the free camera. Release the mouse button
+or press Escape to release the cursor. View > Frame model / reset camera
+restores the framed orbit view. Camera preferences match the map editor.
 
 ## Export
 

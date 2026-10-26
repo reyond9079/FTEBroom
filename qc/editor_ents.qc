@@ -110,6 +110,10 @@ string fb_entity_model_name(int index)
     if(index>=0 && index<numents) return modelnameforindex(editents[index].modelindex);
     return "";
 }
+int fb_entity_model_ready(int index)
+{
+    return index>=0 && index<numents && editents[index].modelindex && modelframecount(editents[index].modelindex)>0;
+}
 int fb_entity_bounds(int index,vector *bounds)
 {
     if(index<0 || index>=numents || !editents[index].fields) return FALSE;

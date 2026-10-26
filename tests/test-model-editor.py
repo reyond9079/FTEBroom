@@ -16,10 +16,14 @@ parser=argparse.ArgumentParser()
 parser.add_argument('--output',required=True)
 parser.add_argument('--deps',required=True)
 parser.add_argument('--windows-plugin')
+parser.add_argument('--mod',help='Use an actual Quake 1 mod archive set in the disposable fixture')
 args=parser.parse_args();root=Path(args.output).resolve();root.mkdir(parents=True,exist_ok=False);deps=Path(args.deps).resolve()
 old_args=sys.argv;sys.argv=['make-quake1-fixture.py',str(root)];os.chdir(src)
 runpy.run_path('tests/make-quake1-fixture.py',run_name='__main__');sys.argv=old_args
 editor=root/'editor';game=root/'id1';models=game/'models/qa';models.mkdir(parents=True)
+if args.mod:
+    for pak in game.glob('*.pak'):pak.unlink()
+    for pak in Path(args.mod).glob('*.pak'):shutil.copy2(pak,game/pak.name)
 def tga(rgb):return bytes([0,0,2])+bytes(9)+struct.pack('<HHBB',2,2,24,32)+bytes(rgb[::-1])*4
 (models/'red.tga').write_bytes(tga((240,20,30)));(models/'green.tga').write_bytes(tga((20,240,50)))
 def md3(view=False):
@@ -55,6 +59,7 @@ cfg=f'''exec ftebroom.cfg
 set ftebroom_skip_setup 1
 set ftebroom_test_import_root "{game.as_posix()}"
 in 5 ftebroom_test_desktop external69load
+in 7 ftebroom_test_entities player72
 in 8 ftebroom_test_desktop medit71open
 in 11 ftebroom_test_desktop medit71check
 in 12 ftebroom_test_desktop medit71pixels
@@ -81,7 +86,13 @@ in 49 ftebroom_test_desktop medit71reloadiqm
 in 52 ftebroom_test_desktop medit71reloadcheck
 in 53 ftebroom_test_desktop medit71reloadmd5
 in 56 ftebroom_test_desktop medit71reloadcheck
-in 58 quit force
+in 58 ftebroom_test_desktop medit72camera
+in 61 ftebroom_test_desktop medit72cameraStart
+in 62 ftebroom_test_desktop medit72cameraEnd
+in 63 ftebroom_test_desktop medit72hoverStart
+in 64 ftebroom_test_desktop medit72hoverEnd
+in 65 screenshot editor-floor-camera.png
+in 66 quit force
 '''
 (editor/'ftebroom/editor-test.cfg').write_text(cfg)
 env=dict(os.environ,LIBGL_ALWAYS_SOFTWARE='1',SDL_VIDEODRIVER='x11');env.pop('WAYLAND_DISPLAY',None)
@@ -91,8 +102,9 @@ with (editor/'console.txt').open('wb') as out:
     except Exception:process.terminate();raise
 log=(editor/('ftebroom/qconsole.log' if os.name=='nt' else 'console.txt')).read_text(errors='replace')
 assert '_FAIL ' not in log and 'CSQC_Abort' not in log,log[-14000:]
-for key in ('medit71_separate_editor','medit71_mesh_hierarchy','medit71_parent_propagates','medit71_preview_ready','medit71_actual_surfaces_submitted','medit71_md3_export','medit71_all_export_files','medit71_bones_overlay','medit71_viewmodel_auto_camera','medit71_player_camera_origin','medit71_mouse_axis_move','medit71_mdl_original_skins_uv_frames_retained'):
+for key in ('medit71_separate_editor','medit71_mesh_hierarchy','medit71_parent_propagates','medit71_preview_ready','medit71_actual_surfaces_submitted','medit71_md3_export','medit71_all_export_files','medit71_bones_overlay','medit71_viewmodel_auto_camera','medit71_player_camera_origin','medit71_mouse_axis_move','medit71_mdl_original_skins_uv_frames_retained','medit72_rmb_fly_capture','medit72_wasd_camera_moves','medit72_map_camera_unchanged','medit72_cursor_release','medit72_bounded_floor_grid_and_axes','medit72_sky_overlays_default_off','medit72_hover_wasd_without_capture','medit72_hover_camera_moves','medit72_camera_does_not_edit_model'):
     assert 'PASS '+key in log,(key,log[-14000:])
+assert 'PASS player72_loaded_after_resource_mount' in log and 'PASS player72_recovers_without_command' in log,log[-14000:]
 for name,digest in before.items():assert hashlib.sha256((models/name).read_bytes()).hexdigest()==digest,name
 for image in ('editor-textured.png','editor-wire.png','editor-solid.png','editor-bones.png','editor-player.png','editor-gizmo.png'):assert (editor/'ftebroom'/image).is_file(),image
 assert log.count('PASS medit71_export_reopened_in_fte')==3,log[-8000:]
@@ -103,3 +115,21 @@ green=sum(g>150 and r<100 and b<100 for r,g,b in image.getdata())
 assert red>500 and green>500,('Textured model is not visible',red,green)
 print('PASS rendered diffuse textures:',red,'red pixels and',green,'green pixels')
 print('PASS actual editor: hierarchy, transforms, rendered modes, skeletal animation/bones, viewmodel camera, mouse-axis movement, five exports; source hashes unchanged',flush=True)
+restart='''exec ftebroom.cfg
+set ftebroom_skip_setup 1
+in 6 ftebroom_camera_restore -40 -200 110 5 90 0 90
+in 7 ftebroom_test_entities player72
+in 9 screenshot player-after-restart.png
+in 10 quit force
+'''
+(editor/'ftebroom/restart-test.cfg').write_text(restart)
+old_log=(editor/'ftebroom/qconsole.log').read_text(errors='replace') if os.name=='nt' else ''
+with (editor/'restart-console.txt').open('wb') as out:
+    process=subprocess.Popen([str(engine),'-ftebroom-child-processes','-nohome','-noupdates','-window','-width','1280','-height','800','-condebug','-basedir',str(editor),'+exec','restart-test.cfg'],cwd=editor,env=env,stdout=out,stderr=subprocess.STDOUT,**options)
+    try:process.wait(timeout=30)
+    except Exception:process.terminate();raise
+restart_log=(editor/('ftebroom/qconsole.log' if os.name=='nt' else 'restart-console.txt')).read_text(errors='replace')
+if old_log and restart_log.startswith(old_log):restart_log=restart_log[len(old_log):]
+assert 'PASS player72_loaded_after_resource_mount' in restart_log and 'PASS player72_recovers_without_command' in restart_log,restart_log[-12000:]
+assert 'Unknown command "ftebroom_reload_asset_models"' not in restart_log and 'Unknown command "ftebroom_entity_definitions_loaded"' not in restart_log
+print('PASS Quake 1 player model after process restart with saved mod resources',flush=True)

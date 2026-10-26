@@ -97,7 +97,7 @@ def preserve(root, name, old):
         return True
     if leaf in ('appearance.cfg', 'workspace.ini', 'config.cfg', 'fte.cfg', 'installed.lst'):
         return path.exists()
-    if re.match(r'ftebroom-(project|game-profile|quake1|build|preferences|run|camera|recent)', leaf):
+    if re.match(r'ftebroom-(project|game-profile|quake1|build|preferences|run|plugins|camera|recent)', leaf):
         return path.exists()
     if path.is_file() and name.startswith('ftebroom/') and path.suffix.lower() in ('.cfg','.ini','.map','.wad','.def','.ent','.fgd','.txt'):
         return name not in old or file_hash(path) != old[name]

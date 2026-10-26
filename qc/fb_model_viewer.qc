@@ -12,6 +12,34 @@ vector fb_modeleditor_point(vector point,int node)
     string prefix=strcat("ftebroom_modeleditor_transform_",ftos(node));
     return stov(cvar_string(strcat(prefix,"_origin")))+stov(cvar_string(strcat(prefix,"_0")))*point_x+stov(cvar_string(strcat(prefix,"_1")))*point_y+stov(cvar_string(strcat(prefix,"_2")))*point_z;
 }
+void fb_modeleditor_guides(vector eye)
+{
+    string line="ftebroom/model-editor-guides",floorShader="ftebroom/model-editor-floor";
+    shaderforname(line,"{\ncull none\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
+    shaderforname(floorShader,"{\ncull none\nsort blend\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
+    int lines=0;
+    if(cvar("ftebroom_modeleditor_floor")){
+        float step=max(1,fb_grid()),extent=max(1024,fabs(eye_z)*2);extent=min(extent,1000000);
+        while(extent/step>64)step*=2;
+        vector center=[floor(eye_x/step)*step,floor(eye_y/step)*step,0];
+        extent=ceil(extent/step)*step;
+        R_BeginPolygon(floorShader,3);
+        R_PolygonVertex(center+[-extent,-extent,-.05],'0 0','0.18 0.20 0.24',.18);
+        R_PolygonVertex(center+[extent,-extent,-.05],'0 0','0.18 0.20 0.24',.18);
+        R_PolygonVertex(center+[extent,extent,-.05],'0 0','0.18 0.20 0.24',.18);
+        R_PolygonVertex(center+[-extent,extent,-.05],'0 0','0.18 0.20 0.24',.18);R_EndPolygon();
+        for(float offset=-extent;offset<=extent;offset+=step){
+            R_BeginPolygon(line);R_PolygonVertex(center+[offset,-extent,0],'0 0','0.38 0.42 0.48',.45);R_PolygonVertex(center+[offset,extent,0],'0 0','0.38 0.42 0.48',.45);R_EndPolygon();
+            R_BeginPolygon(line);R_PolygonVertex(center+[-extent,offset,0],'0 0','0.38 0.42 0.48',.45);R_PolygonVertex(center+[extent,offset,0],'0 0','0.38 0.42 0.48',.45);R_EndPolygon();lines+=2;
+        }
+    }
+    if(cvar("ftebroom_modeleditor_axes"))for(int axis=0;axis<3;axis++){
+        vector start='0 0 0',end='0 0 0',colour='0.25 0.5 1';start[axis]=-10000000;end[axis]=10000000;
+        if(axis==0)colour='1 .18 .15';else if(axis==1)colour='.15 1 .25';
+        R_BeginPolygon(line);R_PolygonVertex(start,'0 0',colour,1);R_PolygonVertex(end,'0 0',colour,1);R_EndPolygon();
+    }
+    cvar_set("ftebroom_modeleditor_grid_lines",itos(lines));
+}
 void fb_modelviewer_draw()
 {
     if(!cvar("ftebroom_modelviewer_open")) {
@@ -62,6 +90,7 @@ void fb_modelviewer_draw()
     vector viewAngles=[cvar("ftebroom_modelviewer_pitch"),cvar("ftebroom_modelviewer_yaw"),0];
     makevectors(viewAngles);vector eye=center-v_forward*max(8,vlen(high-low)*1.4)*max(.1,cvar("ftebroom_modelviewer_zoom"));
     float player=editing&&cvar("ftebroom_modeleditor_player");if(player){eye='0 0 0';viewAngles='0 0 0';}
+    else if(editing&&cvar("ftebroom_modeleditor_freecamera"))eye=stov(cvar_string("ftebroom_modeleditor_camera"));
     cvar_set("ftebroom_modeleditor_eye",vtos(eye));cvar_set("ftebroom_modeleditor_angles",vtos(viewAngles));
     vector size=[max(64,cvar("ftebroom_modelviewer_width")),max(64,cvar("ftebroom_modelviewer_height")),0];
     float resolutionScale=min(1,min(1600/size_x,1200/size_y));size*=resolutionScale;size_x=max(1,floor(size_x));size_y=max(1,floor(size_y));
@@ -72,6 +101,7 @@ void fb_modelviewer_draw()
     setproperty(VF_DRAWWORLD,0);setproperty(VF_FOVY,45);setproperty(VF_FOVX,atan(tan(45*M_PI/360)*size_x/size_y)*360/M_PI);
     if(player){setproperty(VF_FOVX,90);setproperty(VF_FOVY,atan(size_y/size_x)*360/M_PI);setproperty(VF_MINDIST,.1);}
     drawfill('0 0 0',size,'0.08 0.09 0.11',1,0);item.effects=EF_FULLBRIGHT;
+    if(editing)fb_modeleditor_guides(eye);
     if(editing&&cvar("ftebroom_modeleditor_count")>0){
         item.renderflags=0;item.scale=1;setorigin(item,'0 0 0');item.angles='0 0 0';
         editor_model_drawsurface(item,-1,cvar("ftebroom_modeleditor_display"));

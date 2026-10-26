@@ -6,6 +6,14 @@ string fb_entity_field(int id,string key)
 }
 float fb_entity_testcommand()
 {
+    if(argv(0)=="ftebroom_test_entities"&&argv(1)=="player72"&&cvar("ftebroom_skip_setup")){
+        fb_selection_clear();fb_entity_create("info_player_start",FALSE,'-40 -64 96');fb_document_tick();int player72=fb_selected_entity();
+        fb_entity_expect(fb_entity_model_name(player72)=="progs/player.mdl"&&fb_entity_model_ready(player72),"player72_loaded_after_resource_mount");
+        // Lose a notification deliberately: the persistent epoch must repair the scene.
+        cvar_set("ftebroom_entity_assets_epoch",ftos(cvar("ftebroom_entity_assets_epoch")+1));fb_document_tick();
+        fb_entity_expect(fb_entity_model_name(player72)=="progs/player.mdl"&&fb_entity_model_ready(player72),"player72_recovers_without_command");
+        fb_selection_clear();return TRUE;
+    }
     if(argv(0)=="ftebroom_test_scene40" && cvar("ftebroom_skip_setup")) {
         fb_selection_clear();fb_entity_create("info_player_start",FALSE,'-40 -64 96');
         int player=fb_selected_entity();fb_document_tick();

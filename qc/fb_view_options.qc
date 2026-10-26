@@ -2,7 +2,7 @@
 var float autocvar_ftebroom_show_brushes=1,autocvar_ftebroom_show_points=1,autocvar_ftebroom_show_models=1;
 var float autocvar_ftebroom_show_entity_names=1,autocvar_ftebroom_show_entity_bounds=1,autocvar_ftebroom_show_group_bounds=1,autocvar_ftebroom_show_brush_entity_bounds=1;
 var float autocvar_ftebroom_render_faces=0,autocvar_ftebroom_shade_faces=1,autocvar_ftebroom_show_edges=1;
-var float autocvar_ftebroom_bounds_visible=1;
+var float autocvar_ftebroom_bounds_visible=0;
 var float autocvar_ftebroom_hidden_tags=0,autocvar_ftebroom_entity_links=1;
 var string autocvar_ftebroom_hidden_classes="";
 int *fb_filter_tags;int fb_filter_tag_count;
@@ -11,6 +11,7 @@ int fb_sky_material(string material)
 {
     string name=fb_material_key(material);
     if(fb_shader_tags)if((int)fb_shader_tags[name]&512)return TRUE;
+    if(cvar("ftebroom_quake1") && substring(name,0,3)=="sky")return TRUE;
     return substring(name,0,4)=="sky/" || substring(name,0,6)=="skies/";
 }
 enum : int {FB_TAG_TRIGGER=1,FB_TAG_CLIP=2,FB_TAG_CAULK=4,FB_TAG_HINT=8,FB_TAG_DETAIL=16,FB_TAG_LIQUID=32,FB_TAG_TRANSLUCENT=64,FB_TAG_AREAPORTAL=128,FB_TAG_CLUSTERPORTAL=256};

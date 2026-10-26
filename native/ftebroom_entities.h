@@ -154,9 +154,10 @@ static void definitionsLoadCommand()
     if(changed)++entityDefinitionEpoch;
     definitionSource = path;
     definitionError.clear();
+    // A map can start its CSQC after the notification command has been sent.
+    cvars->SetFloat("ftebroom_entity_assets_epoch",cvars->GetFloat("ftebroom_entity_assets_epoch")+1);
     if(changed) {
       published=cache;publishedScope=scope;
-      command("ftebroom_entity_definitions_loaded\n");
     }
     core->Print(("ReyondBroom: loaded " + std::to_string(entityDefinitions.size())
                  + " entity definitions from " + path + "\n")

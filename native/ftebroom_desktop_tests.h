@@ -9,6 +9,42 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="plugin72open"){
+    pluginsTick();expect(editorPlugins.size()==1&&editorPlugins[0].api&&editorPlugins[0].module,"plugin72_external_module_loaded");
+    if(!editorPlugins.empty()){auto& p=editorPlugins[0];p.open=true;frame();if(auto window=ImGui::FindWindowByName(p.name.c_str())){ImGui::SetWindowPos(window,{10,40},ImGuiCond_Always);ImGui::SetWindowSize(window,{650,730},ImGuiCond_Always);}frame();if(auto window=ImGui::FindWindowByName(p.name.c_str()))ImGui::SetScrollY(window,window->ScrollMax.y);frame();}
+  }
+  if(std::string(mode)=="plugin72apply"){
+    auto it=pluginButtonPositions.find("Apply");expect(it!=pluginButtonPositions.end(),"plugin72_sdk_button_drawn");
+    if(it!=pluginButtonPositions.end()){auto p=it->second;event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);}
+  }
+  if(std::string(mode)=="plugin72done"){
+    expect(!editorPlugins.empty()&&editorPlugins[0].api&&!pluginBusy(editorPlugins[0])&&cvars->GetFloat("ftebroom_settle_applied"),"plugin72_async_workflow_complete");
+    if(!editorPlugins.empty()){pluginUnload(editorPlugins[0]);expect(!editorPlugins[0].api&&!editorPlugins[0].module,"plugin72_unload");pluginLoad(editorPlugins[0]);expect(editorPlugins[0].api!=nullptr,"plugin72_reload");}
+  }
+  if(std::string(mode)=="medit72camera"){modelEditDirty=false;modelEditorShow("models/qa/test.md3");frame();}
+  if(std::string(mode)=="medit72cameraStart"){
+    auto p=modelEditViewMin,s=modelEditViewSize;float x=p.x+s.x*.5f,y=p.y+s.y*.5f;
+    event(0,0,0,x,y,1280,800);modelEditCameraCursor={x,y};event(1,mouseKeys[1],0,x,y,1280,800);event(3,0,0,40,20,1280,800);event(1,input->GetKeyCode("w",nullptr),0,x,y,1280,800);
+    modelEditSet("ftebroom_test_modelcamera_start",modelEditCameraEye);modelEditSet("ftebroom_test_mapcamera_start",modelEditRead("ftebroom_camera_offset"));
+    expect(modelEditCameraCaptured&&modelEditCameraKeys[0]&&modelEditCameraFree,"medit72_rmb_fly_capture");
+  }
+  if(std::string(mode)=="medit72cameraEnd"){
+    frame();expect(modelEditCameraEye!=modelEditRead("ftebroom_test_modelcamera_start"),"medit72_wasd_camera_moves");
+    expect(modelEditRead("ftebroom_camera_offset")==modelEditRead("ftebroom_test_mapcamera_start"),"medit72_map_camera_unchanged");
+    event(2,input->GetKeyCode("w",nullptr),0,0,0,1280,800);event(2,mouseKeys[1],0,0,0,1280,800);
+    expect(!modelEditCameraCaptured&&!modelEditCameraKeys[0],"medit72_cursor_release");
+    expect(cvars->GetFloat("ftebroom_modeleditor_grid_lines")>0&&cvars->GetFloat("ftebroom_modeleditor_grid_lines")<=260&&modelEditOriginAxes,"medit72_bounded_floor_grid_and_axes");
+    expect(cvars->GetFloat("ftebroom_sky_overlays")==0,"medit72_sky_overlays_default_off");
+  }
+  if(std::string(mode)=="medit72hoverStart"){
+    auto p=modelEditViewMin,s=modelEditViewSize;float x=p.x+s.x*.25f,y=p.y+s.y*.4f;
+    event(0,0,0,x,y,1280,800);event(1,input->GetKeyCode("w",nullptr),0,x,y,1280,800);modelEditSet("ftebroom_test_modelcamera_start",modelEditCameraEye);
+    expect(modelEditCameraKeys[0]&&!modelEditCameraCaptured,"medit72_hover_wasd_without_capture");
+  }
+  if(std::string(mode)=="medit72hoverEnd"){
+    expect(modelEditCameraEye!=modelEditRead("ftebroom_test_modelcamera_start"),"medit72_hover_camera_moves");
+    event(2,input->GetKeyCode("w",nullptr),0,0,0,1280,800);expect(!modelEditDirty,"medit72_camera_does_not_edit_model");
+  }
   if(std::string(mode)=="medit71open"){
     firstSetupStep=-1;setupNeeded=false;recentWindow=false;modelEditorShow("models/qa/test.md3");frame();
     if(auto window=ImGui::FindWindowByName("Model editor")){ImGui::SetWindowPos(window,{10,40},ImGuiCond_Always);ImGui::SetWindowSize(window,{1250,740},ImGuiCond_Always);}frame();
@@ -123,7 +159,7 @@ static void testDesktop(){
     expect(!assetsLoading&&assetError.empty(),"mods63_resources_ready");
     expect(q1Palette().size()==768&&!materials.empty(),"mods63_palette_and_materials");
     expect(!entityDefinitions.empty(),"mods63_definitions");
-    modelViewerShow("progs/player.mdl");modelViewerPlay=true;
+    modelEditorShow("progs/player.mdl");modelViewerPlay=true;
     auto model=modelResource("progs/player.mdl");expect(model.substr(0,4)=="IDPO","mods63_player_resource");
     cvars->SetFloat("ftebroom_test_model_expected",ftebroom::quake1::word(model,68));
     command("mod_memlist\n");
@@ -174,7 +210,7 @@ static void testDesktop(){
     bytes[48]=2;auto skin=bytes.substr(84,skinSize);for(size_t i=4;i<skin.size();i++)skin[i]=char(2);bytes.insert(84+skinSize,skin);soundWrite(std::filesystem::u8path(root)/"models/two-skins.mdl",bytes);
     command("fs_flush\nin 0.2 ftebroom_test_desktop model64viewer\n");
   }
-  if(std::string(mode)=="model64viewer") {modelViewerShow("models/two-skins.mdl");frame();}
+  if(std::string(mode)=="model64viewer") {modelEditorShow("models/two-skins.mdl");frame();}
   if(std::string(mode)=="model64skins") {
     expect(cvars->GetFloat("ftebroom_modelviewer_skins")==2,"model64_two_skins_detected");
     auto clickSkin=[&](ImVec2 p){event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);frame();};
@@ -613,9 +649,9 @@ static void testDesktop(){
     if(!buildResult.empty())std::ofstream(documentPath("wad32-result.txt"))<<buildResult.u8string();
   }
   if(std::string(mode)=="recent33") {recentRemember(std::filesystem::u8path(root)/"id1/maps/wad-external.map",2);recentMaps.front().favorite=true;recentSave();recentMaps.clear();recentLoaded=false;recentLoad();expect(!recentMaps.empty()&&recentMaps.front().favorite&&recentMaps.front().profile==2,"recent_profile_favorite_persisted");recentWindow=true;}
-  if(std::string(mode)=="viewer33") {recentWindow=false;modelViewerShow("models/qa/test.md3");frame();}
+  if(std::string(mode)=="viewer33") {recentWindow=false;modelEditorShow("models/qa/test.md3");frame();}
   if(std::string(mode)=="viewer33check") {expect(cvars->GetFloat("ftebroom_modelviewer_count")>0,"model_viewer_frames");expect(cvars->GetFloat("ftebroom_modelviewer_poses")>0,"model_viewer_poses");}
-  if(std::string(mode)=="viewer33iqm") {modelViewerShow("models/qa/skeleton.iqm");modelViewerBones=true;modelViewerPlay=true;}
+  if(std::string(mode)=="viewer33iqm") {modelEditorShow("models/qa/skeleton.iqm");modelViewerBones=true;modelViewerPlay=true;}
   if(std::string(mode)=="viewer33iqmcheck") {expect(cvars->GetFloat("ftebroom_modelviewer_bones")==2,"viewer_skeletal_bones");expect(cvars->GetFloat("ftebroom_modelviewer_poses")==2,"viewer_animation_poses");}
   if(std::string(mode)=="material33") {modelViewerOpen=false;selectMaterialTab=true;materialAdvanced=true;materialWidths[0]=materialWidths[1]=64;materialHeights[0]=materialHeights[1]=64;}
   if(std::string(mode)=="material33check") {bool found=false;for(auto& d:materialDimensions)if(d.second.x==64&&d.second.y==64)found=true;expect(found,"material_dimensions_loaded");}
@@ -678,7 +714,7 @@ static void testDesktop(){
   }
 
   if(std::string(mode)=="hidefiles34") {recentWindow=false;modFilesOpen=false;frame();frame();}
-  if(std::string(mode)=="viewer34") {modFilesOpen=true;modFilesRoot=modFileRoot();modFilesFolder=modFileRoot()/"models/qa";modFilesRefresh=true;modelViewerShow("models/qa/skeleton.iqm");modelViewerPlay=true;modelViewerBones=true;}
+  if(std::string(mode)=="viewer34") {modFilesOpen=true;modFilesRoot=modFileRoot();modFilesFolder=modFileRoot()/"models/qa";modFilesRefresh=true;modelEditorShow("models/qa/skeleton.iqm");modelViewerPlay=true;modelViewerBones=true;}
   if(std::string(mode)=="viewer34check") {expect(modelViewerPlay&&cvars->GetFloat("ftebroom_modelviewer_poses")==2,"animation_with_large_thumbnail_survives");}
   if(std::string(mode)=="pak34") {
    recentWindow=false;

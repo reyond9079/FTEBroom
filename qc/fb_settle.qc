@@ -67,7 +67,7 @@ int fb_settle_command()
         valid=FALSE;
         if(fb_settle_current())if(fb_generator_count==fb_settle_count)if(cvar("ftebroom_settle_valid")!=0)if(fb_generator_items)valid=TRUE;
         if(valid){fb_tx_begin("Settle");for(int b=0;b<fb_settle_count;b++){int contents;brush_get(fb_settle_selected[b].model,fb_settle_selected[b].id,__NULL__,0,&contents);static brushface_t faces[64];fb_poly_t *poly=&fb_generator_items[b].poly;for(int f=0;f<poly->nf;f++)faces[f]=poly->faces[f].attr;brush_history_edit(fb_settle_selected[b].model,fb_settle_selected[b].id,faces,poly->nf,contents);}fb_tx_commit();fb_vertex_rebuild();}
-        else fb_geom_error="The document or selection changed. Run Settle again.";fb_settle_clear();
+        else fb_geom_error="The document or selection changed. Run Settle again.";fb_settle_clear();cvar_set("ftebroom_settle_applied",valid?"1":"0");
     }else fb_settle_clear();
     if(!valid&&mode=="export")fb_settle_clear();cvar_set("ftebroom_settle_error",valid?"":fb_geom_error);return TRUE;
 }

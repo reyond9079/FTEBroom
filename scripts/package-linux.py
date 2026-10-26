@@ -17,6 +17,9 @@ out.mkdir(parents=True, exist_ok=False)
 platform = 'Linux-SDL2-x64' if a.sdl2 else 'Linux-x64'
 root = out / 'ReyondBroom-Linux-x64'
 root.mkdir()
+if not (a.deps/'plugins/rubble/rubble.so').is_file():
+    raise RuntimeError('Build bundled plugins with scripts/build-plugins.py first')
+shutil.copytree(a.deps/'plugins',root/'plugins')
 for source, name in [
     (a.deps/('fteqw/engine/release-sdl2/fteqw-glsdl2_64' if a.sdl2 else 'fteqw/engine/release-linux/fteqw-gl64'), 'fteqw-gl64'),
     (a.deps/'fteplug_ftebroom_amd64.so', 'fteplug_ftebroom_amd64.so'),
@@ -30,6 +33,8 @@ for source, name in [
     shutil.copy2(source, target)
     subprocess.run(['strip', str(target)], check=True)
     target.chmod(0o755)
+if b'ftebroom_reload_asset_models' not in (root/'fteqw-gl64').read_bytes():
+    raise RuntimeError('Rebuild the engine with model-resource-reload.patch before packaging')
 spec = spec_from_file_location('compiler_libs', src/'scripts/bundle-compiler-libs.py')
 module = module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -72,6 +77,10 @@ shutil.copy2(a.deps/'compilers/embree-2.17.7/LICENSE.txt',root/'tools/ericw/LICE
 subprocess.run(['git','-C',str(a.deps/'wl-clipboard'),'archive','--format=zip',f'--output={root}/tools/clipboard/wl-clipboard-source.zip','3eb912c274042cd5deed6b478b39908a12f37498'],check=True)
 shutil.copy2(a.deps/'wl-clipboard/COPYING',root/'tools/clipboard/LICENSE.txt')
 (root/'build-info.txt').write_text(f'ReyondBroom {a.version}\nUbuntu 24.04 x86-64, glibc 2.39+\nBackend: {"SDL2" if a.sdl2 else "native"}\nSee docs/linux.md for dependencies and platform differences.\n')
+# Packaging may read a Windows checkout whose existing files still contain CRLF,
+# even after Git attributes have been updated. Normalise before hashing/archiving.
+for script in root.rglob('*.sh'):
+    script.write_bytes(script.read_bytes().replace(b'\r\n', b'\n'))
 runpy.run_path(str(src/'scripts/package-sources.py'))['separate_sources'](
     root, out, a.version, platform)
 manifest={path.relative_to(root).as_posix():hashlib.sha256(path.read_bytes()).hexdigest() for path in root.rglob('*') if path.is_file()}
