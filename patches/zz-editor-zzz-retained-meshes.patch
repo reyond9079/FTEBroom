@@ -1,0 +1,739 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1949,9 +1949,60 @@
+  for(i=0;i<icount;i++)cl_strisidx[cl_numstrisidx++]=first+(indices[i]<vcount?indices[i]:0);
+  csqc_poly_startvert=cl_numstrisvert;csqc_poly_startidx=cl_numstrisidx;
+ }
++static unsigned int rb_label_queries,rb_label_tiles,rb_label_hint_hits,rb_label_tree_hits,rb_label_visible;
++static qboolean RB_OccludedSphere(int node,const float *center,float radius);
+ static qboolean RB_OccludedPoint(const float *point);
+ static qboolean RB_LabelsComplete(void);
+ static qboolean RB_LabelOrigin(const float *origin);
++// Equivalent failed-image materials can share a batch without changing primitive order.
++static struct {shader_t *source,*target;unsigned int generation;} rb_missing_materials[8192];
++static struct {shader_t *source;unsigned int generation;} rb_material_representatives[8192];
++static unsigned int rb_missing_generation;static qboolean rb_missing_enabled;
++static void RB_MissingBegin(unsigned int total){rb_missing_enabled=total>=30000 && Cvar_VariableValue("ftebroom_merge_missing_materials")!=0;if(!++rb_missing_generation){memset(rb_missing_materials,0,sizeof(rb_missing_materials));memset(rb_material_representatives,0,sizeof(rb_material_representatives));rb_missing_generation=1;}}
++static qboolean RB_SameImage(texid_t a,texid_t b){
++ if(a==b)return true;
++#ifdef GLQUAKE
++ if(a&&b&&a->status==TEX_FAILED&&b->status==TEX_FAILED&&!a->fallbackdata&&!b->fallbackdata&&a->flags==b->flags&&a->num==b->num)return true;
++#endif
++ return false;
++}
++static qboolean RB_MissingEligible(shader_t *s){
++ if(!s||strncmp(s->name,"ftebroom/opaque/",16)||s->numpasses!=1||s->numdeforms||s->numdefaulttextures>1||s->defaulttextures_fps||s->sort!=SHADER_SORT_OPAQUE||s->clutter||s->skydome||(s->remapto&&s->remapto!=s)||(s->flags&(SHADER_SKY|SHADER_BLEND|SHADER_NODRAW)))return false;
++ shaderpass_t *p=&s->passes[0];if(p->numtcmods||p->anim_numframes>1||p->tcgen!=TC_GEN_BASE||(p->texgen!=T_GEN_SINGLEMAP&&p->texgen!=T_GEN_DIFFUSE))return false;
++ texid_t image=p->texgen==T_GEN_SINGLEMAP?p->anim_frames[0]:s->defaulttextures?s->defaulttextures->base:NULL;
++ return !image||image->status==TEX_FAILED||image->status==TEX_LOADED;
++}
++static qboolean RB_SameMissingShader(shader_t *a,shader_t *b){
++ if(a->model!=b->model||a->usageflags!=b->usageflags||a->width!=b->width||a->height!=b->height||a->flags!=b->flags||a->prog!=b->prog||a->fog_dist!=b->fog_dist||memcmp(a->fog_color,b->fog_color,sizeof(a->fog_color))||a->portaldist!=b->portaldist||a->portalfboscale!=b->portalfboscale||memcmp(&a->polyoffset,&b->polyoffset,sizeof(a->polyoffset))||a->remaptime!=b->remaptime||memcmp(a->factors,b->factors,sizeof(a->factors))||memcmp(a->bemoverrides,b->bemoverrides,sizeof(a->bemoverrides)))return false;
++ if(!a->defaulttextures||!b->defaulttextures){if(a->defaulttextures!=b->defaulttextures)return false;}
++ else{
++#define RB_IMAGE_EQUAL(field) if(!RB_SameImage(a->defaulttextures->field,b->defaulttextures->field))return false
++ RB_IMAGE_EQUAL(base);RB_IMAGE_EQUAL(bump);RB_IMAGE_EQUAL(specular);RB_IMAGE_EQUAL(upperoverlay);RB_IMAGE_EQUAL(loweroverlay);RB_IMAGE_EQUAL(paletted);RB_IMAGE_EQUAL(fullbright);RB_IMAGE_EQUAL(reflectcube);RB_IMAGE_EQUAL(reflectmask);RB_IMAGE_EQUAL(displacement);RB_IMAGE_EQUAL(occlusion);RB_IMAGE_EQUAL(transmission);RB_IMAGE_EQUAL(thickness);
++#undef RB_IMAGE_EQUAL
++ }
++ shaderpass_t x=a->passes[0],y=b->passes[0];if(x.anim_numframes!=y.anim_numframes)return false;
++ for(int i=0;i<(x.texgen==T_GEN_SINGLEMAP?1:x.anim_numframes);i++)if(!RB_SameImage(x.anim_frames[i],y.anim_frames[i]))return false;
++ memset(x.anim_frames,0,sizeof(x.anim_frames));memset(y.anim_frames,0,sizeof(y.anim_frames));
++#if defined(D3D11QUAKE)||defined(VKQUAKE)
++ x.becache=y.becache=NULL;
++#endif
++ return !memcmp(&x,&y,sizeof(x));
++}
++static shader_t *RB_CanonicalMissing(shader_t *s){
++ if(!rb_missing_enabled||!s)return s;unsigned int hash=((unsigned int)((uintptr_t)s>>4)^(unsigned int)((uintptr_t)s>>17))&8191;
++ if(rb_missing_materials[hash].generation==rb_missing_generation&&rb_missing_materials[hash].source==s)return rb_missing_materials[hash].target;
++ shader_t *target=s;if(RB_MissingEligible(s)){
++ shaderpass_t *p=&s->passes[0];texid_t image=p->texgen==T_GEN_SINGLEMAP?p->anim_frames[0]:s->defaulttextures?s->defaulttextures->base:NULL;
++ uintptr_t key=(uintptr_t)image;
++#ifdef GLQUAKE
++ if(image&&image->status==TEX_FAILED&&!image->fallbackdata)key=(uintptr_t)image->num^((uintptr_t)image->flags<<8);
++#endif
++ key^=(uintptr_t)s->prog;key^=key>>17;unsigned int bucket=(unsigned int)(key^(key>>7)^s->flags)&8191;
++ shader_t *candidate=rb_material_representatives[bucket].generation==rb_missing_generation?rb_material_representatives[bucket].source:NULL;
++ if(candidate&&RB_SameMissingShader(s,candidate))target=candidate;else{rb_material_representatives[bucket].generation=rb_missing_generation;rb_material_representatives[bucket].source=s;}
++ }
++ rb_missing_materials[hash].generation=rb_missing_generation;rb_missing_materials[hash].source=s;rb_missing_materials[hash].target=target;return target;
++}
+ // ReyondBroom native face pass begin. Versioned, bounds-checked QC buffer ABI.
+ typedef struct {
+  int node,count,brushEnd,shader;float alpha,radius,distance;
+@@ -1972,7 +2023,7 @@
+  faces=(editorqcface_t*)(prinst->stringtable+offset);access=(int*)(prinst->stringtable+accessOffset);
+  if(r_refdef.dirty)V_ApplyRefdef();
+  AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
+- memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));RB_MissingBegin(total);
+  for(i=0;i<total;i++){
+   editorqcface_t *face=&faces[i];vec3_t delta;float depth,radius;
+   if(face->node!=previous){
+@@ -1980,13 +2031,14 @@
+    VectorSubtract(face->brushCenter,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=face->brushRadius;
+    if(depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))visible=false;
+   }
++  if(visible&&RB_OccludedSphere(face->node,face->brushCenter,face->brushRadius))visible=false;
+   if(!visible){if(face->brushEnd>i && (unsigned)face->brushEnd<=total)i=face->brushEnd-1;continue;}
+   if(face->count<3 || face->count>64)continue;
+   if(face->alpha==1 && DotProduct(r_refdef.vieworg,face->normal)<face->distance-.01)continue;
+   VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=face->radius;
+   if(depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;
+   G_INT(OFS_PARM0)=face->shader;G_INT(OFS_PARM1)=3;G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=face->triangles;G_INT(OFS_PARM4)=(face->count-2)*3;
+-  if(lastShader!=face->shader){lastShader=face->shader;context=RB_SoupContext(PR_GetStringOfs(prinst,OFS_PARM0),3);}RB_AddIndexedSoup(&context,prinst,face->vertices,face->count,face->triangles,(face->count-2)*3);drawn++;
++  if(lastShader!=face->shader){lastShader=face->shader;context=RB_SoupContext(PR_GetStringOfs(prinst,OFS_PARM0),3);context.shader=RB_CanonicalMissing(context.shader);}RB_AddIndexedSoup(&context,prinst,face->vertices,face->count,face->triangles,(face->count-2)*3);drawn++;
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
+ }
+@@ -2007,6 +2059,7 @@
+   editorqcpoint_t *p=&points[i];vec3_t delta;float depth,radius=p->radius;
+   VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
+   if(!p->model && (depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty)))continue;
++  if(RB_OccludedSphere(p->node,p->center,p->radius))continue;
+   indices[count++]=i;
+  }
+  G_INT(OFS_RETURN)=count;
+@@ -3109,6 +3162,7 @@
+  G_VECTOR(OFS_RETURN)[0]=-1;G_VECTOR(OFS_RETURN)[1]=G_VECTOR(OFS_RETURN)[2]=0;
+  if(stride!=sizeof(editorqcpoint_t))return;if(!total){G_VECTOR(OFS_RETURN)[0]=0;return;}
+  if(total>1000000 || !RB_QCBuffer(vm,offset,total,stride)){PR_BIError(vm,"ReyondBroom: invalid label snapshot\n");return;}
++ rb_label_queries=rb_label_tiles=rb_label_hint_hits=rb_label_tree_hits=rb_label_visible=0;
+  points=(editorqcpoint_t*)(vm->stringtable+offset);if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
+  memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
+  for(i=0;i<total;i++){
+@@ -3116,10 +3170,10 @@
+   VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
+   if(!(mode&1) && !p->model && (depth+p->radius<0||fabs(DotProduct(delta,right))>depth*tx+p->radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+p->radius*(1+ty)))continue;
+   VectorSubtract(p->label,r_refdef.vieworg,delta);if(!(mode&1)&&DotProduct(delta,forward)<=0)continue;
++  if(!(mode&1) && RB_OccludedPoint(p->label))continue;
+   G_INT(OFS_PARM0)=p->name;name=PR_GetStringOfs(vm,OFS_PARM0);width=strlen(name)*8;
+   VectorCopy(p->label,G_VECTOR(OFS_PARM0));PF_cs_project(vm,pr_globals);VectorCopy(G_VECTOR(OFS_RETURN),pixel);pixel[2]=0;
+   if(pixel[0]+((mode&2)?0:width)<r_refdef.grect.x||pixel[1]+((mode&2)?0:8)<r_refdef.grect.y||pixel[0]>=r_refdef.grect.x+r_refdef.grect.width||pixel[1]>=r_refdef.grect.y+r_refdef.grect.height)continue;
+-  if(!(mode&1) && RB_OccludedPoint(p->label))continue;
+   if(!(mode&1) && !RB_LabelsComplete()){trace_t tr=World_Move(&csqc_world,r_refdef.vieworg,vec3_origin,vec3_origin,p->label,MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);tested++;if(tr.fraction<.999f)continue;}
+   VectorCopy(pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=1;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;
+   PF_CL_drawcolouredstring(vm,pr_globals);drawn++;
+@@ -3127,7 +3181,83 @@
+  vm->callargc=argc;memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));VectorSet(G_VECTOR(OFS_RETURN),drawn,tested,0);
+ }
+ typedef struct {int id,model,node,count,u,v,sky,brushEnd;vec3_t center,normal;unsigned int points;float spacing,radius;unsigned int vertices,triangles,lines;int occluder;} rb_grid_face_t;
+-// The renderer remains unchanged; only entity-label visibility uses this index.
++// Conservative screen tiles contain far-depth bounds only for fully covered cells.
++#define RB_GEOM_W 128
++#define RB_GEOM_H 72
++static struct {qboolean valid;int mode;float x,y,w,h;vec3_t eye,forward;float geometry[RB_GEOM_W*RB_GEOM_H],labels[RB_GEOM_W*RB_GEOM_H];unsigned int generation,capacity;unsigned int *stamp;vec3_t *centers;float *radii;unsigned char *hidden;pubprogfuncs_t *vm;char *base;unsigned int offset,total,accessOffset,accessCount,revision;float matrix[16],rect[8];qboolean reusable;} rb_geom;
++static qboolean RB_OccludedSphere(int node,const float *center,float radius){
++ vec3_t delta,corner;float depth,screenLow[2]={1e30f,1e30f},screenHigh[2]={-1e30f,-1e30f},nearDepth=1e30f;int x,y,i,a,x0,y0,x1,y1;float v[4],out[4];qboolean hidden=false;
++ if(!rb_geom.valid || !(rb_geom.mode&1) || radius<0)return false;
++ if(node>=0 && (unsigned int)node<rb_geom.capacity && rb_geom.stamp[node]==rb_geom.generation && rb_geom.radii[node]==radius && !memcmp(rb_geom.centers[node],center,sizeof(vec3_t)))return rb_geom.hidden[node];
++ VectorSubtract(center,rb_geom.eye,delta);depth=DotProduct(delta,rb_geom.forward);
++ nearDepth=depth-radius*(fabs(rb_geom.forward[0])+fabs(rb_geom.forward[1])+fabs(rb_geom.forward[2]))-.01f;if(nearDepth<=4)goto done;
++ VectorCopy(center,v);v[3]=1;Matrix4x4_CM_Transform4(csqc_proj_matrix,v,out);
++ double extentW=radius*(fabs(csqc_proj_matrix[3])+fabs(csqc_proj_matrix[7])+fabs(csqc_proj_matrix[11])),minW=out[3]-extentW,maxW=out[3]+extentW;if(minW<=0)goto done;
++ for(int axis=0;axis<2;axis++){
++  double extent=radius*(fabs(csqc_proj_matrix[axis])+fabs(csqc_proj_matrix[axis+4])+fabs(csqc_proj_matrix[axis+8]));
++  double low=out[axis]-extent,high=out[axis]+extent,minimum=low/(low<0?minW:maxW),maximum=high/(high>0?minW:maxW);
++  if(!axis){screenLow[0]=(1+minimum)*.5*r_refdef.vrect.width+r_refdef.vrect.x;screenHigh[0]=(1+maximum)*.5*r_refdef.vrect.width+r_refdef.vrect.x;}
++  else{screenLow[1]=(1-maximum)*.5*r_refdef.vrect.height+r_refdef.vrect.y;screenHigh[1]=(1-minimum)*.5*r_refdef.vrect.height+r_refdef.vrect.y;}
++ }
++ if(screenHigh[0]<rb_geom.x||screenHigh[1]<rb_geom.y||screenLow[0]>=rb_geom.x+rb_geom.w||screenLow[1]>=rb_geom.y+rb_geom.h)goto done;
++ screenLow[0]-=2;screenLow[1]-=2;screenHigh[0]+=2;screenHigh[1]+=2;
++ x0=max(0,(int)floor((screenLow[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w));x1=min(RB_GEOM_W-1,(int)floor((screenHigh[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w));y0=max(0,(int)floor((screenLow[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h));y1=min(RB_GEOM_H-1,(int)floor((screenHigh[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h));
++ for(y=y0;y<=y1;y++)for(x=x0;x<=x1;x++)if(rb_geom.geometry[x+y*RB_GEOM_W]>=nearDepth-1.0f)goto done;
++ hidden=true;
++ done:if(node>=0&&(unsigned int)node<rb_geom.capacity){rb_geom.stamp[node]=rb_geom.generation;rb_geom.radii[node]=radius;VectorCopy(center,rb_geom.centers[node]);rb_geom.hidden[node]=hidden;}return hidden;
++}
++static void QCBUILTIN PF_ReyondBroom_PrepareGeometry(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),mode=1,i;rb_grid_face_t *faces;int *access,opaque=0;float tx,ty;
++ rb_geom.valid=false;G_INT(OFS_RETURN)=-1;if(!mode){G_INT(OFS_RETURN)=0;return;}if(stride!=sizeof(*faces))return;
++ if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(*faces))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))){if(!total){G_INT(OFS_RETURN)=0;return;}PR_BIError(vm,"ReyondBroom: invalid occluder snapshot\n");return;}
++ if(r_refdef.dirty)V_ApplyRefdef();if(csqc_rebuildmatricies)cs_buildmatricies();faces=(rb_grid_face_t*)(vm->stringtable+offset);access=(int*)(vm->stringtable+accessOffset);
++ float rect[8]={r_refdef.grect.x,r_refdef.grect.y,r_refdef.grect.width,r_refdef.grect.height,r_refdef.vrect.x,r_refdef.vrect.y,r_refdef.vrect.width,r_refdef.vrect.height};unsigned int revision=G_INT(OFS_PARM6);
++ if(rb_geom.reusable&&rb_geom.vm==vm&&rb_geom.base==vm->stringtable&&rb_geom.offset==offset&&rb_geom.total==total&&rb_geom.accessOffset==accessOffset&&rb_geom.accessCount==accessCount&&rb_geom.revision==revision&&!memcmp(rb_geom.matrix,csqc_proj_matrix,sizeof(rb_geom.matrix))&&!memcmp(rb_geom.rect,rect,sizeof(rect))&&!memcmp(rb_geom.eye,r_refdef.vieworg,sizeof(vec3_t))){rb_geom.valid=true;G_INT(OFS_RETURN)=0;return;}
++ rb_geom.mode=mode;rb_geom.x=r_refdef.grect.x;rb_geom.y=r_refdef.grect.y;rb_geom.w=r_refdef.grect.width;rb_geom.h=r_refdef.grect.height;if(rb_geom.w<=0||rb_geom.h<=0)return;
++ VectorCopy(r_refdef.vieworg,rb_geom.eye);AngleVectors(r_refdef.viewangles,rb_geom.forward,NULL,NULL);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ if(rb_geom.capacity<accessCount){rb_geom.capacity=accessCount;rb_geom.stamp=BZ_Realloc(rb_geom.stamp,accessCount*sizeof(*rb_geom.stamp));rb_geom.centers=BZ_Realloc(rb_geom.centers,accessCount*sizeof(*rb_geom.centers));rb_geom.radii=BZ_Realloc(rb_geom.radii,accessCount*sizeof(*rb_geom.radii));rb_geom.hidden=BZ_Realloc(rb_geom.hidden,accessCount*sizeof(*rb_geom.hidden));memset(rb_geom.stamp,0,accessCount*sizeof(*rb_geom.stamp));}
++ if(!++rb_geom.generation){memset(rb_geom.stamp,0,rb_geom.capacity*sizeof(*rb_geom.stamp));rb_geom.generation=1;}
++ for(i=0;i<RB_GEOM_W*RB_GEOM_H;i++)rb_geom.geometry[i]=rb_geom.labels[i]=1e30f;
++ for(i=0;i<total;i++){
++  rb_grid_face_t *f=&faces[i];vec3_t delta;float polygon[256][2],inverseDepth[256],depth,farDepth=0,lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};int j,x,y,x0,x1,y0,y1;double area=0;
++  if(!f->occluder||f->node<0||(unsigned int)f->node>=accessCount||!(access[f->node]&1)||!(access[f->node]&4)||f->count<3||f->count>256)continue;
++  VectorSubtract(rb_geom.eye,f->center,delta);if(DotProduct(delta,f->normal)<=.05f)continue;VectorSubtract(f->center,rb_geom.eye,delta);depth=DotProduct(delta,rb_geom.forward);
++  if(depth<=f->radius+4)continue;float projected=f->radius*max(rb_geom.w/(2*tx),rb_geom.h/(2*ty))/(depth-f->radius);if(projected*2<min(rb_geom.w/RB_GEOM_W,rb_geom.h/RB_GEOM_H))continue;
++  if(!RB_QCBuffer(vm,f->points,f->count,sizeof(vec3_t)))continue;vec3_t *points=(vec3_t*)(vm->stringtable+f->points);
++  for(j=0;j<f->count;j++){
++   float v[4],out[4];VectorSubtract(points[j],rb_geom.eye,delta);float z=DotProduct(delta,rb_geom.forward);if(z<=4)break;inverseDepth[j]=1.0f/z;if(farDepth<z)farDepth=z;VectorCopy(points[j],v);v[3]=1;Matrix4x4_CM_Transform4(csqc_proj_matrix,v,out);if(out[3]<=0)break;
++   polygon[j][0]=(1+out[0]/out[3])*.5f*r_refdef.vrect.width+r_refdef.vrect.x;polygon[j][1]=(1-out[1]/out[3])*.5f*r_refdef.vrect.height+r_refdef.vrect.y;
++   if(lo[0]>polygon[j][0])lo[0]=polygon[j][0];if(hi[0]<polygon[j][0])hi[0]=polygon[j][0];if(lo[1]>polygon[j][1])lo[1]=polygon[j][1];if(hi[1]<polygon[j][1])hi[1]=polygon[j][1];
++  }
++  if(j<f->count)continue;for(j=0;j<f->count;j++){int next=(j+1)%f->count;area+=(double)polygon[j][0]*polygon[next][1]-(double)polygon[next][0]*polygon[j][1];}if(fabs(area)<.01)continue;
++  // Reciprocal view depth is affine over a projected planar polygon.
++  // Bound each covered tile locally instead of using the farthest polygon vertex.
++  double dx1=(double)polygon[1][0]-polygon[0][0],dy1=(double)polygon[1][1]-polygon[0][1],dx2=(double)polygon[2][0]-polygon[0][0],dy2=(double)polygon[2][1]-polygon[0][1];
++  double determinant=dx1*dy2-dx2*dy1;if(fabs(determinant)<1e-8)continue;
++  double q1=(double)inverseDepth[1]-inverseDepth[0],q2=(double)inverseDepth[2]-inverseDepth[0];
++  double qa=(q1*dy2-q2*dy1)/determinant,qb=(dx1*q2-dx2*q1)/determinant,qc=inverseDepth[0]-qa*polygon[0][0]-qb*polygon[0][1],error=0;
++  for(j=0;j<f->count;j++){double residual=fabs(qa*polygon[j][0]+qb*polygon[j][1]+qc-inverseDepth[j]);if(error<residual)error=residual;}
++  x0=max(0,(int)ceil((lo[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w));x1=min(RB_GEOM_W-1,(int)floor((hi[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w)-1);y0=max(0,(int)ceil((lo[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h));y1=min(RB_GEOM_H-1,(int)floor((hi[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h)-1);
++  for(y=y0;y<=y1;y++)for(x=x0;x<=x1;x++){
++   qboolean inside=true;double minInverse=1e30;int corner;for(corner=0;corner<4&&inside;corner++){double px=rb_geom.x+(x+((corner&1)?1:0))*rb_geom.w/RB_GEOM_W,py=rb_geom.y+(y+((corner&2)?1:0))*rb_geom.h/RB_GEOM_H;
++    double inverse=qa*px+qb*py+qc;if(minInverse>inverse)minInverse=inverse;
++    for(j=0;j<f->count;j++){int next=(j+1)%f->count;double cross=((double)polygon[next][0]-polygon[j][0])*(py-polygon[j][1])-((double)polygon[next][1]-polygon[j][1])*(px-polygon[j][0]);if((area>0?cross:-cross)<=.001){inside=false;break;}}
++   }
++   if(inside){minInverse-=2*error+(fabs(qa)*rb_geom.w+fabs(qb)*rb_geom.h+fabs(qc))*1e-10;if(minInverse<=0)continue;double tileDepth=1/minInverse;farDepth=(float)(tileDepth*1.0001+.1);unsigned int cell=x+y*RB_GEOM_W;if((f->occluder&1)&&rb_geom.geometry[cell]>farDepth)rb_geom.geometry[cell]=farDepth;if((f->occluder&2)&&rb_geom.labels[cell]>farDepth)rb_geom.labels[cell]=farDepth;}
++  }opaque++;
++ }
++ rb_geom.vm=vm;rb_geom.base=vm->stringtable;rb_geom.offset=offset;rb_geom.total=total;rb_geom.accessOffset=accessOffset;rb_geom.accessCount=accessCount;rb_geom.revision=revision;memcpy(rb_geom.matrix,csqc_proj_matrix,sizeof(rb_geom.matrix));memcpy(rb_geom.rect,rect,sizeof(rect));rb_geom.reusable=true;
++ rb_geom.valid=true;G_INT(OFS_RETURN)=opaque;
++}
++
++static qboolean RB_OccludedTilePoint(const float *point){
++ if(!rb_geom.valid)return false;vec3_t delta;VectorSubtract(point,rb_geom.eye,delta);float depth=DotProduct(delta,rb_geom.forward);if(depth<=4)return false;
++ float vertex[4],projected[4];VectorCopy(point,vertex);vertex[3]=1;Matrix4x4_CM_Transform4(csqc_proj_matrix,vertex,projected);if(projected[3]<=0)return false;
++ float sx=(1+projected[0]/projected[3])*.5f*r_refdef.vrect.width+r_refdef.vrect.x,sy=(1-projected[1]/projected[3])*.5f*r_refdef.vrect.height+r_refdef.vrect.y;
++ int x=(int)floor((sx-rb_geom.x)*RB_GEOM_W/rb_geom.w),y=(int)floor((sy-rb_geom.y)*RB_GEOM_H/rb_geom.h);if(x<0||x>=RB_GEOM_W||y<0||y>=RB_GEOM_H)return false;
++ return rb_geom.labels[x+y*RB_GEOM_W]<depth-.05f;
++}
++// Entity-label visibility uses an exact surface index independently of geometry tiles.
+ static struct {qboolean valid;int mode;vec3_t eye;} rb_occ;
+ static qboolean RB_LabelOrigin(const float *origin){return rb_occ.valid&&!memcmp(origin,rb_occ.eye,sizeof(vec3_t));}
+ typedef struct {vec3_t low,high;unsigned int face;} rb_label_face_t;
+@@ -3170,7 +3300,7 @@
+  rb_grid_face_t *f=&faces[faceIndex];double denominator=DotProduct(direction,f->normal);if(denominator>=-1e-8)return false;
+   vec3_t planeDelta;VectorSubtract(f->center,rb_occ.eye,planeDelta);double t=DotProduct(planeDelta,f->normal)/denominator;if(!(t>0&&t<limit))return false;
+   double point[3];for(int a=0;a<3;a++)point[a]=rb_occ.eye[a]+t*direction[a];int axis=0;for(int a=1;a<3;a++)if(fabs(f->normal[a])>fabs(f->normal[axis]))axis=a;int u=(axis+1)%3,v=(axis+2)%3,sign=0,j;vec3_t *points=(vec3_t*)(rb_labels.vm->stringtable+f->points);
+-  for(j=0;j<f->count;j++){int next=(j+1)%f->count;double cross=((double)points[next][u]-points[j][u])*(point[v]-points[j][v])-((double)points[next][v]-points[j][v])*(point[u]-points[j][u]);int side=cross>0?1:-1;if(fabs(cross)<1e-6||(sign&&side!=sign))break;sign=side;}return j==f->count;
++  for(j=0;j<f->count;j++){int next=j+1;if(next==f->count)next=0;double cross=((double)points[next][u]-points[j][u])*(point[v]-points[j][v])-((double)points[next][v]-points[j][v])*(point[u]-points[j][u]);int side=cross>0?1:-1;if(fabs(cross)<1e-6||(sign&&side!=sign))break;sign=side;}return j==f->count;
+ 
+ }
+ static qboolean RB_LabelQuery(unsigned int at,const float *end,const vec3_t direction,const double *inverse,double limit){
+@@ -3183,19 +3313,26 @@
+ }
+ static qboolean RB_OccludedPoint(const float *point){
+  if(!rb_occ.valid||!(rb_occ.mode&2)||!rb_labels.valid||!rb_labels.count)return false;
++ rb_label_queries++;if(RB_OccludedTilePoint(point)){rb_label_tiles++;return true;}
+  vec3_t direction;double inverse[3],length=0;VectorSubtract(point,rb_occ.eye,direction);for(int a=0;a<3;a++){inverse[a]=fabs(direction[a])>1e-20?1.0/direction[a]:0;length+=(double)direction[a]*direction[a];}if(length<.01)return false;
+- typedef struct {unsigned int bits[3],generation,face;} hint_t;static hint_t hints[262144];unsigned int bits[3],hash=2166136261u;memcpy(bits,point,sizeof(bits));for(int a=0;a<3;a++)hash=(hash^bits[a])*16777619u;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;hash*=0x846ca68bu;hash^=hash>>16;hint_t *hint=&hints[hash&262143];double limit=1-.05/sqrt(length);
+- if(hint->generation==rb_label_generation&&!memcmp(hint->bits,bits,sizeof(bits))&&hint->face<rb_labels.total&&RB_LabelPolygon(hint->face,direction,limit))return true;
+- if(!RB_LabelQuery(0,point,direction,inverse,limit))return false;memcpy(hint->bits,bits,sizeof(bits));hint->generation=rb_label_generation;hint->face=rb_label_last_face;return true;
++ typedef struct {unsigned int bits[3],generation,face;vec3_t eye;qboolean hidden;} hint_t;static hint_t hints[262144];unsigned int bits[3],hash=2166136261u;memcpy(bits,point,sizeof(bits));for(int a=0;a<3;a++)hash=(hash^bits[a])*16777619u;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;hash*=0x846ca68bu;hash^=hash>>16;hint_t *bucket=&hints[(hash&65535)*4],*hint=NULL,*replacement=&bucket[(hash>>16)&3];
++ for(int way=0;way<4;way++){hint_t *entry=&bucket[way];if(entry->generation!=rb_label_generation)replacement=entry;else if(!memcmp(entry->bits,bits,sizeof(bits))){hint=entry;break;}}
++ if(hint&&!memcmp(hint->eye,rb_occ.eye,sizeof(vec3_t)))return hint->hidden;
++ double limit=1-.05/sqrt(length);
++ if(hint&&hint->face<rb_labels.total&&RB_LabelPolygon(hint->face,direction,limit)){rb_label_hint_hits++;VectorCopy(rb_occ.eye,hint->eye);hint->hidden=true;return true;}
++ qboolean hidden=RB_LabelQuery(0,point,direction,inverse,limit);if(hidden)rb_label_tree_hits++;else rb_label_visible++;
++ if(!hint)hint=replacement;memcpy(hint->bits,bits,sizeof(bits));hint->generation=rb_label_generation;hint->face=hidden?rb_label_last_face:rb_labels.total;VectorCopy(rb_occ.eye,hint->eye);hint->hidden=hidden;return hidden;
+ }
+ static void QCBUILTIN PF_ReyondBroom_PrepareOcclusion(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),mode=G_INT(OFS_PARM5),revision=G_INT(OFS_PARM6);
+- rb_occ.valid=false;G_INT(OFS_RETURN)=-1;
++ rb_geom.valid=false;rb_occ.valid=false;G_INT(OFS_RETURN)=-1;
+  if(!mode){rb_labels.valid=false;G_INT(OFS_RETURN)=0;return;}
+  if(stride!=sizeof(rb_grid_face_t))return;
+  if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(rb_grid_face_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))){if(!total){G_INT(OFS_RETURN)=0;return;}PR_BIError(vm,"ReyondBroom: invalid occluder snapshot\n");return;}
+  if(r_refdef.dirty)V_ApplyRefdef();VectorCopy(r_refdef.vieworg,rb_occ.eye);rb_occ.mode=mode;
+- RB_LabelPrepare(vm,offset,total,accessOffset,accessCount,revision);rb_occ.valid=true;G_INT(OFS_RETURN)=rb_labels.count;
++ RB_LabelPrepare(vm,offset,total,accessOffset,accessCount,revision);rb_occ.valid=true;
++ if(total>=30000 && Cvar_VariableValue("ftebroom_geometry_occlusion")!=0)PF_ReyondBroom_PrepareGeometry(vm,pr_globals);
++ G_INT(OFS_RETURN)=rb_labels.count;
+ }
+ typedef struct {int stride,flags,gridShader,edgeShader;unsigned int visible;} rb_grid_params_t;
+ static void QCBUILTIN PF_ReyondBroom_DrawGrid(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+@@ -3211,6 +3348,7 @@
+  for(i=0;i<total;i++){
+   rb_grid_face_t *face=&faces[i];vec3_t delta;float depth,extent;
+   if(face->node!=previous){previous=face->node;allowed=face->node>=0&&(unsigned int)face->node<accessCount&&(access[face->node]&1);if(allowed){VectorSubtract(bounds[face->node*2],r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=bounds[face->node*2+1][0];if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))allowed=0;}}
++  if(allowed&&RB_OccludedSphere(face->node,bounds[face->node*2],bounds[face->node*2+1][0]))allowed=0;
+   if(!allowed){if(face->brushEnd>(int)i && (unsigned int)face->brushEnd<=total)i=face->brushEnd-1;continue;}
+   if(face->sky && !(params.flags&4))continue;VectorSubtract(r_refdef.vieworg,face->center,delta);if(DotProduct(delta,face->normal)<-.01f)continue;
+   VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=face->radius;if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))continue;
+@@ -3220,10 +3358,165 @@
+  for(pass=0;pass<2;pass++){
+   if(!(params.flags&(pass?2:1)))continue;
+   G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
+-  for(i=0;i<(unsigned int)count;i++){rb_grid_face_t *face=&faces[visible[i]];if(face->count<3||face->count>256)continue;G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;G_INT(OFS_PARM1)=3|(pass?DRAWFLAG_LINES:0);G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=pass?face->lines:face->triangles;G_INT(OFS_PARM4)=pass?face->count*2:(face->count-2)*3;RB_AddIndexedSoup(&context,vm,face->vertices,face->count*2,pass?face->lines:face->triangles,pass?face->count*2:(face->count-2)*3);}
++  for(i=0;i<(unsigned int)count;i++){rb_grid_face_t *face=&faces[visible[i]];if(face->count<3||face->count>256)continue;G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;G_INT(OFS_PARM1)=3|(pass?DRAWFLAG_LINES:0);G_INT(OFS_PARM2)=face->vertices;G_INT(OFS_PARM3)=pass?face->lines:face->triangles;G_INT(OFS_PARM4)=pass?face->count*2:(face->count-2)*3;RB_AddIndexedSoup(&context,vm,face->vertices+((params.flags&8)&&pass?face->count*sizeof(qcvertex_t):0),face->count*((params.flags&8)?1:2),pass?face->lines:face->triangles,pass?face->count*2:(face->count-2)*3);}
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=count;
+ }
++// Persistent geometry; camera-dependent indices are rebuilt without copying vertices.
++typedef struct {
++ mesh_t mesh,*meshptr;vbo_t vbo;void *vertices,*shader;index_t *scratch;
++ unsigned int capacity,pending;int pass,material,key;
++} rb_cached_mesh_t;
++typedef struct {unsigned int slot,base;} rb_cached_grid_ref_t;
++typedef struct {
++ rb_cached_mesh_t *meshes;rb_cached_grid_ref_t *refs;
++ unsigned int count,total,revision,offset;pubprogfuncs_t *vm;char *base;
++ size_t bytes;qboolean valid;vboarray_t vertexBuffer,indexBuffer;void *vertexMemory,*indexMemory;index_t *indices,*scratch;unsigned int indexCapacity;
++} rb_mesh_cache_t;
++static rb_mesh_cache_t rb_mesh_caches[3];
++#ifdef GLQUAKE
++void GLBE_InitEditorMesh(vbo_t *vbo);
++void GLBE_DestroyEditorMesh(vbo_t *vbo);
++#endif
++#define rb_grid_cache rb_mesh_caches[0]
++typedef struct {unsigned int offset,vertices,indices;int pass,material,key;} rb_cache_source_t;
++static void RB_ClearMeshCache(unsigned int group)
++{
++ rb_mesh_cache_t *cache=&rb_mesh_caches[group];
++ if(BE_VBO_Destroy){BE_VBO_Destroy(&cache->vertexBuffer,cache->vertexMemory);BE_VBO_Destroy(&cache->indexBuffer,cache->indexMemory);}
++ for(unsigned int i=0;i<cache->count;i++){
++#ifdef GLQUAKE
++  if(qrenderer==QR_OPENGL)GLBE_DestroyEditorMesh(&cache->meshes[i].vbo);
++#endif
++  BZ_Free(cache->meshes[i].vertices);
++ }
++ BZ_Free(cache->indices);BZ_Free(cache->scratch);BZ_Free(cache->meshes);BZ_Free(cache->refs);memset(cache,0,sizeof(*cache));
++}
++void CSQC_ReyondBroomClearMeshes(void){rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);}
++qboolean CSQC_ReyondBroomCachedBatch(void *opaque,unsigned int id)
++{
++ unsigned int group=id>>16,slot=id&65535;batch_t *batch=opaque;
++ if(group>=3||!rb_mesh_caches[group].valid||slot>=rb_mesh_caches[group].count)return false;
++ rb_cached_mesh_t *m=&rb_mesh_caches[group].meshes[slot];
++#ifdef GLQUAKE
++ if(qrenderer==QR_OPENGL)GLBE_InitEditorMesh(&m->vbo);
++#endif
++ batch->mesh=&m->meshptr;batch->vbo=&m->vbo;batch->buildmeshes=NULL;return true;
++}
++static qboolean RB_MeshCacheFresh(pubprogfuncs_t *vm,unsigned int group,unsigned int offset,unsigned int total,unsigned int revision)
++{
++ rb_mesh_cache_t *cache=&rb_mesh_caches[group];return cache->valid&&cache->vm==vm&&cache->base==vm->stringtable&&cache->offset==offset&&cache->total==total&&cache->revision==revision;
++}
++static qboolean RB_CacheGeometry(pubprogfuncs_t *vm,unsigned int group,unsigned int offset,unsigned int total,unsigned int revision,rb_cache_source_t *sources,unsigned int records)
++{
++ rb_mesh_cache_t *cache=&rb_mesh_caches[group];unsigned int slot=0,vertices=0,indices=0;int pass=-1,material=-1;size_t bytes=(size_t)records*sizeof(rb_cached_grid_ref_t);
++ if(qrenderer!=QR_OPENGL||!BE_VBO_Begin||!BE_VBO_Data||!BE_VBO_Finish||!BE_VBO_Destroy)return false;
++ for(unsigned int i=0;i<records;i++){
++  rb_cache_source_t *f=&sources[i];if(!f->vertices||f->vertices>MAX_INDICIES||f->indices>MAX_INDICIES||!RB_QCBuffer(vm,f->offset,f->vertices,sizeof(qcvertex_t)))return false;
++  bytes+=(size_t)f->vertices*2*(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t));bytes+=(size_t)f->indices*sizeof(index_t)*3;
++ }
++ for(unsigned int i=0;i<3;i++)if(i!=group)bytes+=rb_mesh_caches[i].bytes;
++ if(bytes>320u*1024*1024)return false;
++ for(unsigned int i=0;i<3;i++)if(i!=group)bytes-=rb_mesh_caches[i].bytes;
++ RB_ClearMeshCache(group);cache->refs=BZ_Malloc((size_t)records*sizeof(*cache->refs));
++ for(unsigned int i=0;i<records;i++){
++  rb_cache_source_t *f=&sources[i];
++  if(!vertices||vertices+f->vertices>MAX_INDICIES||indices+f->indices>MAX_INDICIES||pass!=f->pass||material!=f->material){slot++;vertices=indices=0;pass=f->pass;material=f->material;}
++  if(slot>65536){RB_ClearMeshCache(group);return false;}
++  cache->refs[i]=(rb_cached_grid_ref_t){slot-1,vertices};vertices+=f->vertices;indices+=f->indices;
++ }
++ bytes+=(size_t)slot*sizeof(*cache->meshes);
++ size_t resident=bytes;for(unsigned int i=0;i<3;i++)if(i!=group)resident+=rb_mesh_caches[i].bytes;
++ if(resident>320u*1024*1024){RB_ClearMeshCache(group);return false;}
++ cache->count=slot;cache->meshes=BZ_Malloc(slot*sizeof(*cache->meshes));memset(cache->meshes,0,slot*sizeof(*cache->meshes));
++ for(unsigned int i=0;i<records;i++){
++  rb_cache_source_t *f=&sources[i];rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];m->pass=f->pass;m->material=f->material;m->key=f->key;m->mesh.numvertexes=ref.base+f->vertices;m->capacity+=f->indices;cache->indexCapacity+=f->indices;
++ }
++ cache->indices=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);cache->scratch=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);memset(cache->indices,0,sizeof(index_t)*cache->indexCapacity);memset(cache->scratch,0,sizeof(index_t)*cache->indexCapacity);unsigned int indexOffset=0;
++ for(unsigned int i=0;i<slot;i++){
++  rb_cached_mesh_t *m=&cache->meshes[i];unsigned int n=m->mesh.numvertexes;
++  m->vertices=BZ_Malloc((sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t))*n);m->mesh.xyz_array=m->vertices;m->mesh.st_array=(vec2_t*)(m->mesh.xyz_array+n);m->mesh.colors4f_array[0]=(vec4_t*)(m->mesh.st_array+n);
++  m->mesh.indexes=cache->indices+indexOffset;m->scratch=cache->scratch+indexOffset;m->mesh.vbofirstelement=indexOffset;indexOffset+=m->capacity;m->meshptr=&m->mesh;
++ }
++ for(unsigned int i=0;i<records;i++){
++  rb_cache_source_t *f=&sources[i];rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];qcvertex_t *source=(qcvertex_t*)(vm->stringtable+f->offset);
++  for(unsigned int j=0;j<f->vertices;j++){VectorCopy(source[j].xyz,m->mesh.xyz_array[ref.base+j]);Vector2Copy(source[j].st,m->mesh.st_array[ref.base+j]);Vector4Copy(source[j].rgba,m->mesh.colors4f_array[0][ref.base+j]);}
++ }
++ size_t vertexBytes=0;for(unsigned int i=0;i<slot;i++)vertexBytes+=(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t))*cache->meshes[i].mesh.numvertexes;
++ vbobctx_t context;BE_VBO_Begin(&context,vertexBytes);
++ for(unsigned int i=0;i<slot;i++){
++  rb_cached_mesh_t *m=&cache->meshes[i];unsigned int n=m->mesh.numvertexes;
++  BE_VBO_Data(&context,m->mesh.xyz_array,sizeof(vecV_t)*n,&m->vbo.coord);BE_VBO_Data(&context,m->mesh.st_array,sizeof(vec2_t)*n,&m->vbo.texcoord);BE_VBO_Data(&context,m->mesh.colors4f_array[0],sizeof(vec4_t)*n,&m->vbo.colours[0]);m->vbo.vertcount=n;
++ }
++ BE_VBO_Finish(&context,cache->indices,sizeof(index_t)*cache->indexCapacity,&cache->indexBuffer,&cache->vertexMemory,&cache->indexMemory);
++ cache->vertexBuffer=cache->meshes[0].vbo.coord;for(unsigned int i=0;i<slot;i++)cache->meshes[i].vbo.indicies=cache->indexBuffer;
++ cache->vm=vm;cache->base=vm->stringtable;cache->offset=offset;cache->total=total;cache->revision=revision;cache->bytes=bytes;cache->valid=true;return true;
++}
++static qboolean RB_CacheGrid(pubprogfuncs_t *vm,rb_grid_face_t *faces,unsigned int offset,unsigned int total,unsigned int revision)
++{
++ if(qrenderer!=QR_OPENGL||total>500000)return false;if(RB_MeshCacheFresh(vm,0,offset,total,revision))return true;
++ rb_cache_source_t *sources=BZ_Malloc((size_t)total*2*sizeof(*sources));qboolean valid=true;
++ for(int pass=0;pass<2;pass++)for(unsigned int i=0;i<total;i++){
++  rb_grid_face_t *f=&faces[i];if(f->count<3||f->count>256){valid=false;break;}
++  sources[(size_t)pass*total+i]=(rb_cache_source_t){f->vertices+(pass?f->count*sizeof(qcvertex_t):0),f->count,pass?f->count*2:(f->count-2)*3,pass,0};
++ }
++ if(valid)valid=RB_CacheGeometry(vm,0,offset,total,revision,sources,total*2);BZ_Free(sources);return valid;
++}
++static void RB_CachedIndices(rb_mesh_cache_t *cache)
++{
++ for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].mesh.numindexes=cache->meshes[i].pending;
++ if(!memcmp(cache->indices,cache->scratch,sizeof(index_t)*cache->indexCapacity))return;
++ BE_VBO_Destroy(&cache->indexBuffer,cache->indexMemory);cache->indexMemory=NULL;
++ vbobctx_t context;vboarray_t dummy={0};void *dummyMemory=NULL;unsigned char zeros[16]={0};
++ BE_VBO_Begin(&context,sizeof(zeros));BE_VBO_Data(&context,zeros,sizeof(zeros),&dummy);BE_VBO_Finish(&context,cache->scratch,sizeof(index_t)*cache->indexCapacity,&cache->indexBuffer,&dummyMemory,&cache->indexMemory);BE_VBO_Destroy(&dummy,dummyMemory);
++ memcpy(cache->indices,cache->scratch,sizeof(index_t)*cache->indexCapacity);for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].vbo.indicies=cache->indexBuffer;
++}
++
++static void QCBUILTIN PF_ReyondBroom_DrawGridCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),boundsOffset=G_INT(OFS_PARM2),accessOffset=G_INT(OFS_PARM3),accessCount=G_INT(OFS_PARM4),paramsOffset=G_INT(OFS_PARM5),revision;
++ rb_grid_params_t params;rb_grid_face_t *faces;vec3_t *bounds,forward,right,up;int *access,*visible,count=0,previous=-1,allowed=0,saved[18];float tx,ty;
++ G_INT(OFS_RETURN)=-1;
++ if(!RB_QCBuffer(vm,paramsOffset,1,sizeof(params)+sizeof(unsigned int)))return;
++ memcpy(&params,vm->stringtable+paramsOffset,sizeof(params));memcpy(&revision,vm->stringtable+paramsOffset+sizeof(params),sizeof(revision));
++ if(params.stride!=sizeof(rb_grid_face_t)||!(params.flags&8))return;
++ if(!total){G_INT(OFS_RETURN)=0;return;}
++ if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(*faces))||!RB_QCBuffer(vm,boundsOffset,accessCount*2,sizeof(vec3_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))||!RB_QCBuffer(vm,params.visible,total,sizeof(int)))return;
++ faces=(rb_grid_face_t*)(vm->stringtable+offset);bounds=(vec3_t*)(vm->stringtable+boundsOffset);access=(int*)(vm->stringtable+accessOffset);visible=(int*)(vm->stringtable+params.visible);
++ if(!RB_CacheGrid(vm,faces,offset,total,revision)){PF_ReyondBroom_DrawGrid(vm,pr_globals);return;}
++ if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ for(unsigned int i=0;i<total;i++) {
++  rb_grid_face_t *face=&faces[i];vec3_t delta;float depth,extent;
++  if(face->node!=previous){previous=face->node;allowed=face->node>=0&&(unsigned int)face->node<accessCount&&(access[face->node]&1);if(allowed){VectorSubtract(bounds[face->node*2],r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=bounds[face->node*2+1][0];if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))allowed=0;}}
++  if(allowed&&RB_OccludedSphere(face->node,bounds[face->node*2],bounds[face->node*2+1][0]))allowed=0;
++  if(!allowed){if(face->brushEnd>(int)i&&(unsigned int)face->brushEnd<=total)i=face->brushEnd-1;continue;}
++  if(face->sky&&!(params.flags&4))continue;VectorSubtract(r_refdef.vieworg,face->center,delta);if(DotProduct(delta,face->normal)<-.01f)continue;
++  VectorSubtract(face->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=face->radius;if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))continue;
++  visible[count++]=i;
++ }
++ for(unsigned int i=0;i<rb_grid_cache.count;i++)rb_grid_cache.meshes[i].pending=0;
++ for(int pass=0;pass<2;pass++) {
++  if(!(params.flags&(pass?2:1)))continue;
++  for(int i=0;i<count;i++) {
++   unsigned int faceIndex=visible[i];rb_grid_face_t *f=&faces[faceIndex];unsigned int indices=pass?f->count*2:(f->count-2)*3,ioffset=pass?f->lines:f->triangles;
++   if(!RB_QCBuffer(vm,ioffset,indices,sizeof(unsigned int)))return;
++   unsigned int *source=(unsigned int*)(vm->stringtable+ioffset);rb_cached_grid_ref_t ref=rb_grid_cache.refs[(size_t)pass*total+faceIndex];rb_cached_mesh_t *m=&rb_grid_cache.meshes[ref.slot];
++   if(m->pending+indices>m->capacity)return;for(unsigned int j=0;j<indices;j++)m->scratch[m->pending++]=ref.base+(source[j]<(unsigned int)f->count?source[j]:0);
++  }
++ }
++ if(R2D_Flush)R2D_Flush();RB_CachedIndices(&rb_grid_cache);memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(int pass=0;pass<2;pass++) {
++  if(!(params.flags&(pass?2:1)))continue;
++  G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
++  for(unsigned int i=0;i<rb_grid_cache.count;i++) {
++   rb_cached_mesh_t *m=&rb_grid_cache.meshes[i];if(m->pass!=pass||!m->pending)continue;
++   if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
++   scenetris_t *t=&cl_stris[cl_numstris++];t->shader=context.shader;t->flags=context.flags;t->firstvert=-1-(int)i;t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=m->pending;
++  }
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=count;
++}
++
+ typedef struct {unsigned int solid,wire;int model;} rb_point_geometry_t;
+ typedef struct {int stride,flags,solidShader,wireShader;unsigned int solidIndices,wireIndices;int wireFlags;} rb_point_params_t;
+ static void QCBUILTIN PF_ReyondBroom_DrawPointBoxes(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+@@ -3242,6 +3535,135 @@
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
+ }
++extern texid_t missing_texture;
++static void QCBUILTIN PF_ReyondBroom_CachedMeshStats(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){(void)vm;Con_Printf("RB_LABEL_QUERIES %u tiles=%u hints=%u tree=%u visible=%u\n",rb_label_queries,rb_label_tiles,rb_label_hint_hits,rb_label_tree_hits,rb_label_visible);int covered=0;for(int cell=0;cell<RB_GEOM_W*RB_GEOM_H;cell++)if(rb_geom.geometry[cell]<1e29f)covered++;Con_Printf("RB_GEOMETRY valid=%i mode=%i cells=%i viewport=%g %g %g %g cvar=%g\n",rb_geom.valid,rb_geom.mode,covered,rb_geom.x,rb_geom.y,rb_geom.w,rb_geom.h,Cvar_VariableValue("ftebroom_geometry_occlusion"));shader_t *seen[24];int seenCount=0;for(int j=0;j<cl_numstris&&seenCount<24;j++){shader_t *s=cl_stris[j].shader;if(!s)continue;int k;for(k=0;k<seenCount;k++)if(seen[k]==s)break;if(k<seenCount)continue;seen[seenCount++]=s;shaderpass_t *p=&s->passes[0];texid_t t=p->anim_frames[0];Con_Printf("RB_MATERIAL %s sort=%i flags=%u image=%p gl=%u status=%i dim=%ix%i texgen=%i shaderbits=%u\n",s->name,s->sort,s->flags,t,t?t->num:0,t?t->status:-1,s->width,s->height,p->texgen,p->shaderbits);}G_VECTOR(OFS_RETURN)[0]=rb_mesh_caches[0].bytes+rb_mesh_caches[1].bytes+rb_mesh_caches[2].bytes;G_VECTOR(OFS_RETURN)[1]=rb_mesh_caches[0].count;G_VECTOR(OFS_RETURN)[2]=rb_mesh_caches[1].count;Con_Printf("RB_CACHE_DIAG scene=%i labelgen=%u labelFaces=%u complete=%i merge=%i\n",cl_numstris,rb_label_generation,rb_labels.count,rb_labels.complete,rb_missing_enabled);for(int i=0;i<cl_numstris;i++){shader_t *s=cl_stris[i].shader;if(s&&!strncmp(s->name,"ftebroom/opaque/",16)){shaderpass_t *p=&s->passes[0];texid_t image=p->texgen==T_GEN_SINGLEMAP?p->anim_frames[0]:s->defaulttextures?s->defaulttextures->base:NULL;Con_Printf("RB_SHADER_DIAG %s passes=%i texgen=%i frames=%i imageStatus=%i missing=%i eligible=%i\n",s->name,s->numpasses,p->texgen,p->anim_numframes,image?image->status:-1,image==missing_texture,RB_MissingEligible(s));break;}}}
++static qboolean RB_CachePoints(pubprogfuncs_t *vm,rb_point_geometry_t *geometry,unsigned int offset,unsigned int total,unsigned int revision)
++{
++ if(qrenderer!=QR_OPENGL||total>500000)return false;
++ if(RB_MeshCacheFresh(vm,1,offset,total,revision))return true;
++ rb_cache_source_t *sources=BZ_Malloc((size_t)total*2*sizeof(*sources));
++ for(unsigned int i=0;i<total;i++){
++  sources[i]=(rb_cache_source_t){geometry[i].solid,24,36,0,0};
++  sources[total+i]=(rb_cache_source_t){geometry[i].wire,8,24,1,0};
++ }
++ qboolean valid=RB_CacheGeometry(vm,1,offset,total,revision,sources,total*2);BZ_Free(sources);return valid;
++}
++static void QCBUILTIN PF_ReyondBroom_DrawPointBoxesCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),visibleOffset=G_INT(OFS_PARM2),visibleCount=G_INT(OFS_PARM3),paramsOffset=G_INT(OFS_PARM4),revision;
++ rb_point_params_t params;rb_point_geometry_t *geometry;int *visible,saved[15],drawn=0;rb_mesh_cache_t *cache=&rb_mesh_caches[1];
++ G_INT(OFS_RETURN)=-1;
++ if(!RB_QCBuffer(vm,paramsOffset,1,sizeof(params)+sizeof(unsigned int)))return;
++ memcpy(&params,vm->stringtable+paramsOffset,sizeof(params));memcpy(&revision,vm->stringtable+paramsOffset+sizeof(params),sizeof(revision));
++ if(params.stride!=sizeof(rb_point_geometry_t))return;
++ if(!total||!visibleCount){G_INT(OFS_RETURN)=0;return;}
++ if(total>1000000||visibleCount>total||!RB_QCBuffer(vm,offset,total,sizeof(*geometry))||!RB_QCBuffer(vm,visibleOffset,visibleCount,sizeof(int))||!RB_QCBuffer(vm,params.solidIndices,36,sizeof(int))||!RB_QCBuffer(vm,params.wireIndices,24,sizeof(int)))return;
++ geometry=(rb_point_geometry_t*)(vm->stringtable+offset);visible=(int*)(vm->stringtable+visibleOffset);
++ if(!RB_CachePoints(vm,geometry,offset,total,revision)){PF_ReyondBroom_DrawPointBoxes(vm,pr_globals);return;}
++ for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
++ for(int pass=0;pass<2;pass++){
++  if(!(params.flags&(pass?2:1)))continue;
++  unsigned int indices=pass?24:36,vertices=pass?8:24;
++  unsigned int *source=(unsigned int*)(vm->stringtable+(pass?params.wireIndices:params.solidIndices));
++  for(unsigned int i=0;i<visibleCount;i++){
++   int index=visible[i];if(index<0||(unsigned int)index>=total)continue;
++   if(!pass&&(params.flags&4)&&geometry[index].model)continue;
++   rb_cached_grid_ref_t ref=cache->refs[(size_t)pass*total+index];rb_cached_mesh_t *m=&cache->meshes[ref.slot];
++   if(m->pending+indices>m->capacity)return;
++   for(unsigned int j=0;j<indices;j++)m->scratch[m->pending++]=ref.base+(source[j]<vertices?source[j]:0);
++   drawn++;
++  }
++ }
++ if(R2D_Flush)R2D_Flush();RB_CachedIndices(cache);memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ for(int pass=0;pass<2;pass++){
++  if(!(params.flags&(pass?2:1)))continue;
++  G_INT(OFS_PARM0)=pass?params.wireShader:params.solidShader;
++  rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),pass?params.wireFlags:3);
++  for(unsigned int i=0;i<cache->count;i++){
++   rb_cached_mesh_t *m=&cache->meshes[i];if(m->pass!=pass||!m->pending)continue;
++   if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
++   scenetris_t *t=&cl_stris[cl_numstris++];t->shader=context.shader;t->flags=context.flags;t->firstvert=-1-(int)(65536+i);t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=m->pending;
++  }
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=drawn;
++}
++
++
++// Retain face attributes without changing primitive order or shader state.
++static void QCBUILTIN PF_ReyondBroom_DrawFacesCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),revision=G_INT(OFS_PARM5);
++ rb_mesh_cache_t *cache=&rb_mesh_caches[2];int saved[18];G_INT(OFS_RETURN)=-1;
++ if(qrenderer!=QR_OPENGL||stride!=sizeof(editorqcface_t)||total<30000||total>500000||!RB_QCBuffer(vm,offset,total,stride)||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int)))return;
++ editorqcface_t *faces=(editorqcface_t*)(vm->stringtable+offset);int *access=(int*)(vm->stringtable+accessOffset);
++ memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));RB_MissingBegin(total);
++ typedef struct {int name,id,flags;unsigned int generation;rb_soup_context_t context;} context_t;
++ static context_t names[8192];static unsigned int generation;
++ qboolean fresh=RB_MeshCacheFresh(vm,2,offset,total,revision),valid=true,changed=false;
++ if(!fresh){
++  if(!++generation){memset(names,0,sizeof(names));generation=1;}
++  for(unsigned int i=0;i<total;i++){
++   if(faces[i].count<3||faces[i].count>64){valid=false;break;}
++   unsigned int slot=((unsigned int)faces[i].shader*2654435761u)&8191,probe=0;
++   while(names[slot].generation==generation&&names[slot].name!=faces[i].shader&&++probe<8192)slot=(slot+1)&8191;
++   if(probe==8192){valid=false;break;}
++   names[slot].generation=generation;names[slot].name=faces[i].shader;
++  }
++ }
++ if(!valid){memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));return;}
++ // Resolve each material once; individual faces keep their original order.
++ // Revalidate equivalence every frame so async texture loads remain visible.
++ for(unsigned int i=0;i<8192;i++)if(names[i].generation==generation){
++  context_t *entry=&names[i];G_INT(OFS_PARM0)=entry->name;
++  entry->context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3);entry->context.shader=RB_CanonicalMissing(entry->context.shader);
++  if(!entry->context.shader){valid=false;break;}
++  if(entry->id!=entry->context.shader->id||entry->flags!=(int)entry->context.flags)changed=true;
++  entry->id=entry->context.shader->id;entry->flags=entry->context.flags;
++ }
++ if(!valid){memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));return;}
++ if(!fresh||changed){
++  rb_cache_source_t *sources=BZ_Malloc((size_t)total*sizeof(*sources));
++  for(unsigned int i=0;i<total;i++){
++   unsigned int slot=((unsigned int)faces[i].shader*2654435761u)&8191;
++   while(names[slot].generation==generation&&names[slot].name!=faces[i].shader)slot=(slot+1)&8191;
++   sources[i]=(rb_cache_source_t){faces[i].vertices,faces[i].count,(faces[i].count-2)*3,names[slot].flags,names[slot].id,faces[i].shader};
++  }
++  valid=RB_CacheGeometry(vm,2,offset,total,revision,sources,total);BZ_Free(sources);
++  if(!valid){memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));return;}
++ }
++ for(unsigned int i=0;i<cache->count;i++){
++  rb_cached_mesh_t *m=&cache->meshes[i];unsigned int slot=((unsigned int)m->key*2654435761u)&8191;
++  while(names[slot].generation==generation&&names[slot].name!=m->key)slot=(slot+1)&8191;
++  m->shader=names[slot].context.shader;
++ }
++ if(r_refdef.dirty)V_ApplyRefdef();vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);float tx=tan(r_refdef.fov_x*M_PI/360),ty=tan(r_refdef.fov_y*M_PI/360);
++ for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
++ int previous=-1,visible=false,drawn=0;
++ for(unsigned int i=0;i<total;i++){
++  editorqcface_t *f=&faces[i];vec3_t delta;float depth,radius;
++  if(f->node!=previous){previous=f->node;visible=f->enabled&&f->node>=0&&(unsigned int)f->node<accessCount&&(access[f->node]&1);VectorSubtract(f->brushCenter,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=f->brushRadius;if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))visible=false;}
++  if(visible&&RB_OccludedSphere(f->node,f->brushCenter,f->brushRadius))visible=false;
++  if(!visible){if(f->brushEnd>(int)i&&(unsigned int)f->brushEnd<=total)i=f->brushEnd-1;continue;}
++  if(f->alpha==1&&DotProduct(r_refdef.vieworg,f->normal)<f->distance-.01)continue;
++  VectorSubtract(f->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=f->radius;
++  if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;
++  rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];
++  unsigned int count=(f->count-2)*3;if(!RB_QCBuffer(vm,f->triangles,count,sizeof(int))||m->pending+count>m->capacity){valid=false;break;}
++  unsigned int *indices=(unsigned int*)(vm->stringtable+f->triangles);
++  for(unsigned int j=0;j<count;j++){if(indices[j]>=(unsigned int)f->count){valid=false;break;}m->scratch[m->pending++]=ref.base+indices[j];}
++  if(!valid)break;drawn++;
++ }
++ if(valid){
++  if(R2D_Flush)R2D_Flush();RB_CachedIndices(cache);
++  for(unsigned int i=0;i<cache->count;i++){
++   rb_cached_mesh_t *m=&cache->meshes[i];if(!m->pending)continue;
++   if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
++   scenetris_t *t=&cl_stris[cl_numstris++];t->shader=m->shader;t->flags=m->pass;t->firstvert=-1-(int)(131072+i);t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=m->pending;
++  }
++ }
++ memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=valid?drawn:-1;
++}
++
+ // ReyondBroom bulk overlay passes end.
+ #if defined(__GNUC__) && !defined(__clang__)
+ #pragma GCC pop_options
+@@ -7422,8 +7844,13 @@
+ 	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
+ 	{"ftebroom_draw_labels",PF_ReyondBroom_DrawLabels,0},
+ 	{"ftebroom_draw_grid",PF_ReyondBroom_DrawGrid,0},
++	{"ftebroom_draw_grid_compact",PF_ReyondBroom_DrawGrid,0},
++	{"ftebroom_draw_faces_cached",PF_ReyondBroom_DrawFacesCached,0},
++	{"ftebroom_draw_grid_cached",PF_ReyondBroom_DrawGridCached,0},
+ 	{"ftebroom_prepare_occlusion",PF_ReyondBroom_PrepareOcclusion,0},
+ 	{"ftebroom_draw_point_boxes",PF_ReyondBroom_DrawPointBoxes,0},
++	{"ftebroom_draw_point_boxes_cached",PF_ReyondBroom_DrawPointBoxesCached,0},
++	{"ftebroom_cached_mesh_stats",PF_ReyondBroom_CachedMeshStats,0},
+ 
+ 	{"getproperty",				PF_R_GetViewFlag,	309},				// #309 vector/float(float property) getproperty (EXT_CSQC_1)
+ 
+@@ -8123,6 +8550,7 @@
+ 
+ void CSQC_Shutdown(void)
+ {
++ CSQC_ReyondBroomClearMeshes();
+ 	int i;
+ 	if (csqcprogs)
+ 	{
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -1501,6 +1501,8 @@
+ qboolean CSQC_DrawScores(playerview_t *pv);
+ qboolean CSQC_UseGamecodeLoadingScreen(void);
+ void	 CSQC_Shutdown(void);
++void CSQC_ReyondBroomClearMeshes(void);
++qboolean CSQC_ReyondBroomCachedBatch(void *batch,unsigned int slot);
+ qboolean CSQC_StuffCmd(int lplayernum, char *cmd, char *cmdend);
+ void	 CSQC_MapEntityEdited(int modelindex, int idx, const char *newe);
+ //qboolean CSQC_LoadResource(char *resname, char *restype);
+--- a/engine/client/r_2d.c
++++ b/engine/client/r_2d.c
+@@ -164,6 +164,9 @@
+ 
+ void R2D_Shutdown(void)
+ {
++#ifdef CSQC_DAT
++ CSQC_ReyondBroomClearMeshes();
++#endif
+ 	Cvar_Unhook(&con_textfont);
+ 	Cvar_Unhook(&gl_font);
+ 	Cvar_Unhook(&r_font_postprocess_outline);
+--- a/engine/gl/gl_alias.c
++++ b/engine/gl/gl_alias.c
+@@ -2881,6 +2881,9 @@
+ 		b->user.poly.surface = i;
+ 		b->flags = cl_stris[i].flags;
+ 		b->vbo = 0;
++#ifdef CSQC_DAT
++        if(cl_stris[i].firstvert<0 && !CSQC_ReyondBroomCachedBatch(b,-1-cl_stris[i].firstvert))continue;
++#endif
+ 
+ 		sort = shader->sort;
+ 		if ((b->flags & BEF_FORCEADDITIVE) && sort < SHADER_SORT_ADDITIVE)
+--- a/engine/gl/gl_backend.c
++++ b/engine/gl/gl_backend.c
+@@ -5180,6 +5180,18 @@
+ 	GLBE_DrawMesh_List(shader, 1, &mesh, NULL, NULL, beflags);
+ }
+ 
++// Retained editor meshes keep their attribute bindings between frames.
++void GLBE_InitEditorMesh(vbo_t *vbo)
++{
++ if (!vbo->vao && qglGenVertexArrays && qglDeleteVertexArrays)
++  GLBE_SetupVAO(vbo, 1u<<VATTR_LEG_ELEMENTS, (1u<<VATTR_VERTEX1)|(1u<<VATTR_COLOUR)|(1u<<VATTR_TEXCOORD));
++}
++void GLBE_DestroyEditorMesh(vbo_t *vbo)
++{
++ if (vbo->vao && vbo->vao != shaderstate.streamvao[0] && qglDeleteVertexArrays) {
++  GL_DeselectVAO();qglDeleteVertexArrays(1,&vbo->vao);vbo->vao=0;
++ }
++}
+ void GLBE_SubmitBatch(batch_t *batch)
+ {
+ 	shader_t *sh;
+@@ -5188,10 +5200,11 @@
+ 	{
+ 		shaderstate.sourcevbo = batch->vbo;
+ 
+-		if (!batch->vbo->vao)
++		if (!batch->vbo->vao || batch->vbo->vao == shaderstate.streamvao[0]) {
+ 			batch->vbo->vao = shaderstate.streamvao[0];
+-		batch->vbo->vaodynamic = ~0;
+-		batch->vbo->vaoenabled = 0;
++			batch->vbo->vaodynamic = ~0;
++			batch->vbo->vaoenabled = 0;
++		}
+ 	}
+ 	else
+ 	{
+@@ -6361,9 +6374,16 @@
+ 	//reset batches if we needed more mem, to avoid allocations mid-frame.
+ 	if (!r_refdef.recurse)
+ 	{
+-		if (shaderstate.wbatch + 50 > shaderstate.maxwbatches)
+-		{
+-			int newm = shaderstate.wbatch + 100;
++		// A large CSQC scene can grow by tens of thousands of batches at once.
++		// Reserving only 100 per frame silently omits the remaining geometry.
++		int required = shaderstate.wbatch + 50;
++#ifdef CSQC_DAT
++		if (cl_numstris > 4096 && cl_numstris < 2000000)
++			required = max(required, cl_numstris + 100);
++#endif
++		if (required > shaderstate.maxwbatches)
++		{
++			int newm = max(required, shaderstate.wbatch + 100);
+ 			shaderstate.wbatches = BZ_Realloc(shaderstate.wbatches, newm * sizeof(*shaderstate.wbatches));
+ 			memset(shaderstate.wbatches + shaderstate.maxwbatches, 0, (newm - shaderstate.maxwbatches) * sizeof(*shaderstate.wbatches));
+ 			shaderstate.maxwbatches = newm;
+--- a/engine/gl/glquake.h
++++ b/engine/gl/glquake.h
+@@ -1072,6 +1072,7 @@
+ extern void (APIENTRY *qglVertexPointer) (GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+ 
+ extern void (APIENTRY *qglGenVertexArrays)(GLsizei n, GLuint *arrays);
++extern void (APIENTRY *qglDeleteVertexArrays)(GLsizei n, const GLuint *arrays);
+ extern void (APIENTRY *qglBindVertexArray)(GLuint vaoarray);
+ 
+ extern void (APIENTRY *qglTexStorage2D)(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);		//gl4.2
+--- a/engine/gl/gl_vidcommon.c
++++ b/engine/gl/gl_vidcommon.c
+@@ -236,6 +236,7 @@
+ FTEPFNGLCOMPRESSEDTEXIMAGE3DARBPROC qglCompressedTexImage3D;
+ 
+ void (APIENTRY *qglGenVertexArrays)(GLsizei n, GLuint *arrays);
++void (APIENTRY *qglDeleteVertexArrays)(GLsizei n, const GLuint *arrays);
+ void (APIENTRY *qglBindVertexArray)(GLuint vaoarray);
+ 
+ const GLubyte * (APIENTRY * qglGetStringi) (GLenum name, GLuint index);
+@@ -1213,6 +1214,7 @@
+ 	{
+ 		//don't bother if we've no glsl
+ 		qglGenVertexArrays	= NULL;
++		qglDeleteVertexArrays	= NULL;
+ 		qglBindVertexArray	= NULL;
+ 	}
+ 	else if (gl_config.glversion >= 3 && !gl_config.gles)
+@@ -1220,17 +1222,20 @@
+ 		/*yay core!*/
+ 		Con_Printf("Using vao (core)\n");
+ 		qglGenVertexArrays	= (void *)getglext("glGenVertexArrays");
++		qglDeleteVertexArrays	= (void *)getglext("glDeleteVertexArrays");
+ 		qglBindVertexArray	= (void *)getglext("glBindVertexArray");
+ 	}
+ 	else if (GL_CheckExtension("GL_ARB_vertex_array_object"))
+ 	{
+ 		Con_Printf("Using vao (extension)\n");
+ 		qglGenVertexArrays	= (void *)getglext("glGenVertexArraysARB");
++		qglDeleteVertexArrays	= (void *)getglext("glDeleteVertexArraysARB");
+ 		qglBindVertexArray	= (void *)getglext("glBindVertexArrayARB");
+ 	}
+ 	else
+ 	{
+ 		qglGenVertexArrays	= NULL;
++		qglDeleteVertexArrays	= NULL;
+ 		qglBindVertexArray	= NULL;
+ 	}
+ 
+@@ -1409,6 +1414,7 @@
+ 		qglGenVertexArrays(1, &vao);
+ 		qglBindVertexArray(vao);
+ 		qglGenVertexArrays = NULL;
++		qglDeleteVertexArrays = NULL;
+ 		qglBindVertexArray = NULL;
+ 	}
+ 
+@@ -3347,6 +3353,7 @@
+ 
+ 
+ 	qglGenVertexArrays	= NULL;
++	qglDeleteVertexArrays	= NULL;
+ 	qglBindVertexArray	= NULL;
+ 	qglTexStorage2D = NULL;
+ 	qglTexStorage3D = NULL;
+@@ -3378,6 +3385,7 @@
+ 	qglGetQueryObjectuivARB	= NULL;
+ 
+ 	qglGenVertexArrays = NULL;
++	qglDeleteVertexArrays = NULL;
+ 	qglBindVertexArray = NULL;
+ 
+ 	qglDrawBuffers = NULL;

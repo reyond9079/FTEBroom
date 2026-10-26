@@ -1,3 +1,4 @@
+vector() ftebroom_cached_mesh_stats=#0:ftebroom_cached_mesh_stats;
 float fb_benchmark_start,fb_benchmark_frames;
 #include "fb_bevel_extended_tests.qc"
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -15,21 +16,34 @@ void fb_fullbench_tick()
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")==5){
+        localcmd("ftebroom_test_generators frame76\nin 2 screenshot restart77-before.png\nin 3 set ftebroom_fullbench 0\nin 4 set vid_multisample 8\nin 4 ftebroom_renderer_restart\nin 20 screenshot restart77-after.png\nin 21 ftebroom_test_generators bench76\nin 22 quit force\n");return;
+    }
+    if(cvar("ftebroom_fullbench_qa")==4){
+        localcmd("ftebroom_test_generators frame76\nset ftebroom_show_entity_names 1\nset ftebroom_cached_meshes 1\nset ftebroom_merge_missing_materials 1\nin 2 set ftebroom_geometry_occlusion 0\nin 3 screenshot pose77-0-reference.png\nin 4 set ftebroom_geometry_occlusion 1\nin 5 screenshot pose77-0-fast.png\nin 7 ftebroom_camera_restore -9715.52 -8403.52 -5358.29 -24.6845 45 0 90\nin 7 set ftebroom_geometry_occlusion 0\nin 8 screenshot pose77-1-reference.png\nin 9 set ftebroom_geometry_occlusion 1\nin 10 screenshot pose77-1-fast.png\nin 12 ftebroom_camera_restore -448 288 8 0 45 0 90\nin 12 set ftebroom_geometry_occlusion 0\nin 13 screenshot pose77-2-reference.png\nin 14 set ftebroom_geometry_occlusion 1\nin 15 screenshot pose77-2-fast.png\nin 17 ftebroom_camera_restore 1000 -1000 128 0 135 0 90\nin 17 set ftebroom_geometry_occlusion 0\nin 18 screenshot pose77-3-reference.png\nin 19 set ftebroom_geometry_occlusion 1\nin 20 screenshot pose77-3-fast.png\nin 22 ftebroom_camera_restore -8000 0 128 0 0 0 90\nin 22 set ftebroom_geometry_occlusion 0\nin 23 screenshot pose77-4-reference.png\nin 24 set ftebroom_geometry_occlusion 1\nin 25 screenshot pose77-4-fast.png\nin 27 ftebroom_camera_restore 0 -7400 1600 15 90 0 90\nin 27 set ftebroom_geometry_occlusion 0\nin 28 screenshot pose77-5-reference.png\nin 29 set ftebroom_geometry_occlusion 1\nin 30 screenshot pose77-5-fast.png\nin 33 quit force\n");return;
+    }
+    if(cvar("ftebroom_fullbench_qa")==3){
+        localcmd("ftebroom_test_generators frame76\nin 2 set ftebroom_show_entity_names 0\nin 2 set ftebroom_cached_meshes 0\nin 2 set ftebroom_merge_missing_materials 0\nin 4 ftebroom_test_generators cam77\nin 4 screenshot qa77-base.png\nin 6 set ftebroom_cached_meshes 1\nin 8 ftebroom_test_generators cam77\nin 8 screenshot qa77-cache.png\nin 10 set ftebroom_cached_meshes 0\nin 10 set ftebroom_merge_missing_materials 1\nin 12 ftebroom_test_generators cam77\nin 12 screenshot qa77-shaders.png\nin 14 set ftebroom_cached_meshes 1\nin 14 set ftebroom_geometry_occlusion 1\nin 16 ftebroom_test_generators cam77\nin 16 screenshot qa77-both.png\nin 17 ftebroom_test_generators bench76\nin 18 quit force\n");return;
+    }
+    if(cvar("ftebroom_fullbench_qa")==2){
+        localcmd("ftebroom_test_generators frame76\nin 2 set ftebroom_show_entity_names 0\nin 2 set ftebroom_cached_meshes 0\nin 2 set ftebroom_merge_missing_materials 0\nin 4 screenshot full77-reference.png\nin 6 set ftebroom_cached_meshes 1\nin 6 set ftebroom_merge_missing_materials 1\nin 8 screenshot full77-retained.png\nin 10 quit force\n");return;
+    }
     if(cvar("ftebroom_fullbench_qa")){
         localcmd("ftebroom_test_generators frame76\nin 3 set ftebroom_show_entity_names 0\nin 3 set ftebroom_occlusion_culling 0\nin 4 screenshot full76-baseline.png\nin 7 set ftebroom_occlusion_culling 2\nin 8 screenshot full76-geometry.png\nin 11 set ftebroom_show_entity_names 1\nin 11 set ftebroom_occlusion_culling 1\nin 12 screenshot full76-labels.png\nin 14 quit force\n");return;
     }
-    localcmd(strcat("ftebroom_test_generators frame76\nin 3 screenshot ",name,".png\nin 4 set ftebroom_benchmark 1\nin 15 set ftebroom_right 1\nin 15 set ftebroom_benchmark 1\nin 26 set ftebroom_right 0\nin 27 ftebroom_test_generators bench76\nin 28 quit force\n"));
+    localcmd(strcat("ftebroom_test_generators frame76\nin 3 screenshot ",name,".png\nin 4 set ftebroom_benchmark 1\nin 15 set ftebroom_right 1\nin 15 set ftebroom_benchmark 1\nin 26 set ftebroom_right 0\nin 26 screenshot full77-end.png\nin 27 ftebroom_test_generators bench76\nin 28 quit force\n"));
 }
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
-    if(argv(1)=="bench76"){print(sprintf("RB_BENCH_STATE time=%g start=%g frames=%g enabled=%g labels=%s\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark"),cvar_string("ftebroom_label_stats")));return TRUE;}
+    if(argv(1)=="cam77"){print(sprintf("RB_CAMERA77 eye=%v angles=%v viewport=%v %v\n",fb_camera_eye,(vector)getproperty(VF_ANGLES),(vector)getproperty(VF_MIN),(vector)getproperty(VF_SIZE)));return TRUE;}
+    if(argv(1)=="bench76"){int brushes=0,patches=0,entities=0;for(int node=0;node<fb_node_count;node++){if(fb_nodes[node].kind==FB_NODE_BRUSH)brushes++;if(fb_nodes[node].kind==FB_NODE_PATCH)patches++;if(fb_nodes[node].fields)entities++;}print(sprintf("RB_MAP_COUNTS brushes=%i patches=%i entities=%i nodes=%i\n",brushes,patches,entities,fb_node_count));if(checkbuiltin(ftebroom_cached_mesh_stats))print(sprintf("RB_GPU_CACHES %v enabled=%g faces=%s\n",ftebroom_cached_mesh_stats(),cvar("ftebroom_cached_meshes"),cvar_string("ftebroom_native_faces_drawn")));print(sprintf("RB_BENCH_STATE time=%g start=%g frames=%g enabled=%g labels=%s\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark"),cvar_string("ftebroom_label_stats")));return TRUE;}
     if(argv(1)=="frame76"){
         fb_document_tick();static vector allBounds[2];
         if(fb_container_bounds(0,allBounds)){
             vector center=(allBounds[0]+allBounds[1])*.5;
             float radius=vlen(allBounds[1]-allBounds[0])*.5;
-            vector eye=center+normalize('-1 -1 0.65')*radius*3;
+            vector eye=center+normalize('-1 -1 0.65')*radius*1.6;
             vector direction=center-eye,angles='0 0 0';
             angles_x=atan2(-direction_z,vlen([direction_x,direction_y,0]))*180/M_PI;angles_y=atan2(direction_y,direction_x)*180/M_PI;
             print(sprintf("FTEBROOM_FULLMAP_BOUNDS %v %v\n",allBounds[0],allBounds[1]));

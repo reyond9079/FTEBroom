@@ -2,7 +2,7 @@
 import argparse,subprocess,tempfile
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--engine',required=True,type=Path);p.add_argument('--compiler',default='cc');a=p.parse_args()
-s=(a.engine/'client/pr_csqc.c').read_text();code=s[s.index('static qboolean RB_QCBuffer'):s.index('// ReyondBroom native face pass begin.')]
+s=(a.engine/'client/pr_csqc.c').read_text();code=s[s.index('static qboolean RB_QCBuffer'):s.index('static qboolean RB_OccludedPoint')]
 shim=r'''
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +11,7 @@ shim=r'''
 #define MAX_INDICIES 65535
 #define DRAWFLAG_2D 4
 #define DRAWFLAG_ADD 1
-#define DRAWFLAG_MODULATE 3
+#define DRAWFLAG_MODULATE 2
 #define DRAWFLAG_TWOSIDED 16
 #define DRAWFLAG_LINES 2048
 #define BEF_NOSHADOWS 1

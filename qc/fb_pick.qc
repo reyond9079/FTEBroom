@@ -306,10 +306,13 @@ typedef struct {int node,id,model;vector center,label,color;float radius;string 
 fb_point_render_t *fb_point_render;int fb_point_render_count;
 var float autocvar_ftebroom_point_cache=1;
 var float autocvar_ftebroom_native_overlays=1;
+var float autocvar_ftebroom_cached_meshes=1;
 vector(fb_point_render_t *points,int count,int stride,int mode) ftebroom_draw_labels=#0:ftebroom_draw_labels;
 typedef struct {trisoup_simple_vert_t *solid;trisoup_simple_vert_t *wire;int model;} fb_point_geometry_t;
-typedef struct {int stride,flags;string solidShader,wireShader;int *solidIndices;int *wireIndices;int wireFlags;} fb_point_params_t;
+typedef struct {int stride,flags;string solidShader,wireShader;int *solidIndices;int *wireIndices;int wireFlags;int revision;} fb_point_params_t;
 int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_point_params_t *params) ftebroom_draw_point_boxes=#0:ftebroom_draw_point_boxes;
+int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_point_params_t *params) ftebroom_draw_point_boxes_cached=#0:ftebroom_draw_point_boxes_cached;
+int fb_point_upload_epoch;
 fb_point_geometry_t *fb_point_geometry;int *fb_point_models;int fb_point_model_count;
 
 int(fb_point_render_t *points,int count,int *indices,int stride) ftebroom_cull_points=#0:ftebroom_cull_points;
@@ -322,7 +325,7 @@ void fb_point_render_prepare()
     int currentRevision=fb_document_revision();
     if(geometry==fb_grid_geometry_epoch && selection==fb_selection_epoch && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==currentRevision && entityRevision==fb_entity_render_epoch && colors==currentColors)return;
     geometry=fb_grid_geometry_epoch;selection=fb_selection_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=currentRevision;entityRevision=fb_entity_render_epoch;
-    strunzone(colors);colors=strzone(currentColors);
+    fb_point_upload_epoch++;strunzone(colors);colors=strzone(currentColors);
     fb_document_lists_prepare();memfree(fb_point_render);fb_point_render=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_render_t));fb_point_render_count=0;
     memfree(fb_point_geometry);memfree(fb_point_models);fb_point_geometry=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_geometry_t));fb_point_models=memalloc(max(1,fb_point_node_count)*sizeof(int));fb_point_model_count=0;
     static vector bounds[2];
@@ -365,8 +368,8 @@ void fb_pick_draw_entities(int labelsOnly)
         visibleCount=ftebroom_cull_points(fb_point_render,fb_point_render_count,fb_point_visible,sizeof(fb_point_render_t));
     }
     if(!labelsOnly && !ortho && visibleCount>=0 && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_point_boxes)){
-        fb_point_params_t params;params.stride=sizeof(fb_point_geometry_t);params.flags=1|(wire?2:0)|(models?4:0);params.solidShader="ftebroom/entitysolid";params.wireShader=entityWire;params.solidIndices=fb_entity_box_triangles;params.wireIndices=bbox_line_idxs;params.wireFlags=3|DRAWFLAG_LINES;
-        int nativeDrawn=ftebroom_draw_point_boxes(fb_point_geometry,fb_point_render_count,fb_point_visible,visibleCount,&params);
+        fb_point_params_t params;params.stride=sizeof(fb_point_geometry_t);params.flags=1|(wire?2:0)|(models?4:0);params.solidShader="ftebroom/entitysolid";params.wireShader=entityWire;params.solidIndices=fb_entity_box_triangles;params.wireIndices=bbox_line_idxs;params.wireFlags=3|DRAWFLAG_LINES;params.revision=fb_point_upload_epoch;
+        int nativeDrawn;if(autocvar_ftebroom_cached_meshes && fb_node_count>=10000 && checkbuiltin(ftebroom_draw_point_boxes_cached))nativeDrawn=ftebroom_draw_point_boxes_cached(fb_point_geometry,fb_point_render_count,fb_point_visible,visibleCount,&params);else nativeDrawn=ftebroom_draw_point_boxes(fb_point_geometry,fb_point_render_count,fb_point_visible,visibleCount,&params);
         if(nativeDrawn>=0){if(models)for(int m=0;m<fb_point_model_count;m++)fb_entity_draw_model(fb_point_models[m]);return;}
     }
     int entries=visibleCount<0?fb_point_render_count:visibleCount;

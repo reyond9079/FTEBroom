@@ -46,7 +46,7 @@ if (!$enginePath) {
     (Get-Item "$fte/engine/common/plugin.c").LastWriteTime = Get-Date
     $env:FTEBROOM_ENGINE_SRC = "$fte/engine"
     $env:FTEBROOM_GIT_DIR = (Split-Path (Get-Command git).Source).Replace('\','/')
-    Run 'C:/msys64/usr/bin/bash.exe' @('-lc', 'export PATH="/mingw64/bin:/usr/bin:$(cygpath -u "$FTEBROOM_GIT_DIR"):$PATH"; cd "$FTEBROOM_ENGINE_SRC" && mingw32-make -B -j8 DEPCC= DEPCXX= BASE_DIR=. RELEASE_DIR=release-ftebroom FTE_TARGET=win64 FTE_CONFIG_EXTRA="-DNO_SPEEX -DNO_OPUS -DNO_VORBISFILE -DNO_OGG" LINK_FREETYPE=0 gl-rel')
+    Run 'C:/msys64/usr/bin/bash.exe' @('-lc', 'export PATH="/mingw64/bin:/usr/bin:$(cygpath -u "$FTEBROOM_GIT_DIR"):$PATH"; cd "$FTEBROOM_ENGINE_SRC" && mingw32-make -B -j8 CPUOPTIMIZATIONS=-O3 DEPCC= DEPCXX= BASE_DIR=. RELEASE_DIR=release-ftebroom FTE_TARGET=win64 FTE_CONFIG_EXTRA="-DNO_SPEEX -DNO_OPUS -DNO_VORBISFILE -DNO_OGG" LINK_FREETYPE=0 gl-rel')
     $enginePath = "$fte/engine/release-ftebroom/fteglqw64.exe"
 }
 Run 'mingw32-make' @('-C', "$fte/engine/qclib", '-j4', 'R_qcc', 'CC=gcc', 'BASE_CFLAGS=-DQCCONLY', 'BASE_LDFLAGS=-s -lz -Wl,--stack,16777216')

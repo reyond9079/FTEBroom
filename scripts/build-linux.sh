@@ -22,7 +22,7 @@ for pair in 'fteqw patches' 'imgui imgui-patches'; do
     fi
   done
 done
-make -B -C "$deps/fteqw/engine" -j4 DEPCC= DEPCXX= BASE_DIR=. RELEASE_DIR=release-linux FTE_TARGET=linux64 FTE_CONFIG_EXTRA='-DNO_SPEEX -DNO_OPUS -DNO_VORBISFILE -DNO_OGG' LINK_FREETYPE=0 gl-rel
+make -B -C "$deps/fteqw/engine" -j4 CPUOPTIMIZATIONS=-O3 DEPCC= DEPCXX= BASE_DIR=. RELEASE_DIR=release-linux FTE_TARGET=linux64 FTE_CONFIG_EXTRA='-DNO_SPEEX -DNO_OPUS -DNO_VORBISFILE -DNO_OGG' LINK_FREETYPE=0 gl-rel
 make -B -C "$deps/fteqw/engine/qclib" -j4 R_qcc CC=gcc BASE_CFLAGS=-DQCCONLY BASE_LDFLAGS='-s -lz'
 "$deps/fteqw/engine/qclib/fteqcc.bin" -src "$src/qc" -srcfile csaddon.src -max_globals 262144
 g++ -std=c++17 -O2 -shared -fPIC -pthread -I"$deps/bullet3-3.25/src" -I"$deps/fteqw/plugins" -I"$deps/imgui" "$src/native/ftebroom.cpp" "$deps/imgui/imgui.cpp" "$deps/imgui/imgui_draw.cpp" "$deps/imgui/imgui_tables.cpp" "$deps/imgui/imgui_widgets.cpp" "$deps/bullet-build/src/BulletDynamics/libBulletDynamics.a" "$deps/bullet-build/src/BulletCollision/libBulletCollision.a" "$deps/bullet-build/src/LinearMath/libLinearMath.a" -lz -ldl -o "$deps/fteplug_ftebroom_amd64.so"
@@ -45,4 +45,4 @@ if [ ! -f "$deps/wl-clipboard/build/build.ninja" ]; then
 fi
 ninja -C "$deps/wl-clipboard/build"
 python3 "$src/scripts/build-plugins.py" --output "$deps/plugins"
-python3 "$src/scripts/package-linux.py" --deps "$deps" --output "$src/out/linux" --version 0.5.0-alpha.76
+python3 "$src/scripts/package-linux.py" --deps "$deps" --output "$src/out/linux" --version 0.5.0-alpha.77

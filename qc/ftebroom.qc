@@ -342,9 +342,12 @@ typedef struct {
     int *triangles,*lines;int occluder;
 } fb_grid_face_t;
 int fb_occlusion_revision;int fb_generator_count,fb_render_access_count;int *fb_render_access;
-typedef struct {int stride,flags;string gridShader,edgeShader;int *visible;} fb_grid_native_params_t;
-int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid=#0:ftebroom_draw_grid;
+typedef struct {int stride,flags;string gridShader,edgeShader;int *visible;int revision;} fb_grid_native_params_t;
+int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid_compact=#0:ftebroom_draw_grid_compact;
+int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid_cached=#0:ftebroom_draw_grid_cached;
+int fb_grid_upload_epoch;
 int(fb_grid_face_t *faces,int count,int *access,int accessCount,int stride,int mode,int revision) ftebroom_prepare_occlusion=#0:ftebroom_prepare_occlusion;
+var float autocvar_ftebroom_geometry_occlusion=1;
 var float autocvar_ftebroom_occlusion_culling=1;
 int fb_face_occluder(brushface_t *face,int contents,int node,int model);
 int fb_grid_built_epoch;
@@ -410,7 +413,7 @@ void fb_surfacegrid(int geometryOnly)
             face.triangles=&fb_grid_packed_triangles[vertexOffset*3];face.lines=&fb_grid_packed_lines[vertexOffset*2];vertexOffset+=n;
             for(int j=0;j<n;j++) {
                 int next=j+1;if(next>=n)next=0;
-                face.lines[j*2]=j+n;face.lines[j*2+1]=next+n;
+                face.lines[j*2]=j;face.lines[j*2+1]=next;
                 if(j>=2){face.triangles[(j-2)*3]=0;face.triangles[(j-2)*3+1]=j-1;face.triangles[(j-2)*3+2]=j;}
             }
             memcpy(face.points,facepoints,sizeof(vector)*n);
@@ -432,7 +435,7 @@ void fb_surfacegrid(int geometryOnly)
     static vector lastGridOrigin,lastGridX,lastGridY,lastGridZ;
     int gridChanged=lastGridOrigin!=autocvar_ftebroom_grid_origin||lastGridX!=autocvar_ftebroom_grid_basis_x||lastGridY!=autocvar_ftebroom_grid_basis_y||lastGridZ!=autocvar_ftebroom_grid_basis_z;
     lastGridOrigin=autocvar_ftebroom_grid_origin;lastGridX=autocvar_ftebroom_grid_basis_x;lastGridY=autocvar_ftebroom_grid_basis_y;lastGridZ=autocvar_ftebroom_grid_basis_z;
-    if(rebuild || gridChanged || grid!=lastGrid || alpha!=lastAlpha || lastRotation!=autocvar_ftebroom_grid_rotation)for(int i=0;i<fb_grid_face_count;i++) {
+    if(rebuild || gridChanged || grid!=lastGrid || alpha!=lastAlpha || lastRotation!=autocvar_ftebroom_grid_rotation){fb_grid_upload_epoch++;for(int i=0;i<fb_grid_face_count;i++) {
         fb_grid_face_t *face=&fb_grid_faces[i];
         vector gridNormal=fb_grid_direction_local(face.normal);face.u=0;face.v=1;
         if(fabs(gridNormal_x)>fabs(gridNormal_y)&&fabs(gridNormal_x)>fabs(gridNormal_z)){face.u=1;face.v=2;}
@@ -446,6 +449,7 @@ void fb_surfacegrid(int geometryOnly)
             face.vertices[j].rgba[3]=alpha;face.vertices[j+face.count].rgba[3]=1;
             vector gridPoint=fb_grid_local(face.points[j]);face.vertices[j].st[0]=gridPoint[face.u]/grid;face.vertices[j].st[1]=gridPoint[face.v]/grid;
         }
+    }
     }
     lastAlpha=alpha;lastRotation=autocvar_ftebroom_grid_rotation;
     int preview=fb_active;
@@ -464,9 +468,9 @@ void fb_surfacegrid(int geometryOnly)
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int gridVisible=cvar("ftebroom_grid_visible"),edges=cvar("ftebroom_show_edges");
     shaderforname("ftebroom/brushedges","{\ncull none\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\n}\n}");
-    if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
-        fb_render_allowed(0,FB_PICK_LOCKED);fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;
-        int nativeCount=ftebroom_draw_grid(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);
+    if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid_compact) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
+        fb_render_allowed(0,FB_PICK_LOCKED);fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=8|(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;params.revision=fb_grid_upload_epoch;
+        int nativeCount;if(autocvar_ftebroom_cached_meshes && fb_grid_face_count>=30000 && checkbuiltin(ftebroom_draw_grid_cached))nativeCount=ftebroom_draw_grid_cached(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);else nativeCount=ftebroom_draw_grid_compact(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);
         if(nativeCount>=0){fb_grid_visible_count=nativeCount;return;}
     }
     // Visibility is shared by the grid and edge passes.
@@ -492,7 +496,7 @@ void fb_surfacegrid(int geometryOnly)
         for(int i=0;i<fb_grid_visible_count;i++) {
             fb_grid_face_t *face=&fb_grid_faces[fb_grid_visible[i]];
             if(!pass)addtrisoup_simple("ftebroom/surfacegrid",3,face.vertices,face.triangles,(face.count-2)*3);
-            else addtrisoup_simple("ftebroom/brushedges",3|DRAWFLAG_LINES,face.vertices,face.lines,face.count*2);
+            else addtrisoup_simple("ftebroom/brushedges",3|DRAWFLAG_LINES,&face.vertices[face.count],face.lines,face.count*2);
         }
     }
 }

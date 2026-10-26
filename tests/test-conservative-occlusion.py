@@ -10,6 +10,7 @@ p.add_argument('--compiler', default='cc')
 a = p.parse_args()
 source = (a.engine / 'client/pr_csqc.c').read_text()
 code = source[source.index('typedef struct {int id,model,node,count,u,v,sky,brushEnd;'):source.index('typedef struct {int stride,flags,gridShader,edgeShader;')]
+code = code[:code.index('// Conservative screen tiles')] + code[code.index('// Entity-label visibility uses an exact surface index'):]
 shim = r'''
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,11 @@ shim = r'''
 #include <assert.h>
 #include <stdio.h>
 #define QCBUILTIN
+static unsigned int rb_label_queries,rb_label_tiles,rb_label_hint_hits,rb_label_tree_hits,rb_label_visible;
+static int RB_OccludedTilePoint(const float *point){(void)point;return 0;}
+static struct {int valid;} rb_geom;
+static float Cvar_VariableValue(const char *name){(void)name;return 0;}
+static void PF_ReyondBroom_PrepareGeometry(void *vm,void *globals){(void)vm;(void)globals;}
 #define true 1
 #define false 0
 #define M_PI 3.14159265358979323846

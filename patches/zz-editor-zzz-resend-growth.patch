@@ -1,0 +1,59 @@
+--- a/engine/server/sv_ents.c
++++ b/engine/server/sv_ents.c
+@@ -81,7 +81,7 @@
+ 	ptr = Z_Malloc(	round64(sizeof(client_frame_t)*UPDATE_BACKUP)+
+ 					round64(sizeof(*client->pendingdeltabits)*client->max_net_ents)+
+ 					round64(sizeof(*client->pendingcsqcbits)*client->max_net_ents)+
+-					round64(sizeof(newframes[i].resend)*maxlog)*UPDATE_BACKUP);
++					round64(sizeof(*newframes[i].resend)*maxlog)*UPDATE_BACKUP);
+ 	newframes = (void*)ptr;
+ 	memcpy(newframes, client->frameunion.frames, sizeof(client_frame_t)*UPDATE_BACKUP);
+ 	ptr += round64(sizeof(client_frame_t)*UPDATE_BACKUP);
+@@ -96,9 +96,9 @@
+ 		newframes[i].maxresend = maxlog;
+ 		newframes[i].qwentities.max_entities = 0;
+ 		newframes[i].resend = (void*)ptr;
+-		ptr += round64(sizeof(newframes[i].resend)*maxlog);
++		ptr += round64(sizeof(*newframes[i].resend)*maxlog);
+ 		newframes[i].numresend = client->frameunion.frames[i].numresend;
+-		memcpy(newframes[i].resend, client->frameunion.frames[i].resend, sizeof(newframes[i].resend)*newframes[i].numresend);
++		memcpy(newframes[i].resend, client->frameunion.frames[i].resend, sizeof(*newframes[i].resend)*min(client->frameunion.frames[i].maxresend,maxlog));
+ 		newframes[i].senttime = realtime;
+ 	}
+ 	Z_Free(client->frameunion.frames);
+@@ -351,7 +351,7 @@
+ 				if (msg->cursize + 5 >= msg->maxsize)
+ 					break;	//we're overflowing, try removing next frame instead.
+ 
+-				if (lognum > maxlog)
++				if (lognum >= maxlog)
+ 				{
+ 					if (maxlog == client->max_net_ents)
+ 						break;
+@@ -430,7 +430,7 @@
+ 				continue;	//might be able to fit a different ent in there.
+ 			}
+ 
+-			if (lognum > maxlog)
++			if (lognum >= maxlog)
+ 			{
+ 				if (maxlog == client->max_net_ents)
+ 				{
+@@ -473,7 +473,7 @@
+ 				break;	//we're overflowing, try removing next frame instead.
+ 			}
+ 
+-			if (lognum > maxlog)
++			if (lognum >= maxlog)
+ 			{
+ 				if (maxlog == client->max_net_ents)
+ 				{
+@@ -515,7 +515,7 @@
+ 			if (msg->cursize + 5 >= msg->maxsize)
+ 				break;	//we're overflowing, try removing next frame instead.
+ 
+-			if (lognum > maxlog)
++			if (lognum >= maxlog)
+ 			{
+ 				if (maxlog == client->max_net_ents)
+ 					break;

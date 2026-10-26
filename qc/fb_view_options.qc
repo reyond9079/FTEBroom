@@ -144,20 +144,25 @@ typedef struct {
     trisoup_simple_vert_t *vertices;int *triangles;int enabled;
 } fb_render_face_t;
 int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride) ftebroom_draw_faces = #0:ftebroom_draw_faces;
+int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,int revision) ftebroom_draw_faces_cached = #0:ftebroom_draw_faces_cached;
+int fb_face_upload_epoch;
 var float autocvar_ftebroom_native_faces=1;
+var float autocvar_ftebroom_merge_missing_materials=1;
 fb_render_face_t *fb_render_faces;int fb_render_face_count,fb_render_face_capacity;
 vector *fb_render_points;
 vector *fb_render_uv;
 trisoup_simple_vert_t *fb_render_vertices;
 int *fb_render_triangles;int fb_render_vertex_capacity;
+typedef struct fb_render_shader_s {string name;struct fb_render_shader_s *next;} fb_render_shader_t;
+fb_render_shader_t *fb_render_shader_names;
+hashtable fb_render_shader_pool;
 void fb_render_faces_prepare()
 {
     static int geometry=-1,filters=-1,selection=-1;
     if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch&&selection==fb_selection_epoch)return;
-    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;
-    for(int i=0;i<fb_render_face_count;i++) {
-        strunzone(fb_render_faces[i].shader);
-    }
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;
+    while(fb_render_shader_names){fb_render_shader_t *entry=fb_render_shader_names;fb_render_shader_names=entry.next;strunzone(entry.name);memfree(entry);}
+    if(fb_render_shader_pool)hash_destroytab(fb_render_shader_pool);fb_render_shader_pool=hash_createtab(1024,EV_POINTER);
     fb_render_face_count=0;
     shaderforname("ftebroom/flatface","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
     shaderforname("ftebroom/flattransparent","{\ncull none\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
@@ -220,7 +225,9 @@ void fb_render_faces_prepare()
             item.triangles=&fb_render_triangles[vertexOffset*3];vertexOffset+=vertices;
             item.brushCenter=brushCenter;item.brushRadius=brushRadius;
             item.enabled=fb_filter_custom(n) || brush_isselected(fb_nodes[n].model,fb_nodes[n].id)!=0;
-            item.node=n;item.count=vertices;item.shader=strzone(shader);item.alpha=alpha;item.color=color;
+            fb_render_shader_t *shared=fb_render_shader_pool[shader];
+            if(!shared){shared=memalloc(sizeof(fb_render_shader_t));shared.name=strzone(shader);shared.next=fb_render_shader_names;fb_render_shader_names=shared;fb_render_shader_pool[shader]=shared;}
+            item.node=n;item.count=vertices;item.shader=shared.name;item.alpha=alpha;item.color=color;
             item.normal=face.planenormal;item.distance=face.planedist;item.center='0 0 0';item.radius=0;
             for(int p=0;p<vertices;p++) {
                 item.points[p]=points[p];item.center+=points[p];
@@ -246,7 +253,9 @@ void fb_filter_draw()
     int nativePass=FALSE;
     if(autocvar_ftebroom_native_faces && checkbuiltin(ftebroom_draw_faces) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
         fb_render_allowed(0,FB_PICK_LOCKED);
-        int drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t));
+        int drawn=-1;
+        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t),fb_face_upload_epoch);
+        if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t));
         nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
     }
     if(!nativePass)for(int i=0;i<fb_render_face_count;i++) {

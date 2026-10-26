@@ -89,6 +89,13 @@ float fb_benchmark_start,fb_benchmark_frames;
 float fb_profile_sum[9];
 string fb_view_cache_key[4];
 float fb_view_cache_time[4];
+// GPU resources and registered shader scripts are discarded with the device.
+void CSQC_RendererRestarted(string rendererDescription)
+{
+    fb_grid_geometry_epoch++;fb_entity_render_epoch++;
+    for(int i=0;i<4;i++){strunzone(fb_view_cache_key[i]);fb_view_cache_key[i]="";fb_view_cache_time[i]=0;}
+}
+
 string fb_view_cache_signature(int type,vector mn,vector sz)
 {
     string key=sprintf("%i %v %v %v %v %g",type,mn,sz,vidsize,fb_view_centers[type],cvar("ca_brush_viewsize"));
@@ -331,7 +338,7 @@ void() wrap_renderscene =
         if(!fb_benchmark_start) {fb_benchmark_start=gettime(0);fb_benchmark_frames=0;for(int p=0;p<9;p++)fb_profile_sum[p]=0;for(int v=0;v<4;v++){fb_visual_profile[v]=0;fb_frame_profile[v]=0;}}
         fb_benchmark_frames++;
         if(gettime(0)-fb_benchmark_start>=8) {
-            print(sprintf("FTEBROOM_BENCHMARK %g FPS (%g frames)\n",fb_benchmark_frames/(gettime(0)-fb_benchmark_start),fb_benchmark_frames));
+            print(sprintf("FTEBROOM_BENCHMARK %g FPS (%g frames), console %v\n",fb_benchmark_frames/(gettime(0)-fb_benchmark_start),fb_benchmark_frames,vidsize));
             for(int p=0;p<9;p++)print(sprintf("FTEBROOM_PROFILE %i %g ms/frame\n",p,fb_profile_sum[p]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_VISUAL_PROFILE %i %g ms/frame\n",v,fb_visual_profile[v]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_FRAME_PROFILE %i %g ms/frame\n",v,fb_frame_profile[v]*1000/fb_benchmark_frames));
