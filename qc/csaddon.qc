@@ -795,6 +795,7 @@ void(float prevprogs) init =
     registercommand("ftebroom_spawn_master");
     registercommand("ftebroom_entity_definitions_loaded");
     registercommand("ftebroom_plugin_batch");
+    registercommand("ftebroom_plugin_selection");
     registercommand("ftebroom_undo");
     registercommand("ftebroom_redo");
     registercommand("ftebroom_delete");

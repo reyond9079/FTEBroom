@@ -1,5 +1,41 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Plugins can compose existing geometry operations in one cancellable transaction.
+int fb_plugin_guard_history,fb_plugin_guard_geometry,fb_plugin_guard_selection,fb_plugin_guard_valid;
+void fb_plugin_capture_guard(){fb_plugin_guard_history=history;fb_plugin_guard_geometry=fb_grid_geometry_epoch;fb_plugin_guard_selection=fb_selection_epoch;fb_plugin_guard_valid=TRUE;}
+int fb_plugin_guard_current(){return fb_plugin_guard_valid&&history==fb_plugin_guard_history&&fb_grid_geometry_epoch==fb_plugin_guard_geometry&&fb_selection_epoch==fb_plugin_guard_selection;}
+int fb_plugin_group_fragments()
+{
+    // Reparent the plug entities, preserving their brush models and selection.
+    // Settle edits replace brush IDs before the outer transaction is committed.
+    fb_document_rebuild();
+    int owners[128],count=0,parent=1;
+    for(int b=0;b<selectedbrushcount;b++){
+        int owner=-1;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH&&fb_nodes[n].model==selectedbrushes[b].model&&fb_nodes[n].id==selectedbrushes[b].id){owner=fb_nodes[n].parent;break;}
+        if(owner<2||fb_nodes[owner].kind!=FB_NODE_ENTITY){fb_geom_error="Cannot group fragments without their brush entities.";return FALSE;}
+        int entityIndex=fb_nodes[owner].id,exists=FALSE;for(int i=0;i<count;i++)if(owners[i]==entityIndex)exists=TRUE;
+        if(!exists){if(count>=128)return FALSE;owners[count++]=entityIndex;parent=fb_nodes[owner].parent;}
+    }
+    if(!count)return FALSE;
+    int group=fb_organize_new("group","Crumble fragments",parent);fb_document_rebuild();int node=fb_organize_node(group);
+    if(node<2){fb_geom_error="Cannot create the fragments group.";return FALSE;}
+    for(int i=0;i<count;i++)fb_organize_parent(owners[i],node);
+    cvar_set("ftebroom_plugin_result_group",itos(group));return TRUE;
+}
+int fb_plugin_selection_command()
+{
+    fb_tool_refresh();fb_document_tick();fb_plugin_guard_valid=FALSE;
+    fb_poly_t source={0};int valid=!fb_vertex_scope&&selectedbrushcount==1;
+    if(valid)valid=fb_poly_from_brush(selectedbrushes[0].model,selectedbrushes[0].id,&source);
+    if(valid){
+        vector low=source.vertices[0],high=low;
+        for(int p=0;p<source.nv;p++)for(int a=0;a<3;a++){low[a]=min(low[a],source.vertices[p][a]);high[a]=max(high[a],source.vertices[p][a]);}
+        string data=sprintf("%i %.9g %.9g %.9g %.9g %.9g %.9g",source.nf,low_x,low_y,low_z,high_x,high_y,high_z);
+        for(int f=0;f<source.nf;f++){brushface_t face=source.faces[f].attr;data=strcat(data,sprintf(" %.9g %.9g %.9g %.9g",face.planenormal[0],face.planenormal[1],face.planenormal[2],face.planedist));}
+        cvar_set("ftebroom_plugin_source",data);fb_plugin_capture_guard();
+    }
+    fb_poly_free(&source);cvar_set("ftebroom_plugin_preflight",valid?"1":"-1");return TRUE;
+}
 int fb_plugin_fracture_selection()
 {
     int count=selectedbrushcount,fragments=bound(2,cvar("ftebroom_fracture_count"),128);
@@ -32,25 +68,35 @@ int fb_plugin_release(vector sourceLow,vector sourceHigh)
 }
 int fb_plugin_batch_command()
 {
+    if(argv(0)=="ftebroom_plugin_selection")return fb_plugin_selection_command();
     if(argv(0)!="ftebroom_plugin_batch")return FALSE;
     string operations[16];int count=0;while(count<17&&argv(count+1)!="")count++;int valid=count>0&&count<=16;
     if(!valid){cvar_set("ftebroom_plugin_status","-1");cvar_set("ftebroom_plugin_error","Choose 1..16 geometry operations.");return TRUE;}
     for(int i=0;i<count;i++)operations[i]=strzone(argv(i+1));
+    int guarded=operations[0]=="guard";
+    fb_document_tick();
+    if(guarded&&!fb_plugin_guard_current()){
+        for(int i=0;i<count;i++)strunzone(operations[i]);
+        cvar_set("ftebroom_plugin_status","-2");cvar_set("ftebroom_plugin_error","The map or selection changed. Select the source brush and apply again.");return TRUE;
+    }
     static vector sourceBounds[2];sourceBounds[0]=sourceBounds[1]='0 0 0';
     if(selectedbrushcount==1)brush_getfacepoints(selectedbrushes[0].model,selectedbrushes[0].id,0,sourceBounds,2);
     fb_tool_deactivate();fb_generator_clear();fb_geom_error="";fb_tx_begin("Plugin geometry batch");
     for(int step=0;step<count&&valid;step++){
         string operation=operations[step];
-        if(operation=="perforate")valid=fb_perforate_apply(FALSE);
+        if(operation=="guard")valid=guarded&&step==0;
+        else if(operation=="perforate"){fb_plugin_layout_active=guarded;valid=fb_perforate_apply(FALSE);fb_plugin_layout_active=FALSE;}
         else if(operation=="fracture")valid=fb_plugin_fracture_selection();
         else if(operation=="release")valid=fb_plugin_release(sourceBounds[0],sourceBounds[1]);
         else if(operation=="inset")valid=fb_inset_apply();
         else if(operation=="bevel")valid=fb_bevel_apply();
         else if(operation=="subdivision")valid=fb_subdivision_apply();
         else {fb_geom_error="Unsupported plugin batch operation.";valid=FALSE;}
+        if(!valid)fb_geom_error=strcat(operation,": ",fb_geom_error);
     }
     for(int i=0;i<count;i++)strunzone(operations[i]);
     if(valid)fb_tx_commit();else fb_tx_cancel();fb_document_tick();fb_vertex_rebuild();
+    if(guarded){if(valid)fb_plugin_guard_valid=FALSE;else fb_plugin_capture_guard();}
     if(valid){float center=0;for(int b=0;b<selectedbrushcount;b++){fb_poly_t part={0};if(fb_poly_from_brush(selectedbrushes[b].model,selectedbrushes[b].id,&part)){vector middle='0 0 0';for(int p=0;p<part.nv;p++)middle+=part.vertices[p];center+=middle_z/(float)part.nv;}fb_poly_free(&part);}cvar_set("ftebroom_plugin_result_center_z",ftos(center/max(1,selectedbrushcount)));}
     cvar_set("ftebroom_plugin_status",valid?"1":"-1");cvar_set("ftebroom_plugin_error",valid?"":fb_geom_error);return TRUE;
 }

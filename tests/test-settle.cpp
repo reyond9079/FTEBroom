@@ -11,6 +11,8 @@ int main(){try{
  auto cube=box({-8,-8,64},{8,8,80}),floor=box({-512,-512,-32},{512,512,0});
  Simulation fall({cube},{floor},{},o);auto result=fall.run();
  double lowest=1e9;for(auto p:cube.vertices)lowest=std::min(lowest,transformPoint(result[0],p)[2]);require(lowest>-.25&&lowest<.25,"brush floor resting contact");
+ require(fall.movingCount()==0,"rested fragment diagnostic");
+ Simulation unsupported({cube},{},{},o);unsupported.run();require(unsupported.movingCount()==1,"unsupported falling fragment diagnostic");
  std::vector<Triangle> patch={Triangle{Point{-512,-512,0},Point{512,-512,0},Point{512,512,0}},Triangle{Point{-512,-512,0},Point{512,512,0},Point{-512,512,0}}};
  Simulation patchFall({cube},{},patch,o);result=patchFall.run();lowest=1e9;for(auto p:cube.vertices)lowest=std::min(lowest,transformPoint(result[0],p)[2]);require(lowest>-.25&&lowest<.25,"tessellated patch resting contact");
  rejects([&]{Simulation bad({cube,cube},{floor},{},o);},"overlap","initial overlap rejection");

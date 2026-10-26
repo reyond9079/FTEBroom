@@ -6,10 +6,11 @@
 static bool settleWindow=false,settleWaiting=false;
 static std::atomic<bool> settleCancel{false};
 static std::atomic<float> settleProgress{0};
+static std::atomic<int> settleMoving{0};
 static std::future<std::vector<ftebroom::settle::Transform>> settleJob;
 static std::string settleError;
 static ftebroom::settle::Options settleOptions;
-static void settleStart(){if(settleWaiting||settleJob.valid())return;settleError.clear();settleCancel=false;settleProgress=0;cvars->SetFloat("ftebroom_settle_ready",0);cvars->SetFloat("ftebroom_settle_valid",0);command("ftebroom_settle export\n");settleWaiting=true;}
+static void settleStart(){if(settleWaiting||settleJob.valid())return;settleError.clear();settleCancel=false;settleProgress=0;settleMoving=0;cvars->SetFloat("ftebroom_settle_moving",0);cvars->SetFloat("ftebroom_settle_ready",0);cvars->SetFloat("ftebroom_settle_valid",0);command("ftebroom_settle export\n");settleWaiting=true;}
 static void settleTick(){
  if(settleWaiting&&cvars->GetFloat("ftebroom_settle_ready")){
   settleWaiting=false;
@@ -22,7 +23,7 @@ static void settleTick(){
      else if(kind=="T"){if(patches.size()>=262144)throw std::runtime_error("Too many Settle patch triangles.");patches.push_back({point(),point(),point()});}
      else throw std::runtime_error("Unknown Settle snapshot record.");
     }
-    if(!complete)throw std::runtime_error("Incomplete Settle snapshot.");Simulation simulation(std::move(selected),obstacles,patches,options);return simulation.run([](double value,const auto&){settleProgress=float(value);return !settleCancel.load();});
+    if(!complete)throw std::runtime_error("Incomplete Settle snapshot.");Simulation simulation(std::move(selected),obstacles,patches,options);auto result=simulation.run([](double value,const auto&){settleProgress=float(value);return !settleCancel.load();});settleMoving=simulation.movingCount();return result;
    });
   }
  }

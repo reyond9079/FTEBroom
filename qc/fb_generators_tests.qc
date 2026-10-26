@@ -11,10 +11,22 @@ int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
     if(argv(1)=="rubble72setup"){
-        fb_cancel();fb_selection_clear();fb_createbox('0 0 160','256 32 256');fb_generators_test_history=history;fb_document_tick();return TRUE;
+        fb_cancel();fb_selection_clear();fb_createbox('0 0 -16','2048 2048 32');fb_selection_clear();
+        if(cvar("ftebroom_test_rubble_horizontal"))fb_createbox('0 0 256','512 512 16');else fb_createbox('0 0 160','256 32 256');
+        fb_generators_test_history=history;fb_document_tick();return TRUE;
     }
     if(argv(1)=="rubble72check"){
         fb_transform_expect(cvar("ftebroom_plugin_status")==1&&cvar("ftebroom_settle_applied")==1&&selectedbrushcount==12,"rubble72_pipeline_complete");
+        fb_document_tick();int rubbleVisible=0;
+        for(int rubbleS=0;rubbleS<selectedbrushcount;rubbleS++)for(int rubbleN=2;rubbleN<fb_node_count;rubbleN++)if(fb_nodes[rubbleN].kind==FB_NODE_BRUSH&&fb_nodes[rubbleN].model==selectedbrushes[rubbleS].model&&fb_nodes[rubbleN].id==selectedbrushes[rubbleS].id&&fb_render_allowed(rubbleN,0))rubbleVisible++;
+        fb_transform_expect(rubbleVisible==12,"rubble73_fragments_in_render_tree");
+        int rubbleGroup=fb_organize_node(cvar("ftebroom_plugin_result_group")),rubbleChildren=0;
+        if(rubbleGroup>=2&&fb_nodes[rubbleGroup].kind==FB_NODE_GROUP)for(int rubbleChild=2;rubbleChild<fb_node_count;rubbleChild++)if(fb_nodes[rubbleChild].parent==rubbleGroup&&fb_nodes[rubbleChild].kind==FB_NODE_ENTITY)rubbleChildren++;
+        fb_transform_expect(rubbleChildren==3,"rubble73_grouped_plug_entities");
+        if(rubbleVisible!=12)print(sprintf("RUBBLE_DEBUG visible=%i nodes=%i entities=%i\n",rubbleVisible,fb_node_count,terrain_edit(TEREDIT_ENT_COUNT)));
+        fb_transform_expect(cvar("ftebroom_settle_moving")==0,"rubble73_no_flying_result");
+        fb_transform_expect(cvar("ftebroom_settle_dropped")==12,"rubble73_drop_diagnostics");
+        if(cvar("ftebroom_test_rubble_horizontal"))fb_transform_expect(cvar("ftebroom_plugin_actual_axis")==2&&cvar("ftebroom_plugin_release_negative")==1,"rubble73_horizontal_downward_release");
         float rubbleCenter=0;for(int rubbleB=0;rubbleB<selectedbrushcount;rubbleB++){fb_poly_t rubblePoly={0};if(fb_poly_from_brush(selectedbrushes[rubbleB].model,selectedbrushes[rubbleB].id,&rubblePoly)){vector rubbleMid='0 0 0';for(int rubbleP=0;rubbleP<rubblePoly.nv;rubbleP++)rubbleMid+=rubblePoly.vertices[rubbleP];rubbleCenter+=rubbleMid_z/(float)rubblePoly.nv;}fb_poly_free(&rubblePoly);}
         fb_transform_expect(rubbleCenter/max(1,selectedbrushcount)<cvar("ftebroom_plugin_result_center_z")-2,"rubble72_fragments_fell");
         brush_undo();fb_transform_expect(selectedbrushcount==12,"rubble72_undo_settle");brush_undo();fb_transform_expect(history==fb_generators_test_history&&selectedbrushcount==1,"rubble72_undo_geometry");
@@ -25,6 +37,25 @@ int fb_generators_testcommand()
         cvar_set("ftebroom_hole_min","10000");cvar_set("ftebroom_hole_max","10000");
         tokenize("ftebroom_plugin_batch perforate fracture");fb_plugin_batch_command();
         fb_transform_expect(history==rubbleBefore&&selectedbrushcount==1&&cvar("ftebroom_plugin_status")==-1,"rubble72_invalid_request_atomic");return TRUE;
+    }
+    if(argv(1)=="rubble73guard"){
+        fb_selection_clear();fb_createbox('616 0 128','96 96 16');fb_document_tick();int guardHistory=history;
+        fb_plugin_selection_command();brush_deselectall();
+        tokenize("ftebroom_plugin_batch guard perforate fracture release");fb_plugin_batch_command();
+        fb_transform_expect(cvar("ftebroom_plugin_status")==-2&&history==guardHistory,"rubble73_stale_selection_rejected");
+        brush_undo();fb_createbox('616 0 128','96 96 16');fb_document_tick();guardHistory=history;fb_plugin_selection_command();
+        cvar_set("ftebroom_hole_axis","2");cvar_set("ftebroom_hole_count","2");cvar_set("ftebroom_hole_sides","6");cvar_set("ftebroom_hole_min","24");cvar_set("ftebroom_hole_max","48");cvar_set("ftebroom_hole_spacing","8");cvar_set("ftebroom_hole_keep","1");
+        cvar_set("ftebroom_plugin_hole_layout","596 0 12 636 0 12");cvar_set("ftebroom_fracture_seed","1337");
+        int layoutAtomic=TRUE;
+        for(int layoutSeed=0;layoutSeed<16;layoutSeed++){
+            cvar_set("ftebroom_fracture_seed",itos(1337+layoutSeed*104729));tokenize("ftebroom_plugin_batch guard perforate fracture release");fb_plugin_batch_command();
+            if(cvar("ftebroom_plugin_status")==1)break;
+            if(history!=guardHistory||selectedbrushcount!=1)layoutAtomic=FALSE;
+        }
+        cvar_set("ftebroom_plugin_hole_layout","");fb_transform_expect(layoutAtomic,"rubble73_layout_retries_atomic");
+        if(cvar("ftebroom_plugin_status")!=1)print(strcat("RUBBLE_LAYOUT_ERROR ",cvar_string("ftebroom_plugin_error"),"\n"));
+        fb_transform_expect(cvar("ftebroom_plugin_status")==1&&selectedbrushcount==8,"rubble73_certified_layout_real_geometry");
+        brush_undo();fb_transform_expect(history==guardHistory&&selectedbrushcount==1,"rubble73_certified_layout_undo");return TRUE;
     }
     if(argv(1)=="symmetry54patch"){fb_symmetry_patch_match_tests();return TRUE;}
     if(argv(1)=="symmetry54reload"){fb_symmetry_metadata_reload_test();return TRUE;}

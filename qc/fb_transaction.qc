@@ -132,6 +132,14 @@ void fb_tx_entity_set(int index,string data,int kind)
     else terrain_edit(TEREDIT_ENT_SET,index,replacement);
     editor_ents_reload();
 }
+int fb_tx_empty_entity()
+{
+    // FTE grows entity storage in blocks. Reuse empty slots instead of leaking
+    // a whole block per plug, especially across cancelled seed attempts.
+    int count=terrain_edit(TEREDIT_ENT_COUNT);
+    for(int index=1;index<count;index++)if(terrain_edit(TEREDIT_ENT_GET,index)=="")return index;
+    return count;
+}
 void fb_tx_set_key(int index,string key,string value,int kind)
 {
     int entityCount=terrain_edit(TEREDIT_ENT_COUNT);

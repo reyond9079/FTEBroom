@@ -60,6 +60,7 @@ public:
   }catch(...){for(auto& body:bodies)world.removeRigidBody(body.get());throw;}
  }
  ~Simulation(){for(auto& body:bodies)world.removeRigidBody(body.get());}
+ int movingCount()const{int count=0;for(size_t i=0;i<sources.size();i++)if(bodies[i]->getLinearVelocity().length()>2*Scale||bodies[i]->getAngularVelocity().length()>.05)count++;return count;}
  std::vector<Transform> transforms()const{std::vector<Transform> result;for(size_t i=0;i<sources.size();i++){const auto& pose=bodies[i]->getWorldTransform();Transform t;for(int a=0;a<3;a++){auto column=pose.getBasis().getColumn(a);t.columns[a]={column.x(),column.y(),column.z()};}t.translation=mapPoint(pose.getOrigin()-pose.getBasis()*physics(sources[i].center));result.push_back(t);}return result;}
  std::vector<Transform> run(const std::function<bool(double,const std::vector<Transform>&)>& progress={}){
   int frames=int(std::ceil(options.duration*60));for(int frame=0;frame<frames;frame++){for(int step=0;step<4;step++)world.stepSimulation(btScalar(1.0/240),0);

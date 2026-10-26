@@ -118,7 +118,7 @@ int fb_organize_new(string kind,string name,int parent)
         fields=strcat(fields,"\"",key,"\" \"",fb_nodes[parent].tbid,"\"\n");
     }
     if(kind=="layer") fields=strcat(fields,"\"_tb_layer_sort_index\" \"",itos(next),"\"\n");
-    fields=strzone(fields);int id=terrain_edit(TEREDIT_ENT_ADD,"");fb_tx_entity_set(id,fields,HIST_TREE);strunzone(fields);return id;
+    fields=strzone(fields);int id=fb_tx_empty_entity();fb_tx_entity_set(id,fields,HIST_TREE);strunzone(fields);return id;
 }
 void fb_organize_parent(int entityIndex,int parent)
 {

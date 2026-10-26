@@ -35,8 +35,8 @@ static int pluginSettle(int operation,const RBSettleOptionsV1* options){
   if(operation==3){settleCancel=true;settleWaiting=false;command("ftebroom_settle cancel\n");pluginPhysicsOwned=false;return 1;}
   settleTick();cvars->SetFloat("ftebroom_plugin_progress",settleProgress.load());char error[2048]={};cvars->GetString("ftebroom_settle_error",error,sizeof error);
   if(!settleError.empty()||*error){cvars->SetString("ftebroom_plugin_physics_error",settleError.empty()?error:settleError.c_str());pluginPhysicsOwned=false;return -1;}
-  if(operation==1)return cvars->GetFloat("ftebroom_settle_valid")?1:0;
-  if(operation==2&&cvars->GetFloat("ftebroom_settle_valid")){command("ftebroom_settle apply\n");pluginPhysicsOwned=false;return 1;}
+  if(operation==1){cvars->SetFloat("ftebroom_settle_moving",settleMoving.load());return cvars->GetFloat("ftebroom_settle_valid")?1:0;}
+  if(operation==2&&cvars->GetFloat("ftebroom_settle_valid")){command(cvars->GetFloat("ftebroom_plugin_group_after_settle")?"ftebroom_settle apply_grouped\n":"ftebroom_settle apply\n");pluginPhysicsOwned=false;return 1;}
   return -1;
 }
 static void pluginText(const char* text){ImGui::TextWrapped("%s",text?text:"");}
