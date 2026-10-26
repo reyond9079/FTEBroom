@@ -20,8 +20,8 @@ The supplied `E1M1 FTE.map` contains 30,327 brushes and 26,288 entities. Tests v
 
 Measured eight-second averages with the complete MAP in view:
 
-- 1920×1080: **66.3 FPS** stationary and **64.7 FPS** while moving.
-- 2560×1440: **67.1 FPS** stationary and **68.1 FPS** while moving.
+- 1920×1080: **62.6 FPS** stationary and **64.4 FPS** while moving.
+- 2560×1440: **71.8 FPS** stationary and **71.0 FPS** while moving.
 
 The original 22 external WADs were not supplied. These measurements therefore use fallback materials, and do not establish the performance or appearance of the original complete texture set. A measured average above 60 FPS on this machine is not a minimum-framerate guarantee for other hardware or maps. Linux software-rendering runs check correctness, not hardware FPS.
 
