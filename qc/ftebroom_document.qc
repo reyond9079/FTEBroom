@@ -16,6 +16,25 @@ fb_node_t *fb_nodes;
 int fb_node_count,fb_node_capacity,fb_saved_revision,fb_seen_revision;
 entity fb_document_probe;
 int fb_grid_geometry_epoch;
+int *fb_point_nodes;
+int *fb_container_nodes;
+int *fb_patch_nodes;
+int fb_point_node_count,fb_container_node_count,fb_patch_node_count;
+void fb_document_lists_prepare()
+{
+    static int geometry=-1,count=-1;
+    if(geometry==fb_grid_geometry_epoch&&count==fb_node_count)return;
+    geometry=fb_grid_geometry_epoch;count=fb_node_count;
+    memfree(fb_point_nodes);memfree(fb_container_nodes);memfree(fb_patch_nodes);
+    fb_point_nodes=memalloc(max(1,count)*sizeof(int));fb_container_nodes=memalloc(max(1,count)*sizeof(int));fb_patch_nodes=memalloc(max(1,count)*sizeof(int));
+    fb_point_node_count=fb_container_node_count=fb_patch_node_count=0;
+    for(int n=2;n<count;n++){
+        int kind=fb_nodes[n].kind;
+        if(kind==FB_NODE_ENTITY){if(substring(fb_nodes[n].fields["model"],0,1)!="*")fb_point_nodes[fb_point_node_count++]=n;}
+        if(kind==FB_NODE_ENTITY||kind==FB_NODE_GROUP)fb_container_nodes[fb_container_node_count++]=n;
+        if(kind==FB_NODE_PATCH)fb_patch_nodes[fb_patch_node_count++]=n;
+    }
+}
 int fb_document_revision()
 {
     if(history>history_min) return historyring[(history-1)&(historyring_length-1)].revision;

@@ -1,0 +1,150 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -93,6 +93,60 @@
+ static void Terr_WorkerFailedSection(void *ctx, void *data, size_t a, size_t b);
+ 
+ static void Terr_Brush_DeleteIdx(heightmap_t *hm, size_t idx);
++
++// ReyondBroom brush index begin: bounded, per-model caches own indices, never pointers.
++typedef struct {
++ heightmap_t *owner;
++ unsigned int *slots;
++ size_t count, size;
++ size_t age;
++} editorbrushindex_t;
++static editorbrushindex_t editorbrushindices[8];
++static size_t editorbrushindexage;
++static qboolean editorbrushindexannounced;
++static void Terr_BrushIndex_Invalidate(heightmap_t *hm)
++{
++ unsigned int c;
++ for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm)editorbrushindices[c].count=(size_t)-1;
++}
++static void Terr_BrushIndex_Clear(heightmap_t *hm)
++{
++ unsigned int c;
++ for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm){BZ_Free(editorbrushindices[c].slots);memset(&editorbrushindices[c],0,sizeof(editorbrushindices[c]));}
++}
++static size_t Terr_BrushIndex_Find(heightmap_t *hm, unsigned int id)
++{
++ editorbrushindex_t *cache=NULL;
++ size_t i, slot, capacity;
++ unsigned int c, oldest=0;
++ for(c=0;c<8;c++){
++  if(editorbrushindices[c].owner==hm){cache=&editorbrushindices[c];break;}
++  if(!editorbrushindices[c].owner||editorbrushindices[c].age<editorbrushindices[oldest].age)oldest=c;
++ }
++ if(!cache){cache=&editorbrushindices[oldest];BZ_Free(cache->slots);memset(cache,0,sizeof(*cache));cache->owner=hm;cache->count=(size_t)-1;}
++ if(!editorbrushindexannounced){Con_DPrintf("ReyondBroom: indexed brush queries enabled\n");editorbrushindexannounced=true;}
++ cache->age=++editorbrushindexage;
++ if(cache->count!=hm->numbrushes){
++  capacity=16;while(capacity<(size_t)hm->numbrushes*2)capacity*=2;
++  if(cache->size!=capacity){BZ_Free(cache->slots);cache->slots=BZ_Malloc(capacity*sizeof(*cache->slots));cache->size=capacity;}
++  memset(cache->slots,0,capacity*sizeof(*cache->slots));
++  for(i=0;i<hm->numbrushes;i++){
++   slot=(hm->wbrushes[i].id*2654435761u)&(capacity-1);
++   while(cache->slots[slot]){
++    // Preserve the original first-match behaviour even for malformed duplicate IDs.
++    if(hm->wbrushes[cache->slots[slot]-1].id==hm->wbrushes[i].id)break;
++    slot=(slot+1)&(capacity-1);
++   }
++   if(!cache->slots[slot])cache->slots[slot]=(unsigned int)i+1;
++  }
++  cache->count=hm->numbrushes;
++ }
++ slot=(id*2654435761u)&(cache->size-1);
++ while(cache->slots[slot]){i=cache->slots[slot]-1;if(hm->wbrushes[i].id==id)return i;slot=(slot+1)&(cache->size-1);}
++ return hm->numbrushes;
++}
++// ReyondBroom brush index end.
++
+ #ifdef HAVE_CLIENT
+ static void ted_dorelight(model_t *m, heightmap_t *hm);
+ static void Terr_WorkerLoadedSectionLightmap(void *ctx, void *data, size_t a, size_t b);
+@@ -2213,6 +2267,7 @@
+ 		if (hm->lightthreadmem && !hm->inheritedlightthreadmem)
+ 			BZ_Free(hm->lightthreadmem);
+ #endif
++		Terr_BrushIndex_Clear(hm);
+ 		BZ_Free(hm->wbrushes);
+ 		Terr_PurgeTerrainModel(mod, false, false);
+ 		while(hm->entities)
+@@ -6562,6 +6617,7 @@
+ 	}
+ //	Con_Printf("brush %u (%i faces)\n", out->id, oface);
+ 
++	Terr_BrushIndex_Invalidate(hm);
+ 	hm->numbrushes+=1;
+ 	hm->brushesedited = true;
+ 
+@@ -6634,6 +6690,7 @@
+ 		BZ_Free(br->patch->tessvert);
+ 		BZ_Free(br->patch);
+ 	}
++	Terr_BrushIndex_Invalidate(hm);
+ 	hm->numbrushes--;
+ 	hm->brushesedited = true;
+ 	//plug the hole with some other brush.
+@@ -6647,7 +6704,7 @@
+ 	if (!hm)
+ 		return false;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, brushid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == brushid)
+@@ -7223,7 +7280,7 @@
+ 	if (!hm)
+ 		return;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, patchid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == patchid)
+@@ -7317,7 +7374,7 @@
+ 	if (!hm)
+ 		return;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, patchid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == patchid)
+@@ -7376,7 +7433,7 @@
+ 	if (!hm)
+ 		return;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, brushid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == brushid)
+@@ -7573,7 +7630,7 @@
+ 	if (!hm)
+ 		return;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, brushid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == brushid)
+@@ -7950,7 +8007,7 @@
+ 
+ //	hm->recalculatebrushlighting = true;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, brushid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == brushid)
+@@ -8054,7 +8111,7 @@
+ 	if (!hm)
+ 		return;
+ 
+-	for (i = 0; i < hm->numbrushes; i++)
++	for (i = Terr_BrushIndex_Find(hm, brushid); i < hm->numbrushes; i = hm->numbrushes)
+ 	{
+ 		br = &hm->wbrushes[i];
+ 		if (br->id == brushid)

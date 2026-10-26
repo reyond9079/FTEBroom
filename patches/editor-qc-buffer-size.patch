@@ -1,0 +1,24 @@
+--- a/engine/common/pr_bgcmd.c
++++ b/engine/common/pr_bgcmd.c
+@@ -2040,8 +2040,8 @@
+ 	void *ptr;
+ 	if (!size)
+ 		size = 1; //return something free can free.
+-	if (size <= 0 || size > 0x01000000)
+-		ptr = NULL;	//don't let them abuse things too much. values that are too large might overflow.
++	if (size <= 0 || size > 0x04000000)
++		ptr = NULL;	//Bound single editor cache blocks; the VM arena separately limits total memory.
+ 	else
+ 		ptr = prinst->AddressableAlloc(prinst, size);
+ 	if (ptr)
+@@ -2062,8 +2062,8 @@
+ 	void *ptr;
+ 	if (!size)
+ 		size = 1; //return something free can free.
+-	if (size <= 0 || size > 0x01000000)
+-		ptr = NULL;	//don't let them abuse things too much. values that are too large might overflow.
++	if (size <= 0 || size > 0x04000000)
++		ptr = NULL;	//Bound single editor cache blocks; the VM arena separately limits total memory.
+ 	else
+ 		ptr = prinst->AddressableRealloc(prinst, oldcptr, size);
+ 	if (ptr)

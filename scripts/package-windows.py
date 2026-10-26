@@ -32,6 +32,8 @@ for name in (
         engine = bundle / "bin" / name
         if b'ftebroom_reload_asset_models' not in (engine if engine.is_file() else bundle / name).read_bytes():
             raise RuntimeError("Rebuild the engine with model-resource-reload.patch before packaging")
+        if b'indexed brush queries enabled' not in (engine if engine.is_file() else bundle / name).read_bytes():
+            raise RuntimeError("Rebuild the engine with zz-editor-brush-index.patch before packaging")
         shutil.copy2(engine if engine.is_file() else bundle / name, root / "bin" / name)
     else:
         shutil.copy2(bundle / name, root / name)

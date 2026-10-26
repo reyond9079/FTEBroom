@@ -214,6 +214,21 @@ void fb_visual_box(vector low,vector high,vector color,float alpha,int spikes,op
     }
 }
 float fb_visual_profile[4];
+int *fb_visual_candidates;int fb_visual_candidate_count,fb_visual_candidate_capacity;
+void fb_visual_candidates_prepare()
+{
+    static int geometry=-1,filters=-1,visibility=-1,selection=-1,revision=-1,hover=-2,enabled=-1;
+    int current=fb_document_revision(),highlight=autocvar_ftebroom_hover_highlight!=0;
+    if(geometry==fb_grid_geometry_epoch&&filters==fb_filter_epoch&&visibility==fb_visibility_epoch&&selection==fb_selection_epoch&&revision==current&&hover==fb_visual_hover&&enabled==highlight)return;
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=fb_visual_hover;enabled=highlight;
+    if(fb_node_count>fb_visual_candidate_capacity){fb_visual_candidate_capacity=fb_node_count;memfree(fb_visual_candidates);fb_visual_candidates=memalloc(max(1,fb_node_count)*sizeof(int));}
+    fb_visual_candidate_count=0;
+    for(int node=2;node<fb_node_count;node++){
+        if(!fb_selection_leaf(node)||!fb_render_allowed(node,FB_PICK_LOCKED))continue;
+        int selected=fb_nodes[node].kind==FB_NODE_ENTITY?fb_entity_selected(fb_nodes[node].id):brush_isselected(fb_nodes[node].model,fb_nodes[node].id);
+        if(selected||fb_visual_locked(node)||(enabled&&hover>=0&&fb_selection_descendant(node,hover)))fb_visual_candidates[fb_visual_candidate_count++]=node;
+    }
+}
 void fb_visual_draw()
 {
     float started=gettime(1);
@@ -225,7 +240,9 @@ void fb_visual_draw()
     vector eye=getproperty(VF_ORIGIN),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
     vector forward=v_forward,right=v_right,up=v_up;
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
-    for(int node=0;node<fb_node_count;node++) {
+    fb_visual_candidates_prepare();
+    for(int candidate=0;candidate<fb_visual_candidate_count;candidate++) {
+        int node=fb_visual_candidates[candidate];
         fb_node_t item=fb_nodes[node];if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         int selected=0,locked=fb_visual_locked(node),hover=FALSE;
         if(item.kind==FB_NODE_ENTITY) selected=fb_entity_selected(item.id);

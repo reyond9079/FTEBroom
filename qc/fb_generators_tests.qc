@@ -10,6 +10,25 @@ void fb_polygon_test_rectangle(vector center,float half,float height)
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="large74"){
+        fb_document_tick();fb_document_lists_prepare();int largeBrushes=0,largeLast=-1;
+        for(int largeNode=2;largeNode<fb_node_count;largeNode++)if(fb_nodes[largeNode].kind==FB_NODE_BRUSH){largeBrushes++;largeLast=largeNode;}
+        fb_transform_expect(largeBrushes==(int)cvar("ftebroom_test_large_count"),"large74_loaded_brush_count");
+        fb_transform_expect(fb_line_count==largeBrushes+2,"large74_linear_source_line_index");
+        fb_transform_expect(fb_point_node_count==1&&fb_patch_node_count==0,"large74_typed_node_lists");
+        fb_pick_query('32 -64 32','32 96 32','0 0 0',0,FB_HIT_BRUSH,FALSE);
+        fb_transform_expect(fb_hit_count==1&&vlen(fb_hits[0].point-'32 0 32')<.01,"large74_exact_pick");
+        fb_selection_clear();int largeModel=fb_nodes[largeLast].model,largeId=fb_nodes[largeLast].id;brush_select(largeModel,largeId);fb_visual_candidates_prepare();
+        int largeFound=FALSE;for(int largeC=0;largeC<fb_visual_candidate_count;largeC++)if(fb_visual_candidates[largeC]==largeLast)largeFound=TRUE;
+        fb_transform_expect(largeFound,"large74_selection_cache_invalidation");
+        static vector largeBounds[2];brush_getfacepoints(largeModel,largeId,0,largeBounds,2);vector largeBefore=largeBounds[0];
+        static brushface_t largeFaces[64];int largeContents,largeFacesCount=brush_get(largeModel,largeId,largeFaces,64,&largeContents);
+        for(int largeF=0;largeF<largeFacesCount;largeF++)largeFaces[largeF].planedist+=largeFaces[largeF].planenormal[0]*16;
+        fb_tx_begin("Large map cache test");brush_history_edit(largeModel,largeId,largeFaces,largeFacesCount,largeContents);fb_tx_commit();fb_document_tick();
+        brush_getfacepoints(largeModel,selectedbrushes[0].id,0,largeBounds,2);fb_transform_expect(vlen(largeBounds[0]-largeBefore-'16 0 0')<.01,"large74_edited_id_lookup");
+        brush_undo();fb_document_tick();brush_getfacepoints(largeModel,selectedbrushes[0].id,0,largeBounds,2);fb_transform_expect(vlen(largeBounds[0]-largeBefore)<.01,"large74_undo_lookup");
+        brush_redo();brush_undo();fb_document_tick();fb_selection_clear();fb_visual_candidates_prepare();fb_transform_expect(fb_visual_candidate_count==0,"large74_deselection_cache_invalidation");return TRUE;
+    }
     if(argv(1)=="rubble72setup"){
         fb_cancel();fb_selection_clear();fb_createbox('0 0 -16','2048 2048 32');fb_selection_clear();
         if(cvar("ftebroom_test_rubble_horizontal"))fb_createbox('0 0 256','512 512 16');else fb_createbox('0 0 160','256 32 256');

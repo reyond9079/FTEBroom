@@ -233,9 +233,9 @@ void fb_pick_draw_entities(int labelsOnly)
     if(cvar("ca_brush_view")) entityWire="ftebroom/entitybounds2d";
     shaderforname(entityWire,strcat("{\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\n",cvar("ca_brush_view")?"nodepthtest\n":"","}\n}"));
     shaderforname("ftebroom/entitysolid","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
-    for(int node=0;node<fb_node_count;node++) {
-        fb_node_t item=fb_nodes[node];
-        if(item.kind!=FB_NODE_ENTITY)continue;
+    fb_document_lists_prepare();
+    for(int entry=0;entry<fb_point_node_count;entry++) {
+        int node=fb_point_nodes[entry];fb_node_t item=fb_nodes[node];
         if(!fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         if(substring(item.fields["model"],0,1)=="*") continue;
         if(!fb_entity_bounds(item.id,bounds)) continue;

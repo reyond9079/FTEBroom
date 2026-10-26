@@ -39,7 +39,9 @@ void fb_container_draw(int labels)
     if(!labels && !cvar("ca_brush_view") && cvar("ftebroom_bounds_visible")) {
         if(tokenize(cvar_string("ftebroom_map_bounds"))==6)fb_visual_box([stof(argv(0)),stof(argv(1)),stof(argv(2))],[stof(argv(3)),stof(argv(4)),stof(argv(5))],'1 0.5 0',0.7,FALSE);
     }
-    for(int n=2;n<fb_node_count;n++) {
+    fb_document_lists_prepare();
+    for(int entry=0;entry<fb_container_node_count;entry++) {
+        int n=fb_container_nodes[entry];
         int group=fb_nodes[n].kind==FB_NODE_GROUP,brushEntity=fb_nodes[n].kind==FB_NODE_ENTITY && !fb_selection_leaf(n);
         if(group && !cvar("ftebroom_show_group_bounds"))continue;if(brushEntity && !cvar("ftebroom_show_brush_entity_bounds"))continue;
         if(!group && !brushEntity)continue;if(!fb_render_allowed(n,FB_PICK_LOCKED)||!fb_container_bounds(n,bounds))continue;
@@ -79,7 +81,8 @@ void fb_entity_links_prepare()
 void fb_entity_links_draw()
 {
     static vector linkedBounds[2];int opened=fb_selection_open_node();
-    for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP && fb_nodes[n].fields["_tb_linked_group_id"]!="") {
+    fb_document_lists_prepare();
+    for(int entry=0;entry<fb_container_node_count;entry++){int n=fb_container_nodes[entry];if(fb_nodes[n].kind==FB_NODE_GROUP && fb_nodes[n].fields["_tb_linked_group_id"]!="") {
         if(n!=opened && !fb_selection_selected(n))continue;
         if(!fb_container_bounds(n,linkedBounds))continue;
         vector from=(linkedBounds[0]+linkedBounds[1])*0.5;
@@ -95,6 +98,7 @@ void fb_entity_links_draw()
             fb_visual_line(tip,tip-direction*arrow+side*arrow*0.5,'0.65 0.35 1',1,1,TRUE);
             fb_visual_line(tip,tip-direction*arrow-side*arrow*0.5,'0.65 0.35 1',1,1,TRUE);
         }
+    }
     }
     int mode=cvar("ftebroom_entity_links");if(!mode)return;
     if(mode<=2 && !selectedbrushcount && !fb_selected_entity_count)return;

@@ -35,6 +35,8 @@ for source, name in [
     target.chmod(0o755)
 if b'ftebroom_reload_asset_models' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with model-resource-reload.patch before packaging')
+if b'indexed brush queries enabled' not in (root/'fteqw-gl64').read_bytes():
+    raise RuntimeError('Rebuild the engine with zz-editor-brush-index.patch before packaging')
 spec = spec_from_file_location('compiler_libs', src/'scripts/bundle-compiler-libs.py')
 module = module_from_spec(spec)
 spec.loader.exec_module(module)

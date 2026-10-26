@@ -140,9 +140,9 @@ trisoup_simple_vert_t *fb_render_vertices;
 int *fb_render_triangles;int fb_render_vertex_capacity;
 void fb_render_faces_prepare()
 {
-    static int geometry=-1,filters=-1;
-    if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch)return;
-    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;
+    static int geometry=-1,filters=-1,selection=-1;
+    if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch&&selection==fb_selection_epoch)return;
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;
     for(int i=0;i<fb_render_face_count;i++) {
         strunzone(fb_render_faces[i].shader);
     }
@@ -155,6 +155,7 @@ void fb_render_faces_prepare()
     int required=0,vertexOffset=0;
     for(int n=2;n<fb_node_count;n++) {
         if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
+        if(!fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
         int count=brush_get(fb_nodes[n].model,fb_nodes[n].id,__NULL__,0,__NULL__);
         for(int f=0;f<min(count,64);f++) {
             int vertices=brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,f+1,points,64);
@@ -172,6 +173,7 @@ void fb_render_faces_prepare()
     }
     for(int n=2;n<fb_node_count;n++) {
         if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
+        if(!fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
         int contents,count=brush_get(fb_nodes[n].model,fb_nodes[n].id,faces,64,&contents);
         int hasBounds=brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,0,brushBounds,2);
         vector brushCenter=(brushBounds[0]+brushBounds[1])*0.5;
@@ -248,7 +250,10 @@ void fb_filter_draw()
         if(fabs(delta*right)>z*tx+radius*(1+tx) || fabs(delta*up)>z*ty+radius*(1+ty))continue;
         addtrisoup_simple(face.shader,3,face.vertices,face.triangles,(face.count-2)*3);
     }
-    for(int n=2;n<fb_node_count;n++) {
+    fb_document_lists_prepare();
+    int wire=autocvar_ftebroom_render_faces==2;
+    for(int entry=0;entry<(wire?fb_node_count:fb_patch_node_count);entry++) {
+        int n=wire?entry:fb_patch_nodes[entry];
         if(fb_nodes[n].kind<FB_NODE_BRUSH)continue;
         if(!fb_render_allowed(n,FB_PICK_LOCKED))continue;
         fb_node_t node=fb_nodes[n];if(fb_preview_replaces(node.model,node.id))continue;

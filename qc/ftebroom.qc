@@ -335,7 +335,7 @@ void fb_finish(vector pixel, float alt, int view)
 
 // Cache overlay vertices and indices; camera motion never rebuilds geometry.
 typedef struct {
-    int id,model,node,count,u,v,sky;
+    int id,model,node,count,u,v,sky,brushEnd;
     vector center,normal;vector *points;
     float spacing,radius;
     trisoup_simple_vert_t *vertices;
@@ -344,6 +344,11 @@ typedef struct {
 fb_grid_face_t *fb_grid_faces;
 int fb_grid_face_count,fb_grid_face_capacity;
 int *fb_grid_visible;int fb_grid_visible_count;
+vector *fb_grid_packed_points;
+vector *fb_grid_brush_bounds;
+trisoup_simple_vert_t *fb_grid_packed_vertices;
+int *fb_grid_packed_triangles;
+int *fb_grid_packed_lines;int fb_grid_vertex_capacity;
 int fb_sky_material(string material);
 var float autocvar_ftebroom_sky_overlays=0;
 void fb_surfacegrid(int geometryOnly)
@@ -359,14 +364,28 @@ void fb_surfacegrid(int geometryOnly)
     int rebuild=!valid || epoch!=fb_grid_geometry_epoch;
     if(rebuild) {
         epoch=fb_grid_geometry_epoch;valid=TRUE;
-        for(int old=0;old<fb_grid_face_count;old++) {
-            memfree(fb_grid_faces[old].points);memfree(fb_grid_faces[old].vertices);
-            memfree(fb_grid_faces[old].triangles);memfree(fb_grid_faces[old].lines);
+        // Four contiguous allocations replace four allocations per face. The
+        // QC heap otherwise spends seconds walking hundreds of thousands of blocks.
+        int required=0,vertexOffset=0;static vector gridBounds[2];
+        for(int node=2;node<fb_node_count;node++)if(fb_nodes[node].kind==FB_NODE_BRUSH){
+            int faces=brush_get(fb_nodes[node].model,fb_nodes[node].id,__NULL__,0,__NULL__);
+            for(int face=1;face<=min(faces,MAX_BRUSHFACES);face++)required+=brush_getfacepoints(fb_nodes[node].model,fb_nodes[node].id,face,facepoints,MAX_FACEPOINTS);
         }
+        if(required>fb_grid_vertex_capacity){
+            fb_grid_vertex_capacity=max(required,max(1024,fb_grid_vertex_capacity*2));
+            memfree(fb_grid_packed_points);memfree(fb_grid_packed_vertices);memfree(fb_grid_packed_triangles);memfree(fb_grid_packed_lines);
+            fb_grid_packed_points=memalloc(fb_grid_vertex_capacity*sizeof(vector));
+            fb_grid_packed_vertices=memalloc(fb_grid_vertex_capacity*2*sizeof(trisoup_simple_vert_t));
+            fb_grid_packed_triangles=memalloc(fb_grid_vertex_capacity*3*sizeof(int));fb_grid_packed_lines=memalloc(fb_grid_vertex_capacity*2*sizeof(int));
+        }
+        memfree(fb_grid_brush_bounds);fb_grid_brush_bounds=memalloc(fb_node_count*2*sizeof(vector));
         fb_grid_face_count=0;
         for(int b=2;b<fb_node_count;b++) {
           if(fb_nodes[b].kind!=FB_NODE_BRUSH)continue;
           int model=fb_nodes[b].model,id=fb_nodes[b].id;
+          if(brush_getfacepoints(model,id,0,gridBounds,2)==2){fb_grid_brush_bounds[b*2]=(gridBounds[0]+gridBounds[1])*.5;fb_grid_brush_bounds[b*2+1]=[vlen(gridBounds[1]-gridBounds[0])*.5+.1,0,0];}
+          else fb_grid_brush_bounds[b*2+1]='1000000000 0 0';
+          int firstFace=fb_grid_face_count;
           int planeCount=brush_get(model,id,gridPlanes,MAX_BRUSHFACES,__NULL__);
           for(int f=1;f<=min(planeCount,MAX_BRUSHFACES);f++) {
             int n=brush_getfacepoints(model,id,f,facepoints,MAX_FACEPOINTS);
@@ -380,10 +399,8 @@ void fb_surfacegrid(int geometryOnly)
             }
             fb_grid_face_t *face=&fb_grid_faces[fb_grid_face_count++];
             face.id=id;face.model=model;face.node=b;face.count=n;face.center='0 0 0';
-            face.points=memalloc(sizeof(vector)*n);
-            face.vertices=memalloc(sizeof(trisoup_simple_vert_t)*n*2);
-            face.triangles=memalloc(sizeof(int)*(n-2)*3);
-            face.lines=memalloc(sizeof(int)*n*2);
+            face.points=&fb_grid_packed_points[vertexOffset];face.vertices=&fb_grid_packed_vertices[vertexOffset*2];
+            face.triangles=&fb_grid_packed_triangles[vertexOffset*3];face.lines=&fb_grid_packed_lines[vertexOffset*2];vertexOffset+=n;
             for(int j=0;j<n;j++) {
                 int next=j+1;if(next>=n)next=0;
                 face.lines[j*2]=j+n;face.lines[j*2+1]=next+n;
@@ -399,6 +416,7 @@ void fb_surfacegrid(int geometryOnly)
             face.center=face.center / (float)n;
             face.radius=0;for(int j=0;j<n;j++)face.radius=max(face.radius,vlen(face.points[j]-face.center));
         }
+          for(int face=firstFace;face<fb_grid_face_count;face++)fb_grid_faces[face].brushEnd=fb_grid_face_count;
         }
         memfree(fb_grid_visible);fb_grid_visible=memalloc(max(1,fb_grid_face_count)*sizeof(int));
     }
@@ -442,9 +460,13 @@ void fb_surfacegrid(int geometryOnly)
     if(recull){fb_grid_visible_count=0;
     for(int i=0;i<fb_grid_face_count;i++) {
         fb_grid_face_t *face=&fb_grid_faces[i];
+        if(face.node!=previous) {
+            previous=face.node;replaced=fb_preview_replaces(face.model,face.id);if(!fb_render_allowed(face.node,FB_PICK_LOCKED))replaced=TRUE;
+            vector brushDelta=fb_grid_brush_bounds[face.node*2]-eye;float depth=brushDelta*forward,extent=fb_grid_brush_bounds[face.node*2+1][0];
+            if(depth+extent<0||fabs(brushDelta*right)>depth*tx+extent*(1+tx)||fabs(brushDelta*up)>depth*ty+extent*(1+ty))replaced=TRUE;
+        }
+        if(replaced){i=face.brushEnd-1;continue;}
         if(face.sky && !autocvar_ftebroom_sky_overlays)continue;
-        if(face.node!=previous) {previous=face.node;replaced=fb_preview_replaces(face.model,face.id);if(!fb_render_allowed(face.node,FB_PICK_LOCKED))replaced=TRUE;}
-        if(replaced) continue;
         if((eye-face.center)*face.normal< -0.01)continue;
         vector delta=face.center-eye;float z=delta*forward,radius=face.radius;
         if(z+radius<0)continue;

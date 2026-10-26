@@ -23,33 +23,33 @@ void fb_lines_index()
     fb_lines=memalloc(sizeof(fb_line_t)*fb_node_count);
     filestream file=fopen("map-lines.txt",FILE_READ);
     if((float)file<0) return;
-    string row;int entityCount=terrain_edit(TEREDIT_ENT_COUNT);
+    string row;int entityCount=terrain_edit(TEREDIT_ENT_COUNT),ordinal=0;
+    int *entities=memalloc(max(1,entityCount)*sizeof(int));
+    int *parents=memalloc(max(1,entityCount)*sizeof(int));
+    hashtable brushes=hash_createtab(max(64,fb_node_count*2),EV_STRING),mixed=hash_createtab(64,EV_STRING);
+    for(int e=0;e<entityCount;e++){parents[e]=-1;if(terrain_edit(TEREDIT_ENT_GET,e)!="")entities[ordinal++]=e;}
+    if(entityCount)parents[0]=1;
+    for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind<FB_NODE_BRUSH&&fb_nodes[n].id>=0&&fb_nodes[n].id<entityCount)parents[fb_nodes[n].id]=n;
+    int *ordinals=memalloc(max(1,fb_node_count)*sizeof(int));
+    for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind>=FB_NODE_BRUSH){int parent=fb_nodes[n].parent;brushes[sprintf("%i:%i",parent,ordinals[parent]++)]=itos(n+1);}
     while((row=fgets(file))) {
         int words=tokenize(row);
-        if(words==2 && argv(0)=="mixed") {int mixedLine=stoi(argv(1));for(int m=0;m<fb_line_count;m++)if(fb_lines[m].line==mixedLine)fb_lines[m].mixed=TRUE;continue;}
+        if(words==2 && argv(0)=="mixed") {mixed[argv(1)]="1";continue;}
         if(words!=3) continue;
         int line=stoi(argv(0)),entityOrdinal=stoi(argv(1)),brushOrdinal=stoi(argv(2));
-        int ordinal=0,entityIndex=-1;
-        for(int e=0;e<entityCount;e++) {
-            string fields=terrain_edit(TEREDIT_ENT_GET,e);
-            if(fields=="") continue;
-            if(ordinal++==entityOrdinal) {entityIndex=e;break;}
-        }
-        int parent=-1;
-        if(entityIndex==0) parent=1;
-        else for(int n=2;n<fb_node_count;n++) if(fb_nodes[n].kind<FB_NODE_BRUSH && fb_nodes[n].id==entityIndex) {parent=n;break;}
+        if(entityOrdinal<0||entityOrdinal>=ordinal)continue;
+        int entityIndex=entities[entityOrdinal],parent=parents[entityIndex];
         if(parent<0 || fb_line_count>=fb_node_count) continue;
         fb_line_t item={0};item.line=line;item.entity=entityIndex;
         if(brushOrdinal>=0) {
-            int brush=0,found=FALSE;
-            for(int n=0;n<fb_node_count;n++) if(fb_nodes[n].kind>=FB_NODE_BRUSH && fb_nodes[n].parent==parent) {
-                if(brush++==brushOrdinal) {item.model=fb_nodes[n].model;item.id=fb_nodes[n].id;found=TRUE;break;}
-            }
-            if(!found) continue;
+            int node=stoi(brushes[sprintf("%i:%i",parent,brushOrdinal)])-1;
+            if(node<0||node>=fb_node_count)continue;item.model=fb_nodes[node].model;item.id=fb_nodes[node].id;
         }
         fb_lines[fb_line_count++]=item;
     }
     fclose(file);
+    for(int i=0;i<fb_line_count;i++)fb_lines[i].mixed=mixed[itos(fb_lines[i].line)]=="1";
+    memfree(entities);memfree(parents);memfree(ordinals);hash_destroytab(brushes);hash_destroytab(mixed);
     if(cvar("ftebroom_debug_lines")) print(sprintf("FTEBROOM_LINE_INDEX %i\n",fb_line_count));
 }
 void fb_select_line(int line)
