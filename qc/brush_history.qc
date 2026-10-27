@@ -6,6 +6,7 @@ void fb_tool_refresh();
 void fb_visibility_set(int model,int id,int hidden);
 void fb_rotate_restore_center(vector center);
 void editor_ents_reload();
+void editor_ents_refresh(int index);
 void fb_tx_begin(string name);
 void fb_tx_commit();
 void fb_history_labels();
@@ -99,7 +100,7 @@ void history_apply(history_t *h,int redo)
         string fields=redo?h->afterfields:h->beforefields;
         if(fields=="") terrain_edit(TEREDIT_ENT_SET,h->entityindex,__NULL__);
         else terrain_edit(TEREDIT_ENT_SET,h->entityindex,fields);
-        editor_ents_reload();return;
+        editor_ents_refresh(h->entityindex);return;
     }
     int create=h->wasdelete;
     if(redo) create=!create;

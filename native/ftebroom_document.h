@@ -152,6 +152,7 @@ static void documentProceed()
     int selected=std::atoi(next.c_str()+10);if(selected<0||selected>2)return;
     if(gameProfile!=2)q3Root=baseq3;gameProfile=selected;
     std::snprintf(baseq3,sizeof baseq3,"%s",selected==2?q1Authoring().c_str():q3Root.c_str());
+    q1MapWads.clear();q1MissingMapWads.clear();q1DocumentPak.clear();
     gameProfileSave();if(!mountAssets())setupNeeded=true;
     documentTerrain=false;documentUntitled=true;documentFile.clear();pendingDocumentFile.clear();pendingDocumentAlias.clear();documentName="untitled";
     cvars->SetFloat("ftebroom_terrain_document",0);cvars->SetFloat("ftebroom_terrain_edit",0);

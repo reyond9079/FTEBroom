@@ -14,7 +14,7 @@ static std::map<std::string,std::string> q1MaterialWad,q1WadLabels;
 static std::map<std::string,std::pair<int,int>> q1MaterialDimensions;
 static std::vector<qhandle_t> q1ShaderHandles;
 static std::string q1Read(const std::filesystem::path& path) {return ftebroom::pak::read(path);}
-static std::vector<std::filesystem::path> q1ResolvedWads;
+static std::vector<std::filesystem::path> q1ResolvedWads,q1MapWads;
 static std::vector<std::filesystem::path> q1MissingMapWads, q1MissingWads;
 static std::filesystem::path q1DocumentPak;
 static const std::vector<std::filesystem::path>& q1WadPaths(){return q1ResolvedWads;}
@@ -38,6 +38,7 @@ static void q1FindWads(bool strict=false){
   if(!q1DocumentPak.empty())for(const auto& e:ftebroom::pak::directory(q1DocumentPak)){auto ext=std::filesystem::u8path(e.name).extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);if(ext==".wad")sources.push_back(q1DocumentPak/std::filesystem::u8path(e.name));}
   std::istringstream input(q1Wads);std::string line;
   while(std::getline(input,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(line.empty())continue;auto path=std::filesystem::u8path(line);if(path.is_relative())path=std::filesystem::u8path(q1Authoring())/path;sources.push_back(path);}
+  ftebroom::quake1::prioritizeMapWads(sources,q1MapWads);
   char writable[4096]={};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,writable,sizeof writable))throw std::runtime_error("No writable editor cache.");auto cache=std::filesystem::u8path(writable).parent_path()/"cache/wads";std::filesystem::create_directories(cache);
   std::set<std::filesystem::path> seen;
   for(const auto& source:sources){if(!seen.insert(source.lexically_normal()).second)continue;
@@ -78,15 +79,12 @@ static std::string q1CompilerWads(const std::filesystem::path& folder) {
   return list;
 }
 static bool q1DiscoverWads(const std::string& source,const std::filesystem::path& map) {
-  auto resolved=ftebroom::quake1::mapWads(source,map,std::filesystem::u8path(q1Authoring()),ftebroom::pak::exists);
-  bool changed=resolved.missing!=q1MissingMapWads;q1MissingMapWads=std::move(resolved.missing);
-  std::string list=q1Wads;std::set<std::filesystem::path> known;
-  std::istringstream input(list);std::string line;
-  while(std::getline(input,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(!line.empty())known.insert(std::filesystem::u8path(line).lexically_normal());}
-  for(const auto& path:resolved.found)if(known.insert(path.lexically_normal()).second){if(!list.empty()&&list.back()!='\n')list+='\n';list+=path.generic_u8string()+"\n";changed=true;}
-  if(!changed)return false;
-  if(list.size()>=sizeof q1Wads)throw std::runtime_error("Map WAD list is too long.");
-  std::snprintf(q1Wads,sizeof q1Wads,"%s",list.c_str());return true;
+  q1FindWads();
+  auto resolved=ftebroom::quake1::mapWads(source,map,std::filesystem::u8path(q1Authoring()),ftebroom::pak::exists,q1WadPaths());
+  bool changed=resolved.missing!=q1MissingMapWads || resolved.found!=q1MapWads;
+  q1MissingMapWads=std::move(resolved.missing);q1MapWads=std::move(resolved.found);
+  return changed;
+
 }
 static void q1IndexAssets() {
   q1FindWads();

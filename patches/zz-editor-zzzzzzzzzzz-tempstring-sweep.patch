@@ -1,0 +1,71 @@
+--- a/engine/qclib/initlib.c
++++ b/engine/qclib/initlib.c
+@@ -1318,7 +1318,9 @@
+ #endif
+ 		}
+ 		else if (tempstrings[p])
+-		{	//not marked, but was valid at the time our snapshot was taken
++		{
++			if (tempstrings[p] != prinst.tempstrings[p])
++				continue;	//not marked, but was valid at the time our snapshot was taken
+ 
+ #ifdef _DEBUG
+ 			if (tempstrings[p] != prinst.tempstrings[p])
+@@ -1348,7 +1350,7 @@
+ struct qcgccontext_s
+ {
+ 	int done;
+-	unsigned int clearedtemps;	//number of temps that were swept away
++	smallbool *marked;	// Worker-owned mark result; sweeping belongs to the VM thread.
+ 	progfuncs_t *progfuncs;	//careful!
+ 
+ 	size_t maxtemps;		//so it doesn't go stale
+@@ -1364,25 +1366,11 @@
+ }
+ void PR_QCGC_Thread(void *ctx, void *data, size_t a, size_t b)
+ {
+-	struct qcgccontext_s *gc = ctx;
+-	progfuncs_t *progfuncs = gc->progfuncs;
+-	smallbool *marked;
+-
+-#ifdef GCTIMINGS
+-	double starttime, markedtime, endtime;
+-	starttime = Sys_DoubleTime();
+-#endif
+-	marked = PR_QCGC_Mark(gc->amem, gc->memsize, gc->maxtemps);
+-#ifdef GCTIMINGS
+-	markedtime = Sys_DoubleTime();
+-#endif
+-	gc->clearedtemps = PR_QCGC_Sweep(progfuncs, marked, gc->tempstrings, gc->maxtemps);
+-#ifdef GCTIMINGS
+-	endtime = Sys_DoubleTime();
+-	gc->externs->Printf("live: %u, dead: %u, threadtime: mark=%f, sweep=%f, total=%f\n", prinst.livetemps-gc->clearedtemps, gc->clearedtemps, (markedtime - starttime), (endtime - markedtime), endtime-starttime);
+-#endif
+-
+-	COM_InsertWork(WG_MAIN, PR_QCGC_Done, gc, NULL, 0, 0);
++    struct qcgccontext_s *gc = ctx;
++    // Only inspect the immutable snapshot here. The host allocator and the
++    // live VM string table must never be mutated by a loader worker.
++    gc->marked = PR_QCGC_Mark(gc->amem, gc->memsize, gc->maxtemps);
++    COM_InsertWork(WG_MAIN, PR_QCGC_Done, gc, NULL, 0, 0);
+ }
+ #endif
+ static void PR_ExpandTempStrings(progfuncs_t *progfuncs, size_t newmax)
+@@ -1455,7 +1443,7 @@
+ #endif
+ 			struct qcgccontext_s *gc = prinst.gccontext = malloc(sizeof(*gc) - sizeof(gc->amem) + prinst.addressableused + sizeof(*gc->tempstrings)*prinst.maxtempstrings);
+ 			gc->done = false;
+-			gc->clearedtemps = 0;
++			gc->marked = NULL;
+ 			gc->progfuncs = progfuncs;
+ 
+ 			gc->memsize = prinst.addressableused;
+@@ -1487,7 +1475,7 @@
+ #ifdef THREADEDGC
+ 	else if (prinst.gccontext->done)
+ 	{
+-		prinst.livetemps -= prinst.gccontext->clearedtemps;
++		prinst.livetemps -= PR_QCGC_Sweep(progfuncs, prinst.gccontext->marked, prinst.gccontext->tempstrings, prinst.gccontext->maxtemps);
+ 		free(prinst.gccontext);
+ 		prinst.gccontext = NULL;
+ 

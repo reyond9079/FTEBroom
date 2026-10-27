@@ -60,6 +60,34 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="selection86check") {
+        int expected86=stoi(argv(2)),check86Ok=fb_selected_entity_count==expected86;
+        for(int i=0;i<fb_selected_entity_count;i++)if(!fb_entity_selected(fb_selected_entities[i]) || terrain_edit(TEREDIT_ENT_GET,fb_selected_entities[i])=="")check86Ok=FALSE;
+        fb_transform_expect(check86Ok,"selection86_complete_live_entity_membership");
+        print(sprintf("RB_SELECTION86 points=%i slots=%i cacheCapacity=%i\n",fb_selected_entity_count,(int)terrain_edit(TEREDIT_ENT_COUNT),editents_capacity));return TRUE;
+    }
+    if(argv(1)=="duplicate86" || argv(1)=="select86") {
+        fb_tool_refresh();fb_document_tick();fb_selection_clear();
+        int *sizes=memalloc(sizeof(int)*fb_node_count);int largest=-1;
+        for(int n=2;n<fb_node_count;n++)if(fb_selection_leaf(n))
+            for(int parent=fb_nodes[n].parent,steps=0;parent>=2 && parent<fb_node_count && steps<fb_node_count;steps++) {
+                sizes[parent]++;parent=fb_nodes[parent].parent;
+            }
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP && (largest<0 || sizes[n]>sizes[largest]))largest=n;
+        if(largest<0){memfree(sizes);fb_transform_expect(FALSE,"duplicate86_group_fixture");return TRUE;}
+        fb_selection_set(largest,TRUE);int selected=selectedbrushcount,duplicate86Marker=history;
+        print(sprintf("RB_DUPLICATE86 group=%i direct=%i selected=%i entities=%i nodes=%i\n",largest,sizes[largest],selected,fb_selected_entity_count,fb_node_count));memfree(sizes);
+        if(argv(1)=="select86") {
+            fb_transform_expect(selectedbrushcount+fb_selected_entity_count>1000,"select86_large_group");
+            fb_selection_set(largest,FALSE);
+            fb_transform_expect(!selectedbrushcount && !fb_selected_entity_count,"select86_large_group_deselect");
+            return TRUE;
+        }
+        float started=gettime(1);fb_duplicate_numeric('0 0 0');
+        fb_transform_expect(selectedbrushcount==selected && history>duplicate86Marker,"duplicate86_group_count");
+        print(sprintf("RB_DUPLICATE86 commit_ms=%g selected=%i history=%i\n",(gettime(1)-started)*1000,selectedbrushcount,history));
+        return TRUE;
+    }
     if(argv(1)=="material83"){
         fb_render_faces_prepare();string material83Shader=fb_surface_material_shader(argv(2),1);
         for(int material83Index=0;material83Index<fb_render_face_count;material83Index++)if(fb_render_faces[material83Index].shader==material83Shader){

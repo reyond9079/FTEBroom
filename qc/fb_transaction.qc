@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // A transaction owns its redo branch until commit, so cancellation can restore it.
 int fb_tx_start,fb_tx_redocount,fb_tx_serial,fb_tx_lastmarker;
+int fb_tx_empty_cursor,fb_tx_empty_serial;
 int fb_linked_before_commit();
 void fb_autosnap_before_commit();
 void fb_repeat_selection(history_t *marker);
@@ -130,15 +131,18 @@ void fb_tx_entity_set(int index,string data,int kind)
     h->beforefields=before;h->afterfields=replacement;
     if(replacement=="") terrain_edit(TEREDIT_ENT_SET,index,__NULL__);
     else terrain_edit(TEREDIT_ENT_SET,index,replacement);
-    editor_ents_reload();
+    editor_ents_refresh(index);
 }
 int fb_tx_empty_entity()
 {
     // FTE grows entity storage in blocks. Reuse empty slots instead of leaking
     // a whole block per plug, especially across cancelled seed attempts.
+    if(!fb_tx_depth || fb_tx_empty_serial!=fb_tx_serial){fb_tx_empty_cursor=1;fb_tx_empty_serial=fb_tx_serial;}
     int count=terrain_edit(TEREDIT_ENT_COUNT);
-    for(int index=1;index<count;index++)if(terrain_edit(TEREDIT_ENT_GET,index)=="")return index;
+    for(;fb_tx_empty_cursor<count;fb_tx_empty_cursor++)
+        if(terrain_edit(TEREDIT_ENT_GET,fb_tx_empty_cursor)=="")return fb_tx_empty_cursor++;
     return count;
+
 }
 void fb_tx_set_key(int index,string key,string value,int kind)
 {

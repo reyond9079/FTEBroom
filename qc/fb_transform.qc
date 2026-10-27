@@ -126,13 +126,13 @@ void fb_transform_commit(vector delta)
                 if(cloned>=0) id=cloned;
                 else {
                     string data=strzone(terrain_edit(TEREDIT_ENT_GET,id));
-                    id=terrain_edit(TEREDIT_ENT_ADD,"");
+                    id=fb_tx_empty_entity();
                     fb_tx_entity_set(id,data,HIST_ENTITY);strunzone(data);
                 }
                 fb_entity_select(id,TRUE);
             }
             vector movedOrigin=item->origin+delta;
-            fb_tx_set_key(id,"origin",sprintf("%.9g %.9g %.9g",movedOrigin_x,movedOrigin_y,movedOrigin_z),HIST_ENTITY);
+            if(!fb_transform_duplicate || delta!='0 0 0')fb_tx_set_key(id,"origin",sprintf("%.9g %.9g %.9g",movedOrigin_x,movedOrigin_y,movedOrigin_z),HIST_ENTITY);
         }
     }
     fb_tx_commit();fb_repeat_move(delta,fb_transform_duplicate);fb_clone_clear();

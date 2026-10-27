@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 namespace ftebroom::quake1 {
 struct MapWads {
@@ -13,7 +14,8 @@ struct MapWads {
 // Resolve a MAP's own references even when the profile already has other WADs.
 template<class Exists>
 MapWads mapWads(const std::string& source, const std::filesystem::path& map,
-               const std::filesystem::path& mod, Exists exists) {
+               const std::filesystem::path& mod, Exists exists,
+               const std::vector<std::filesystem::path>& available = {}) {
   MapWads result;
   std::istringstream input(source); std::string line;
   while (std::getline(input,line)) {
@@ -31,6 +33,19 @@ MapWads mapWads(const std::string& source, const std::filesystem::path& map,
       path=path.lexically_normal();auto resolved=path;
       if(!exists(resolved))resolved=mod/path.filename();
       if(!exists(resolved))resolved=mod/"textures"/path.filename();
+      if(!exists(resolved)) {
+        auto leaf=path.filename().u8string();
+        std::transform(leaf.begin(),leaf.end(),leaf.begin(),[](unsigned char c){return std::tolower(c);});
+        std::filesystem::path candidate;bool ambiguous=false;
+        for(const auto& known:available) {
+          auto name=known.filename().u8string();
+          std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return std::tolower(c);});
+          if(name!=leaf || !exists(known))continue;
+          if(!candidate.empty() && candidate.lexically_normal()!=known.lexically_normal()){ambiguous=true;break;}
+          candidate=known;
+        }
+        if(!candidate.empty() && !ambiguous)resolved=candidate;
+      }
       auto& target=exists(resolved)?result.found:result.missing;
       auto value=exists(resolved)?resolved.lexically_normal():path;
       if(std::find(target.begin(),target.end(),value)==target.end())target.push_back(value);
@@ -39,4 +54,15 @@ MapWads mapWads(const std::string& source, const std::filesystem::path& map,
   }
   return result;
 }
+// General libraries are fallbacks; the document's ordered WAD list wins.
+inline void prioritizeMapWads(std::vector<std::filesystem::path>& sources,
+                              const std::vector<std::filesystem::path>& document) {
+  for(const auto& path:document) {
+    sources.erase(std::remove_if(sources.begin(),sources.end(),[&](const auto& source){
+      return source.lexically_normal()==path.lexically_normal();
+    }),sources.end());
+    sources.push_back(path);
+  }
+}
+
 }

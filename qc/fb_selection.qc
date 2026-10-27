@@ -103,6 +103,7 @@ void fb_selection_set(int node,int selected)
         else brush_deselect(fb_nodes[node].model,fb_nodes[node].id);
         return;
     }
+    fb_entity_selection_batch(TRUE);
     for(int i=0;i<fb_node_count;i++) {
         if(!fb_selection_leaf(i))continue;
         if(!fb_selection_descendant(i,node))continue;
@@ -111,6 +112,7 @@ void fb_selection_set(int node,int selected)
         else if(selected) brush_select(fb_nodes[i].model,fb_nodes[i].id);
         else brush_deselect(fb_nodes[i].model,fb_nodes[i].id);
     }
+    fb_entity_selection_batch(FALSE);
 }
 void fb_selection_clear() {brush_deselectall();fb_restore_entity_selection(-1);}
 void fb_selection_clear_faces()

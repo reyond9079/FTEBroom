@@ -4,6 +4,8 @@
 // unknown backslash sequences in legacy MAP paths.
 int fb_entity_tokenize(string source)
 {
+    // Ordinary quoted fields need no escape normalization or temporary copies.
+    if(strstrofs(source,"\\",0)<0)return tokenize_console(source);
     string normalized="";int cursor=0,length=strlen(source);
     while(cursor<length) {
         while(cursor<length && str2chr(source,cursor)<=32)cursor++;

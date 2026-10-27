@@ -2,44 +2,78 @@ static int selectedent;
 int *fb_selected_entities;
 int fb_selected_entity_count,fb_open_group;
 int fb_selected_entity() {if(fb_selected_entity_count>0) return fb_selected_entities[0];return -1;}
+hashtable fb_selected_entity_slots;
+int fb_selected_entity_capacity,fb_entity_selection_batch_depth;
 int fb_entity_selected(int index)
 {
-    for(int i=0;i<fb_selected_entity_count;i++) if(fb_selected_entities[i]==index) return TRUE;
-    return FALSE;
+    if(index<=0 || !fb_selected_entity_slots)return FALSE;
+    return (int)fb_selected_entity_slots[itos(index)]!=0;
+}
+void fb_entity_selection_batch(int begin)
+{
+    if(begin){fb_entity_selection_batch_depth++;return;}
+    if(!fb_entity_selection_batch_depth || --fb_entity_selection_batch_depth)return;
+    int live=0;
+    for(int i=0;i<fb_selected_entity_count;i++)if(fb_selected_entities[i]>0) {
+        int id=fb_selected_entities[i];fb_selected_entities[live]=id;
+        fb_selected_entity_slots[itos(id)]=++live;
+    }
+    fb_selected_entity_count=live;selectedent=fb_selected_entity();
 }
 void fb_entity_select(int index,int select)
 {
     fb_selection_epoch++;
-    int found=-1;
-    for(int i=0;i<fb_selected_entity_count;i++) if(fb_selected_entities[i]==index) found=i;
-    if(select && found<0 && index>0) {
-        int *items=memalloc(sizeof(int)*(fb_selected_entity_count+1));
-        memcpy(items,fb_selected_entities,sizeof(int)*fb_selected_entity_count);
-        memfree(fb_selected_entities);fb_selected_entities=items;
-        items[fb_selected_entity_count]=index;
-        fb_selected_entity_count++;
-    } else if(!select && found>=0) {
-        for(int j=found;j<fb_selected_entity_count-1;j++) fb_selected_entities[j]=fb_selected_entities[j+1];
-        fb_selected_entity_count--;
+    if(index<=0){selectedent=fb_selected_entity();return;}
+    if(!fb_selected_entity_slots)fb_selected_entity_slots=hash_createtab(1024,EV_INTEGER);
+    int slot=(int)fb_selected_entity_slots[itos(index)],found=slot-1i;
+    if(select && !slot) {
+        if(fb_selected_entity_count==fb_selected_entity_capacity) {
+            fb_selected_entity_capacity=max(64,fb_selected_entity_capacity*2);
+            int *items=memalloc(sizeof(int)*fb_selected_entity_capacity);
+            if(fb_selected_entity_count)memcpy(items,fb_selected_entities,sizeof(int)*fb_selected_entity_count);
+            memfree(fb_selected_entities);fb_selected_entities=items;
+        }
+        fb_selected_entities[fb_selected_entity_count++]=index;
+        fb_selected_entity_slots[itos(index)]=fb_selected_entity_count;
+    }else if(!select && slot) {
+        fb_selected_entity_slots[itos(index)]=0i;
+        if(fb_entity_selection_batch_depth)fb_selected_entities[found]=-1;
+        else {
+            for(int j=found;j<fb_selected_entity_count-1;j++) {
+                int id=fb_selected_entities[j+1];fb_selected_entities[j]=id;fb_selected_entity_slots[itos(id)]=j+1i;
+            }
+            fb_selected_entity_count--;
+        }
     }
-    selectedent=fb_selected_entity();
+    if(!fb_entity_selection_batch_depth)selectedent=fb_selected_entity();
 }
 void fb_restore_entity_selection(int index)
 {
-    fb_selected_entity_count=0;fb_entity_select(index,TRUE);
+    fb_selected_entity_count=0;
+    if(fb_selected_entity_slots)hash_destroytab(fb_selected_entity_slots);
+    fb_selected_entity_slots=0i;fb_entity_select(index,TRUE);
 }
 string fb_selection_state()
 {
-    string state=itos(fb_open_group);
-    for(int i=0;i<fb_selected_entity_count;i++) state=strcat(state," ",itos(fb_selected_entities[i]));
-    return state;
+    // Join once: repeated string concatenation consumes quadratic VM scratch space.
+    strbuf parts=buf_create();bufstr_add(parts,itos(fb_open_group),TRUE);
+    for(int i=0;i<fb_selected_entity_count;i++)bufstr_add(parts,itos(fb_selected_entities[i]),TRUE);
+    string state=buf_implode(parts," ");buf_del(parts);return state;
 }
 void fb_selection_restore_state(string state)
 {
-    int count=tokenize(state);fb_open_group=stoi(argv(0));
+    // Selection snapshots can exceed the engine command-token limit.
+    int cursor=0,length=strlen(state),first=TRUE;
     fb_restore_entity_selection(-1);
-    for(int i=1;i<count;i++) fb_entity_select(stoi(argv(i)),TRUE);
+    while(cursor<length) {
+        int end=strstrofs(state," ",cursor);if(end<0)end=length;
+        int id=stoi(substring(state,cursor,end-cursor));
+        if(first){fb_open_group=id;first=FALSE;}else fb_entity_select(id,TRUE);
+        cursor=end+1;
+    }
+    if(first)fb_open_group=0;
 }
+int editents_capacity;
 static entity tempent;
 static string editkey;
 static int editfieldtype;	//0 = not editing. 1 = editing the fieldname. 2 = editing the value
@@ -59,8 +93,8 @@ typedef struct
     float modelskin,modelframe;
     vector modelaxes;
 	
-	trisoup_simple_vert_t bboxverts[8];
-    trisoup_simple_vert_t solidverts[24];
+	trisoup_simple_vert_t *bboxverts;
+    trisoup_simple_vert_t *solidverts;
     vector rendercolour;
 
 	//full data
@@ -78,9 +112,24 @@ int fb_entity_box_triangles[]={0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,1
 
 static entedit_t *editents;
 static int numents;
+void fb_entity_prepare_vertices(int index)
+{
+    entedit_t *item=&editents[index];if(item->bboxverts)return;
+    item->bboxverts=memalloc(sizeof(trisoup_simple_vert_t)*32);
+    item->solidverts=item->bboxverts+8;
+    item->rendercolour='-1 -1 -1';
+    for(int i=0;i<8;i++) {
+        item->bboxverts[i].st=(vec2){0,0};
+        item->bboxverts[i].rgba=(vec4){item->colourmod[0],item->colourmod[1],item->colourmod[2],item->alpha?item->alpha:1};
+        item->bboxverts[i].xyz[0]=item->org[0]+((i&1i)?item->maxs[0]:item->mins[0]);
+        item->bboxverts[i].xyz[1]=item->org[1]+((i&2i)?item->maxs[1]:item->mins[1]);
+        item->bboxverts[i].xyz[2]=item->org[2]+((i&4i)?item->maxs[2]:item->mins[2]);
+    }
+}
 trisoup_simple_vert_t *fb_entity_vertices(int index,int solid)
 {
     if(index<0 || index>=numents)return __NULL__;
+    fb_entity_prepare_vertices(index);
     if(solid)return &editents[index].solidverts[0];
     return &editents[index].bboxverts[0];
 }
@@ -89,6 +138,7 @@ int fb_entity_has_model(int index){if(index<0 || index>=numents)return FALSE;ret
 void fb_entity_draw_box(int index,vector colour,int solid,int wire,string shader)
 {
     if(index<0 || index>=numents)return;
+    fb_entity_prepare_vertices(index);
     entedit_t *item=&editents[index];
     if(item->rendercolour!=colour) {
         item->rendercolour=colour;
@@ -279,16 +329,17 @@ entedit_t*() editor_ents_new =
 	local int nent;
 	local entedit_t *newents;
 	nent = terrain_edit(TEREDIT_ENT_ADD, "");
-	if (nent >= numents)
+	if (nent >= editents_capacity)
 	{
 		//extend the list
-		newents = memalloc(sizeof(entedit_t)*(nent+1));
+		editents_capacity=max(nent+1,max(64,editents_capacity*2));
+        newents = memalloc(sizeof(entedit_t)*editents_capacity);
 		memcpy((__variant*)newents, (__variant*)editents, sizeof(entedit_t)*numents);
 		memfree((__variant*)editents);
 		editents = newents;
-		numents = nent+1;
 	}
 
+    numents=max(numents,nent+1);
 	editents[nent].fields = hash_createtab(12, EV_STRING);
 
 	return &editents[nent];
@@ -425,15 +476,10 @@ void(entedit_t *nent) editor_ents_updated =
 	if (nent->isbsp)
 		nent->ang = '0 0 0';	//bsp entities should not be displayed rotated, because that just messes everything up.
 
+    // Existing box pointers remain stable across entity-cache growth.
+    memfree(nent->bboxverts);nent->bboxverts=nent->solidverts=__NULL__;
     nent->rendercolour='-1 -1 -1';
-	for (i = 0; i < 8; i++)
-	{
-		nent->bboxverts[i].st = (vec2){0,0};
-		nent->bboxverts[i].rgba = (vec4){nent->colourmod[0], nent->colourmod[1], nent->colourmod[2], nent->alpha?nent->alpha:1};
-		nent->bboxverts[i].xyz[0] = nent->org[0] + ((i&1i)?nent->maxs[0]:nent->mins[0]);
-		nent->bboxverts[i].xyz[1] = nent->org[1] + (((i&2i)?nent->maxs[1]:nent->mins[1]));
-		nent->bboxverts[i].xyz[2] = nent->org[2] + ((i&4)?nent->maxs[2]:nent->mins[2]);
-	}
+
 		/*void(string shadername, vector min, vector max, vector col) editor_ents_drawbbox =
 {
 	if (min == max)
@@ -485,10 +531,11 @@ void() editor_ents_reload =
 	int f, fcount;
 
 	if(!tempent) tempent=spawn();
-	for(int old=0;old<numents;old++) if(editents[old].fields) hash_destroytab(editents[old].fields);
+	for(int old=0;old<numents;old++){if(editents[old].fields)hash_destroytab(editents[old].fields);memfree(editents[old].bboxverts);}
 	memfree((__variant*)editents);
 	numents = terrain_edit(TEREDIT_ENT_COUNT);
-	editents = memalloc(sizeof(entedit_t)*numents);
+	editents_capacity=numents;
+	editents = memalloc(sizeof(entedit_t)*editents_capacity);
 	for (id = 0; id < numents; id++)
 	{
 		field = terrain_edit(TEREDIT_ENT_GET, id);
@@ -510,32 +557,39 @@ void() editor_ents_reload =
 	}
 };
 
-//called when another client has edited an entity.
-void(int idx, string new) CSQC_MapEntityEdited =
+// Refresh one edited entity without reparsing the entire document.
+void editor_ents_update_one(int idx,string data)
 {
-	if (idx < 0) return;
-	if (idx >= numents)
-	{
-        // A remote add can grow the engine entity table before this cache.
-        // Rebuild before indexing, and avoid writing beyond editents.
-        if (new) editor_ents_reload();
-        return;
-	}
-	local entedit_t *ent = &editents[idx];
-
-	if (ent->fields)
-		hash_destroytab(ent->fields);
-	ent->fields = hash_createtab(12, EV_STRING);
-	int fcount = fb_entity_tokenize(new);
-	for (int f = 0; f < fcount; f+=2)
-	{
-		string field = argv(f);
-		string value = argv(f+1);
-		ent->fields[field] = value;
-	}
-
-	editor_ents_updated(ent);
-//	editor_ents_edited(ent);
+    if(idx<0)return;
+    if(!tempent)tempent=spawn();
+    int count=max(idx+1,(int)terrain_edit(TEREDIT_ENT_COUNT));
+    if(count>editents_capacity) {
+        editents_capacity=max(count,max(64,editents_capacity*2));
+        entedit_t *grown=memalloc(sizeof(entedit_t)*editents_capacity);
+        if(numents)memcpy((__variant*)grown,(__variant*)editents,sizeof(entedit_t)*numents);
+        memfree((__variant*)editents);editents=grown;
+    }
+    numents=max(numents,count);
+    entedit_t *ent=&editents[idx];
+    if(ent->fields)hash_destroytab(ent->fields);
+    memfree(ent->bboxverts);
+    memfill8((__variant*)ent,0,sizeof(entedit_t));
+    if(data=="" || data==__NULL__){fb_entity_render_epoch++;return;}
+    ent->fields=hash_createtab(12,EV_STRING);
+    int fields=fb_entity_tokenize(data);
+    for(int f=0;f<fields;f+=2)ent->fields[argv(f)]=argv(f+1);
+    editor_ents_updated(ent);
+}
+void editor_ents_refresh(int idx)
+{
+    // Keep the engine string alive while hash tables and model data change.
+    string data=strzone(terrain_edit(TEREDIT_ENT_GET,idx));
+    editor_ents_update_one(idx,data);strunzone(data);
+}
+// Called when another client has edited an entity.
+void(int idx,string data) CSQC_MapEntityEdited =
+{
+    editor_ents_update_one(idx,data);
 };
 
 void() editor_ents_addentities =
@@ -601,7 +655,7 @@ void() editor_ents_addentities =
 		}
 		else
 		{
-			addtrisoup_simple("entbox", 0x800, &editents[e].bboxverts[0], bbox_line_idxs, bbox_line_idxs.length);
+			addtrisoup_simple("entbox", 0x800, fb_entity_vertices(e,FALSE), bbox_line_idxs, bbox_line_idxs.length);
 		}
 	}
 };

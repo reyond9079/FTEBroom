@@ -14,7 +14,8 @@ int fb_export_map()
     cvar_set("ftebroom_export_status","-1");fb_document_tick();filestream file=fopen("export-map.map",FILE_WRITE);if((float)file<0)return FALSE;
     fb_clip_q3_export=TRUE;int success=TRUE;
     // Build owner buckets once, preserving the original geometry order.
-    int *heads=memalloc(sizeof(int)*fb_node_count),*next=memalloc(sizeof(int)*fb_node_count);
+    int *heads=memalloc(sizeof(int)*fb_node_count);
+    int *next=memalloc(sizeof(int)*fb_node_count);
     for(int h=0;h<fb_node_count;h++)heads[h]=0;
     for(int b=fb_node_count-1;b>=2;b--)if(fb_nodes[b].kind>=FB_NODE_BRUSH && fb_export_included(b)) {
         int owner=fb_export_owner(b);
