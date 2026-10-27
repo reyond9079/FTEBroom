@@ -66,8 +66,19 @@ int fb_selection_selected(int node)
     if(selection!=fb_selection_epoch || geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch || opened!=fb_open_group) {
         selection=fb_selection_epoch;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;opened=fb_open_group;
         memfree(cached);cached=memalloc(fb_node_count*sizeof(int));
+        // Accumulate leaf selection into ancestors once, rather than scanning
+        // the whole document separately for every group after an edit.
+        for(int leaf=0;leaf<fb_node_count;leaf++) {
+            if(!fb_selection_leaf(leaf))continue;
+            if(!fb_pick_allowed(leaf,0))continue;
+            int whole=fb_selection_selected_uncached(leaf);
+            for(int parent=fb_nodes[leaf].parent,steps=0;parent>=0 && parent<fb_node_count && steps<fb_node_count;steps++) {
+                cached[parent]|=whole?1:3;
+                parent=fb_nodes[parent].parent;
+            }
+        }
+        for(int container=0;container<fb_node_count;container++)cached[container]=cached[container]==1?2:1;
     }
-    if(!cached[node])cached[node]=fb_selection_selected_uncached(node)?2:1;
     return cached[node]==2;
 }
 void fb_selection_set(int node,int selected)

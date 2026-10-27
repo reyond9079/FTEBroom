@@ -382,7 +382,11 @@ void fb_surfacegrid(int geometryOnly)
             for(int face=1;face<=min(faces,MAX_BRUSHFACES);face++)required+=brush_getfacepoints(fb_nodes[node].model,fb_nodes[node].id,face,facepoints,MAX_FACEPOINTS);
         }
         if(required>fb_grid_vertex_capacity){
-            fb_grid_vertex_capacity=max(required,max(1024,fb_grid_vertex_capacity*2));
+            // A large document must not double all four packed arrays after
+            // its first new brush. Reserve modest edit headroom up front;
+            // subsequent growth stays proportional to the actual geometry.
+            if(required>65536)fb_grid_vertex_capacity=required+max(4096,ceil(required/16.0));
+            else fb_grid_vertex_capacity=max(required,max(1024,fb_grid_vertex_capacity*2));
             memfree(fb_grid_packed_points);memfree(fb_grid_packed_vertices);memfree(fb_grid_packed_triangles);memfree(fb_grid_packed_lines);
             fb_grid_packed_points=memalloc(fb_grid_vertex_capacity*sizeof(vector));
             fb_grid_packed_vertices=memalloc(fb_grid_vertex_capacity*2*sizeof(trisoup_simple_vert_t));

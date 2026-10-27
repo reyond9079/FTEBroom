@@ -146,18 +146,25 @@ int fb_organize_move_brush(int model,int id,int destination,int structural)
 void fb_organize_cleanup()
 {
     fb_document_rebuild();
+    int *alive=memalloc(fb_node_count*sizeof(int));
+    // Mark surviving ancestors from each leaf once, even on documents with
+    // thousands of groups. Empty containers do not keep ancestors alive.
+    for(int b=2;b<fb_node_count;b++) {
+        if(!fb_selection_leaf(b))continue;
+        int present=FALSE;
+        if(fb_nodes[b].kind>=FB_NODE_BRUSH)present=brush_get(fb_nodes[b].model,fb_nodes[b].id,__NULL__,0,__NULL__) || patch_getcp(fb_nodes[b].model,fb_nodes[b].id,__NULL__,0,__NULL__);
+        else present=terrain_edit(TEREDIT_ENT_GET,fb_nodes[b].id)!="";
+        if(!present)continue;
+        for(int parent=fb_nodes[b].parent,steps=0;parent>=2 && parent<fb_node_count && steps<fb_node_count;steps++) {
+            alive[parent]=TRUE;parent=fb_nodes[parent].parent;
+        }
+    }
     for(int n=fb_node_count-1;n>=2;n--) if(fb_nodes[n].kind==FB_NODE_GROUP || fb_nodes[n].kind==FB_NODE_ENTITY) {
         if(fb_nodes[n].kind==FB_NODE_GROUP && fb_selection_descendant(fb_selection_open_node(),n))continue;
-        if(fb_selection_leaf(n)) continue;int alive=FALSE;
-        for(int b=2;b<fb_node_count;b++) if(fb_selection_descendant(b,n) && b!=n) {
-            if(fb_nodes[b].kind>=FB_NODE_BRUSH) {
-                if(brush_get(fb_nodes[b].model,fb_nodes[b].id,__NULL__,0,__NULL__) || patch_getcp(fb_nodes[b].model,fb_nodes[b].id,__NULL__,0,__NULL__)) alive=TRUE;
-            } else if(fb_selection_leaf(b)) {
-                string fields=terrain_edit(TEREDIT_ENT_GET,fb_nodes[b].id);if(fields!="") alive=TRUE;
-            }
-        }
-        if(!alive) fb_tx_entity_set(fb_nodes[n].id,"",HIST_TREE);
+        if(fb_selection_leaf(n))continue;
+        if(!alive[n])fb_tx_entity_set(fb_nodes[n].id,"",HIST_TREE);
     }
+    memfree(alive);
 }
 int fb_organize_move(int entityIndex,int parent,int structural)
 {

@@ -89,14 +89,32 @@ void fb_entity_links_prepare()
     memfree(fb_entity_reachable);fb_entity_reachable=memalloc(fb_node_count*sizeof(int));memfree(fb_entity_centers);fb_entity_centers=memalloc(fb_node_count*sizeof(vector));
     memfree(fb_entity_link_selected);fb_entity_link_selected=memalloc(fb_node_count*sizeof(int));
     static vector bounds[2];
+    // Index target names once. Matching targets retain document order,
+    // including duplicate names, without a full document scan per source.
+    hashtable heads=hash_createtab(max(64,fb_node_count),EV_INTEGER);
+    int *next=memalloc(fb_node_count*sizeof(int));int linkCapacity=0;
+    for(int n=fb_node_count-1;n>=2;n--) {
+        if(fb_nodes[n].kind!=FB_NODE_ENTITY)continue;
+        string name=fb_nodes[n].fields["targetname"];if(name=="")continue;
+        next[n]=(int)heads[name];heads[name]=n;
+    }
     for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_ENTITY) {
         fb_entity_link_selected[n]=fb_entity_reachable[n]=fb_selection_selected(n);if(fb_container_bounds(n,bounds))fb_entity_centers[n]=(bounds[0]+bounds[1])*0.5;
-        string target=fb_nodes[n].fields["target"],killtarget=fb_nodes[n].fields["killtarget"];if(target=="" && killtarget=="")continue;
-        for(int other=2;other<fb_node_count;other++)if(other!=n && fb_nodes[other].kind==FB_NODE_ENTITY && fb_nodes[other].fields["targetname"]!="" && (fb_nodes[other].fields["targetname"]==target || fb_nodes[other].fields["targetname"]==killtarget)) {
-            fb_entity_link_t *links=memalloc((fb_entity_connection_count+1)*sizeof(fb_entity_link_t));memcpy(links,fb_entity_connections,fb_entity_connection_count*sizeof(fb_entity_link_t));memfree(fb_entity_connections);fb_entity_connections=links;
-            links[fb_entity_connection_count].from=n;links[fb_entity_connection_count++].to=other;
+        string target=fb_nodes[n].fields["target"],killtarget=fb_nodes[n].fields["killtarget"];
+        int a=0,b=0;if(target!="")a=(int)heads[target];if(killtarget!="")b=(int)heads[killtarget];
+        while(a || b) {
+            int other=a;if(!a)other=b;else if(b && b<a)other=b;
+            if(a==other)a=next[a];if(b==other)b=next[b];
+            if(other==n)continue;
+            if(fb_entity_connection_count==linkCapacity) {
+                linkCapacity=max(64,linkCapacity*2);
+                fb_entity_link_t *links=memalloc(linkCapacity*sizeof(fb_entity_link_t));
+                memcpy(links,fb_entity_connections,fb_entity_connection_count*sizeof(fb_entity_link_t));memfree(fb_entity_connections);fb_entity_connections=links;
+            }
+            fb_entity_connections[fb_entity_connection_count].from=n;fb_entity_connections[fb_entity_connection_count++].to=other;
         }
     }
+    memfree(next);hash_destroytab(heads);
     for(int step=0;step<fb_node_count;step++) {
         int changed=FALSE;
         for(int e=0;e<fb_entity_connection_count;e++) {fb_entity_link_t edge=fb_entity_connections[e];if(fb_entity_reachable[edge.from] || fb_entity_reachable[edge.to]) {

@@ -16,6 +16,9 @@ void fb_fullbench_tick()
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")==6){
+        localcmd("ftebroom_test_generators frame76\nin 2 ftebroom_test_generators create78begin\nin 4 ftebroom_test_generators create78update\nin 6 ftebroom_test_generators create78finish\nin 10 ftebroom_test_generators create78check 30328\nin 12 ftebroom_test_generators create78undo\nin 16 ftebroom_test_generators create78check 30327\nin 18 ftebroom_test_generators create78redo\nin 22 ftebroom_test_generators create78check 30328\nin 24 ftebroom_test_generators create78delete\nin 28 ftebroom_test_generators create78check 30327\nin 30 quit force\n");return;
+    }
     if(cvar("ftebroom_fullbench_qa")==5){
         localcmd("ftebroom_test_generators frame76\nin 2 screenshot restart77-before.png\nin 3 set ftebroom_fullbench 0\nin 4 set vid_multisample 8\nin 4 ftebroom_renderer_restart\nin 20 screenshot restart77-after.png\nin 21 ftebroom_test_generators bench76\nin 22 quit force\n");return;
     }
@@ -36,6 +39,38 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="create78undo"){brush_undo();return TRUE;}
+    if(argv(1)=="create78redo"){brush_redo();return TRUE;}
+    if(argv(1)=="create78delete"){fb_delete_selection();return TRUE;}
+    if(argv(1)=="create78check"){
+        fb_document_tick();int create78Count=0;for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH)create78Count++;
+        fb_transform_expect(create78Count==stoi(argv(2)),strcat("create78_brush_count_",argv(2)));
+        print(sprintf("RB_CREATE78 capacity=%i brushes=%i selected=%i\n",fb_grid_vertex_capacity,create78Count,selectedbrushcount));return TRUE;
+    }
+    if(argv(1)=="selection78"){
+        fb_document_tick();int differences=0;for(int n=0;n<fb_node_count;n++)if(fb_selection_selected(n)!=fb_selection_selected_uncached(n))differences++;
+        fb_transform_expect(differences==0,"selection78_matches_reference");
+        fb_entity_links_prepare();int edge=0;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_ENTITY){
+            string target=fb_nodes[n].fields["target"],kill=fb_nodes[n].fields["killtarget"];
+            for(int other=2;other<fb_node_count;other++)if(other!=n && fb_nodes[other].kind==FB_NODE_ENTITY && fb_nodes[other].fields["targetname"]!="" && (fb_nodes[other].fields["targetname"]==target || fb_nodes[other].fields["targetname"]==kill)) {
+                if(edge>=fb_entity_connection_count){differences++;continue;}
+                if(fb_entity_connections[edge].from!=n || fb_entity_connections[edge].to!=other)differences++;edge++;
+            }
+        }
+        fb_transform_expect(differences==0 && edge==fb_entity_connection_count,"links78_matches_reference_order");return TRUE;
+    }
+    if(argv(1)=="create78begin"){
+        brush_deselectall();fb_restore_entity_selection(-1);cvar_set("ftebroom_tool","1");
+        vector pixel=project('-3500 -3500 1408');pixel_z=0;fb_begin(pixel,0,0);
+        print(sprintf("RB_CREATE78 begin owner=%i active=%g pixel=%v\n",fb_owner,fb_active,pixel));return TRUE;
+    }
+    if(argv(1)=="create78update"){
+        fb_update(fb_downpixel+'60 45 0',0,0);print(sprintf("RB_CREATE78 update owner=%i active=%g size=%v\n",fb_owner,fb_active,fb_boxsize));return TRUE;
+    }
+    if(argv(1)=="create78finish"){
+        fb_finish(fb_downpixel+'60 45 0',0,0);print("RB_CREATE78 finish\n");return TRUE;
+    }
     if(argv(1)=="cam77"){print(sprintf("RB_CAMERA77 eye=%v angles=%v viewport=%v %v\n",fb_camera_eye,(vector)getproperty(VF_ANGLES),(vector)getproperty(VF_MIN),(vector)getproperty(VF_SIZE)));return TRUE;}
     if(argv(1)=="bench76"){int brushes=0,patches=0,entities=0;for(int node=0;node<fb_node_count;node++){if(fb_nodes[node].kind==FB_NODE_BRUSH)brushes++;if(fb_nodes[node].kind==FB_NODE_PATCH)patches++;if(fb_nodes[node].fields)entities++;}print(sprintf("RB_MAP_COUNTS brushes=%i patches=%i entities=%i nodes=%i\n",brushes,patches,entities,fb_node_count));if(checkbuiltin(ftebroom_cached_mesh_stats))print(sprintf("RB_GPU_CACHES %v enabled=%g faces=%s\n",ftebroom_cached_mesh_stats(),cvar("ftebroom_cached_meshes"),cvar_string("ftebroom_native_faces_drawn")));print(sprintf("RB_BENCH_STATE time=%g start=%g frames=%g enabled=%g labels=%s\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark"),cvar_string("ftebroom_label_stats")));return TRUE;}
     if(argv(1)=="frame76"){

@@ -98,7 +98,13 @@ void fb_symmetry_guides_update()
     int root=-1;
     if(fb_open_group)root=fb_organize_node(fb_open_group);
     for(int steps=0;root>=2&&root<fb_node_count&&steps<fb_node_count;steps++){if(fb_nodes[root].fields["_ftebroom_symmetry"]!="")break;root=fb_nodes[root].parent;}
-    if(root<2)for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP&&fb_selection_selected(n)&&fb_nodes[n].fields["_ftebroom_symmetry"]!=""){root=n;break;}
+    // QC logical expressions evaluate every operand. Reject ordinary nodes
+    // before querying a group's descendant selection on large documents.
+    if(root<2)for(int n=2;n<fb_node_count;n++) {
+        if(fb_nodes[n].kind!=FB_NODE_GROUP)continue;
+        if(fb_nodes[n].fields["_ftebroom_symmetry"]=="")continue;
+        if(fb_selection_selected(n)){root=n;break;}
+    }
     if(root<2)return;
     vector bounds[2];if(!fb_container_bounds(root,bounds))return;
     string stored=fb_nodes[root].fields["_ftebroom_symmetry_center"];
