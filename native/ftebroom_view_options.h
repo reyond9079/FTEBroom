@@ -149,7 +149,7 @@ static void viewOptionsPanel()
     cvars->SetFloat("ftebroom_render_faces", float(mode));
   viewOption("Shade faces", "ftebroom_shade_faces");
   viewOption("Use fog", "r_fog_enabled");
-  viewOption("Edges", "ftebroom_show_edges");
+  viewOption("Brush outlines", "ftebroom_show_edges");
   viewOption("Soft map bounds", "ftebroom_bounds_visible");
   int links = (int)cvars->GetFloat("ftebroom_entity_links");
   if (ImGui::Combo("Entity links", &links, "None\0Direct\0Transitive\0All\0"))

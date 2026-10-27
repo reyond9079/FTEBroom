@@ -202,6 +202,8 @@ void fb_affine_draw()
             if(!cvar("ca_brush_view")) DrawQCPatchTextured(mesh,info,'1 1 1',0.65);
             DrawQCPatchWireframe(mesh,info,"chop",'1 0.5 0',1);memfree(mesh);
         } else {
+            if(!cvar("ca_brush_view") && cvar("ftebroom_show_models"))
+                fb_entity_draw_instance(item->id,m->translation,m->x,m->y,m->z);
             static vector corners[8];
             for(int c=0;c<8;c++) {
                 vector point='0 0 0';for(int a=0;a<3;a++) point[a]=(c&(1i<<a))?item->high[a]:item->low[a];

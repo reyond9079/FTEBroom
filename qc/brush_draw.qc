@@ -1,3 +1,4 @@
+string fb_surface_preview_shader(string source,float alpha);
 vector fb_visual_current_wire;
 void(int mod, int id) DrawEngineBrushWireframe =
 {
@@ -148,15 +149,7 @@ void(brushface_t *faces, int numfaces, vector col, float alpha) DrawQCBrushTextu
 			//this is unfortunate. the built in shaders expect to use lightmaps. we don't have those.
 			//because lightmaps are special things, we end up in a real mess. so lets just make sure there's a shader now, because we can.
 			//FIXME: we don't manage to pick up the size of the original wad image
-			string materialname = strcat("textures/", faces[f].shadername);
-			shaderforname(materialname,
-				sprintf("{"
-					"{\n"
-						"map \"%s\"\n"
-						"rgbgen vertex\n"
-						"alphagen vertex\n"
-					"}\n"
-				"}", faces[f].shadername));
+			string materialname=fb_surface_preview_shader(faces[f].shadername,alpha);
 
 			vector sz = drawgetimagesize(materialname);
 			R_BeginPolygon(materialname, 3);

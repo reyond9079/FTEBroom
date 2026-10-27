@@ -115,6 +115,7 @@ void fb_entity_draw_model(int index)
     }
     setorigin(tempent,item->org);addentity(tempent);
 }
+int fb_entity_instance_draws;vector fb_entity_instance_origin;
 // Draw an immutable entity preview without changing its map properties.
 void fb_entity_draw_instance(int index,vector translation,vector axisX,vector axisY,vector axisZ)
 {
@@ -127,6 +128,7 @@ void fb_entity_draw_instance(int index,vector translation,vector axisX,vector ax
     v_right=(axisX*v_right_x+axisY*v_right_y+axisZ*v_right_z)*axes_y;
     v_up=(axisX*v_up_x+axisY*v_up_y+axisZ*v_up_z)*axes_z;
     vector origin=source->org;setorigin(tempent,translation+axisX*origin_x+axisY*origin_y+axisZ*origin_z);addentity(tempent);
+    fb_entity_instance_draws++;fb_entity_instance_origin=translation+axisX*origin_x+axisY*origin_y+axisZ*origin_z;
 }
 vector fb_entity_origin(int index)
 {

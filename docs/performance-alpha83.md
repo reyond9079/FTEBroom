@@ -38,7 +38,16 @@ Occlusion still applies to selected labels.
   WAD materials while unselected, as well as in the selected overlay. The MAP and
   original WADs are unchanged.
 
-## Measurements
+## Measurement correction (27 October 2026)
+
+The navigation measurements below started outside the enclosing sky/box brushes.
+They measured the exterior shell, not the detailed interior. They are retained as
+historical exterior-only results and must not be used to claim 60 FPS inside this
+map. Interior measurements replace that acceptance criterion: use verified interior
+camera positions, show actual room geometry, and record start/middle/end screenshots
+and camera coordinates during motion. Keep the real WADs and rendering settings.
+
+## Historical exterior-only measurements
 
 Windows, Core Ultra 7 155H and RTX 4060 Laptop GPU. Read-only E1M1 FTE (2).map:
 30,327 brushes, 26,288 entity/container records, 189,772 faces, 35 real WADs and

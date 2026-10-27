@@ -169,7 +169,7 @@ static void buildPanel()
 // Original vector symbols: hammer, sliders, cube and play. No font glyph dependency.
 static float compileButtonWidth(const char* label)
 {
-  return ImGui::CalcTextSize(label).x+54*uiScale();
+  return ImGui::CalcTextSize(label,nullptr,true).x+54*uiScale();
 }
 static bool compileButton(const char* label,int icon)
 {

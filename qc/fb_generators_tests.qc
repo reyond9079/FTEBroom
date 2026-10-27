@@ -18,6 +18,15 @@ void fb_fullbench_tick()
         if(started || fb_node_count<2)return;
         started=TRUE;localcmd("in 8 ftebroom_camera_restore 800 -512 256 20 90 0 90\nin 10 ftebroom_test_generators startup83\nin 12 ftebroom_test_generators layout83\nin 14 screenshot startup83.png\nin 15 quit force\n");return;
     }
+    if(cvar("ftebroom_fullbench_qa")==11){
+        static float model84Ready;
+        if(!started){started=TRUE;model84Ready=0;localcmd("ftebroom_test_desktop mods63check\n");}
+        if(cvar("ftebroom_modeleditor_drawn")>0){
+            if(!model84Ready)model84Ready=gettime(0);
+            if(model84Ready>0 && gettime(0)-model84Ready>3){model84Ready=-1;localcmd(strcat("ftebroom_test_generators model84\nscreenshot ",cvar_string("ftebroom_test_capture"),"\nin 1 quit force\n"));}
+        }
+        return;
+    }
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
@@ -65,6 +74,18 @@ int fb_generators_testcommand()
             if(argv(3)=="select"){fb_selection_clear();brush_select(material83Node.model,material83Node.id);}return TRUE;
         }
         print(strcat("RB_MATERIAL83_NOT_FOUND ",material83Shader,"\n"));return TRUE;
+    }
+    if(argv(1)=="model84"){
+        fb_document_tick();fb_cancel();fb_tool_deactivate();fb_selection_clear();int model84Id=-1;
+        fb_document_lists_prepare();for(int i=0;i<fb_point_node_count;i++){int candidate84=fb_nodes[fb_point_nodes[i]].id;if(fb_entity_has_model(candidate84)){model84Id=candidate84;break;}}
+        fb_transform_expect(model84Id>=0,"model84_fixture_has_model");if(model84Id<0)return TRUE;
+        string original84=strzone(terrain_edit(TEREDIT_ENT_GET,model84Id));vector origin84=fb_entity_origin(model84Id);
+        fb_entity_select(model84Id,TRUE);fb_transform_expect(fb_transform_capture(),"model84_capture");
+        fb_transform_delta='32 -16 8';fb_transform_preview=TRUE;cvar_set("ftebroom_show_models","1");
+        int draws84=fb_entity_instance_draws;fb_transform_draw();
+        fb_transform_expect(fb_entity_instance_draws==draws84+1 && vlen(fb_entity_instance_origin-origin84-fb_transform_delta)<.001,"model84_drag_draws_translated_model");
+        fb_transform_expect(original84==terrain_edit(TEREDIT_ENT_GET,model84Id),"model84_preview_preserves_properties");
+        fb_transform_clear();fb_selection_clear();strunzone(original84);return TRUE;
     }
     if(argv(1)=="layout83"){
         fb_document_tick();fb_surfacegrid(TRUE);fb_render_faces_prepare();fb_selection_clear();fb_createbox('0 0 160','64 64 64');fb_document_tick();

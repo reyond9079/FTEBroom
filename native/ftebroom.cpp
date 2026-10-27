@@ -537,7 +537,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 83");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 84");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -645,7 +645,7 @@ static void panel(float w, float h)
     ImGui::Dummy({1,34*uiScale()});
   }else ImGui::Separator();
   bool snapInteger=cvars->GetFloat("ftebroom_auto_integer_snap")!=0;
-  toolFlow(ImGui::GetFrameHeight()+ImGui::GetStyle().ItemInnerSpacing.x+ImGui::CalcTextSize("Int").x);
+  toolFlow(ImGui::GetFrameHeight()+ImGui::GetStyle().ItemInnerSpacing.x+ImGui::CalcTextSize("Int",nullptr,true).x);
   if(ImGui::Checkbox("Int",&snapInteger))cvars->SetFloat("ftebroom_auto_integer_snap",snapInteger);
   if(ImGui::IsItemHovered())ImGui::SetTooltip("Automatically snap edited brush vertices to integer coordinates");
   for (auto name : {"ftebroom_texture_lock", "ftebroom_uv_lock"})
@@ -761,13 +761,13 @@ static void panel(float w, float h)
     if(shapeExpanded) {
     if(horizontalTools)toolOptionFlow(190*uiScale());
     shapeOptions(horizontalTools);
-    if(horizontalTools)toolOptionFlow(ImGui::CalcTextSize("Move objects by:").x+240*uiScale());
+    if(horizontalTools)toolOptionFlow(ImGui::CalcTextSize("Move objects by:",nullptr,true).x+240*uiScale());
     static float offset[3] = {0, 0, 0};
     ImGui::TextWrapped("Move objects by:");
     if(horizontalTools)ImGui::SameLine();
     ImGui::SetNextItemWidth(horizontalTools?220*uiScale():ImGui::GetContentRegionAvail().x);
     ImGui::InputFloat3(toolOptionLabel(horizontalTools,"##move-offset"), offset, "%.2f");
-    if(horizontalTools)toolOptionFlow(ImGui::CalcTextSize("Apply").x+2*ImGui::GetStyle().FramePadding.x);
+    if(horizontalTools)toolOptionFlow(ImGui::CalcTextSize("Apply",nullptr,true).x+2*ImGui::GetStyle().FramePadding.x);
     ImGui::BeginDisabled(cvars->GetFloat("ftebroom_ctx_selection") != 1);
     if (ImGui::Button("Apply"))
     {
@@ -1193,7 +1193,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 83");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 84");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();

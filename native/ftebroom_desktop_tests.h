@@ -592,6 +592,26 @@ static void testDesktop(){
     bool backup=false;for(auto& entry:std::filesystem::directory_iterator(soundEditorPath.parent_path()))if(entry.path().extension()==".bak")backup=true;
     expect(backup,"audio_original_backup_retained");soundEditorOpen=false;
   }
+  if(std::string(mode)=="text84") {
+    const int languageBefore=uiLanguage,scaleBefore=uiScaleChoice;
+    const char* labels[]={"Compile","Setup compile","Show BSP","Preview mod","Back to editing","Shape settings","Replace selection","Apply"};
+    bool widths=true,vertices=true;
+    for(int scale=0;scale<3;scale++)for(int language=0;language<7;language++){
+      uiScaleChoice=scale;uiLanguage=language;uiStyle();
+      ImGui::NewFrame();ImGui::SetNextWindowPos({0,0});ImGui::SetNextWindowSize({1200,750});ImGui::Begin("Text sizing regression");
+      for(auto label:labels){
+        const char* translated=label;const char* end=nullptr;FteBroomTranslate(translated,end);
+        float actual=ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(),FLT_MAX,0,translated,end).x;
+        widths&=std::abs(ImGui::CalcTextSize(label,nullptr,true).x-std::floor(actual+.99999f))<1.1f;
+        auto list=ImGui::GetWindowDrawList();int first=list->VtxBuffer.Size;compileButton(label,0);auto low=ImGui::GetItemRectMin(),high=ImGui::GetItemRectMax();
+        widths&=high.x-low.x>=actual+50*uiScale();
+        for(int v=first;v<list->VtxBuffer.Size;v++)vertices&=list->VtxBuffer[v].pos.x>=low.x-1&&list->VtxBuffer[v].pos.x<=high.x+1;
+      }
+      ImGui::End();ImGui::EndFrame();
+    }
+    expect(widths,"text84_translated_widths_seven_languages_three_scales");expect(vertices,"text84_button_geometry_stays_inside_bounds");
+    uiLanguage=languageBefore;uiScaleChoice=scaleBefore;uiStyle();
+  }
   if(std::string(mode)=="ui36") {
     recentWindow=false;uiReset=true;uiTheme=2;uiLanguage=1;frame();frame();
     expect(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x<.3f&&ImGui::GetStyle().FrameRounding==0,"retro_dark_palette");

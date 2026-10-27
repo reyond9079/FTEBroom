@@ -17,6 +17,7 @@ shim = r'''
 #define Con_Printf(...) ((void)0)
 static float occlusionPlane=-1e30f;
 static int RB_OccludedSphere(int node,const float *center,float radius){(void)node;return center[0]+radius<occlusionPlane;}
+static int RB_OccludedExtent(const float *center,const float *extent){return center[0]+extent[0]<occlusionPlane;}
 #define OFS_RETURN 1
 #define OFS_PARM0 4
 #define OFS_PARM1 7
@@ -66,6 +67,11 @@ static void RB_AddIndexedSoup(rb_soup_context_t *context,pubprogfuncs_t *vm,unsi
 '''
 checks = r'''
 int main(void){
+ rb_order_bounds_t plane84={0},box84={0};plane84.normal[2]=1;plane84.distance=10;box84.low[2]=12;box84.high[2]=13;
+ assert(RB_OrderPlaneSeparated(&plane84,&box84,.1f));box84.low[2]=9;assert(!RB_OrderPlaneSeparated(&plane84,&box84,.1f));
+ box84.high[2]=9;assert(RB_OrderPlaneSeparated(&plane84,&box84,.1f));box84.high[2]=9.95f;assert(!RB_OrderPlaneSeparated(&plane84,&box84,.1f));
+ plane84.normal[0]=plane84.normal[2]=0;assert(!RB_OrderPlaneSeparated(&plane84,&box84,.1f));
+
  pubprogfuncs_t vm={calloc(1,32*1024*1024),32*1024*1024};struct globalvars_s globals;struct globalvars_s *pr_globals=&globals;activeGlobals=pr_globals;memset(&globals,0,sizeof(globals));
  const int count=30000;unsigned int offset=128,at=offset+count*sizeof(editorqcface_t),accessOffset=at;at+=32;int *access=(int*)(vm.stringtable+accessOffset);access[2]=1;
  editorqcface_t *faces=(editorqcface_t*)(vm.stringtable+offset);
@@ -93,8 +99,11 @@ int main(void){
  for(int i=1;i<3;i++){shaders[i].sort=SHADER_SORT_OPAQUE;shaders[i].numpasses=1;strcpy(shaders[i].name,"ftebroom/opaque/test");shaders[i].passes[0].shaderbits=SBITS_MISC_DEPTHWRITE;}
  batchMode=1;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);
  assert(G_INT(OFS_RETURN)==count&&cl_numstris<16);submitted=0;for(int i=0;i<cl_numstris;i++)submitted+=cl_stris[i].numidx;assert(submitted==count*6);
- // Alpha-tested/custom shaders remain ordered barriers.
- shaders[1].passes[0].shaderbits|=SBITS_ATEST_BITS;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==count);
+ // A tolerated back face must keep the original-order fallback, not disappear.
+ faces[0].distance=10.005f;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count);submitted=0;for(int i=0;i<cl_numstris;i++)submitted+=cl_stris[i].numidx;assert(submitted==count*6);faces[0].distance=0;
+ // Generated alpha-tested depth writers share the graph; custom shaders stay barriers.
+ shaders[1].passes[0].shaderbits|=SBITS_ATEST_BITS;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris<16);submitted=0;for(int i=0;i<cl_numstris;i++)submitted+=cl_stris[i].numidx;assert(submitted==count*6);
+ strcpy(shaders[1].name,"custom/alpha-test");rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==count);strcpy(shaders[1].name,"ftebroom/opaque/test");
  shaders[1].passes[0].shaderbits=SBITS_MISC_DEPTHWRITE;batchMode=0;rb_geom.generation++;
  // The edited layer must remain interleaved and must not re-upload the base.
  unsigned int configOffset=at;at+=sizeof(rb_incremental_config_t);unsigned int editOffset=at;at+=2*sizeof(editorqcface_t);
@@ -127,21 +136,31 @@ int main(void){
  RB_ClearOrderCache();rb_order_cache.total=128;rb_order_cache.bounds=malloc(128*sizeof(*rb_order_cache.bounds));rb_order_cache.tree=malloc(256*sizeof(*rb_order_cache.tree));rb_order_cache.ids=malloc(128*sizeof(unsigned int));rb_order_cache.counts=malloc(128*sizeof(unsigned int));rb_order_cache.offsets=malloc(128*sizeof(unsigned int));rb_order_cache.local=malloc(128*sizeof(unsigned int));rb_order_cache.stamps=calloc(128,sizeof(unsigned int));memset(rb_order_cache.counts,255,128*sizeof(unsigned int));
  rb_cached_grid_ref_t rankRefs[128];rb_cached_mesh_t rankMeshes[3];memset(rankMeshes,0,sizeof(rankMeshes));editorqcface_t rankFaces[128];memset(rankFaces,0,sizeof(rankFaces));
  for(int i=0;i<3;i++){rankMeshes[i].shader=&shaders[1+(i&1)];rankMeshes[i].pass=BEF_NOSHADOWS;}
- for(int i=0;i<128;i++){randomRuns[i].source=i;rankRefs[i]=(rb_cached_grid_ref_t){i%3,0};rankFaces[i].alpha=1;rb_order_cache.ids[i]=i;VectorCopy(randomRuns[i].low,rb_order_cache.bounds[i].low);VectorCopy(randomRuns[i].high,rb_order_cache.bounds[i].high);randomRuns[i].shader=rankMeshes[i%3].shader;}
+ for(int i=0;i<128;i++){randomRuns[i].source=i;rankRefs[i]=(rb_cached_grid_ref_t){i%3,0};rankFaces[i].alpha=1;rb_order_cache.ids[i]=i;memset(&rb_order_cache.bounds[i],0,sizeof(rb_order_cache.bounds[i]));VectorCopy(randomRuns[i].low,rb_order_cache.bounds[i].low);VectorCopy(randomRuns[i].high,rb_order_cache.bounds[i].high);randomRuns[i].shader=rankMeshes[i%3].shader;}
  unsigned int treeUsed=0;rb_order_bounds=rb_order_cache.bounds;RB_OrderTree(rb_order_cache.tree,&treeUsed,rb_order_cache.ids,0,128);
- rb_mesh_cache_t rankCache={0};rankCache.refs=rankRefs;rankCache.meshes=rankMeshes;r_refdef.vieworg[2]=10;RB_PrepareOrderRanks(&rankCache,rankFaces,128);rb_order_cache.useRanks=1;
+ rb_mesh_cache_t rankCache={0};rankCache.refs=rankRefs;rankCache.meshes=rankMeshes;rankCache.count=3;r_refdef.vieworg[2]=10;RB_PrepareOrderRanks(&rankCache,rankFaces,128);rb_order_cache.useRanks=1;
  assert(rb_order_cache.ranks);assert(RB_OrderSpan(randomRuns,128,randomOrder));for(int i=0;i<128;i++)positions[randomOrder[i]]=i;
  for(int i=0;i<128;i++)for(int j=i+1;j<128;j++)if(RB_OrderOverlap(randomRuns[i].low,randomRuns[i].high,randomRuns[j].low,randomRuns[j].high,.01f))assert(positions[i]<positions[j]);
+ vec3_t origin84;VectorCopy(rb_order_cache.rankEye,origin84);r_refdef.vieworg[0]+=100;RB_PrepareOrderRanks(&rankCache,rankFaces,128);assert(!memcmp(origin84,rb_order_cache.rankEye,sizeof(origin84)));
+ r_refdef.vieworg[0]+=600;RB_PrepareOrderRanks(&rankCache,rankFaces,128);assert(rb_order_cache.rankEye[0]==r_refdef.vieworg[0]);r_refdef.vieworg[0]-=700;RB_PrepareOrderRanks(&rankCache,rankFaces,128);
+ for(int i=0;i<128;i++){double squared84=0;for(int a=0;a<3;a++){double lo=fabs(rb_order_cache.bounds[i].low[a]-r_refdef.vieworg[a]),hi=fabs(rb_order_cache.bounds[i].high[a]-r_refdef.vieworg[a]),extent=fmax(lo,hi);squared84+=extent*extent;}double bound84=sqrt(squared84)+512;assert(rb_order_cache.bounds[i].depthPad+1e-5>=.01+bound84*bound84/16777216.0);}
+ // Region-inactive faces cannot become front-facing anywhere in its camera ball.
+ for(int i=0;i<128;i++){double norm=sqrt((double)DotProduct(rankFaces[i].normal,rankFaces[i].normal)),side=DotProduct(rb_order_cache.rankEye,rankFaces[i].normal)-rankFaces[i].distance;if(rb_order_cache.rankInactive[i])assert(side+512*norm<-.1);}
  rb_face_draw_t subset[64];unsigned int subsetOrder[64];for(int i=0;i<64;i++)subset[i]=randomRuns[i*2];assert(RB_OrderSpan(subset,64,subsetOrder));for(int i=1;i<64;i++)assert(rb_order_cache.ranks[subset[subsetOrder[i-1]].source]<rb_order_cache.ranks[subset[subsetOrder[i]].source]);
+ // A discarded back face re-enters the dependency schedule before the camera
+ // can reach its plane; staying inside the region cannot activate it.
+ rankFaces[0].normal[2]=1;rankFaces[0].distance=1034;rb_order_cache.rankRegion=0;RB_PrepareOrderRanks(&rankCache,rankFaces,128);assert(rb_order_cache.rankInactive[0]&&rb_order_cache.sorted[127]==0);
+ r_refdef.vieworg[2]+=511;RB_PrepareOrderRanks(&rankCache,rankFaces,128);assert(rb_order_cache.rankInactive[0]);r_refdef.vieworg[2]+=2;RB_PrepareOrderRanks(&rankCache,rankFaces,128);assert(!rb_order_cache.rankInactive[0]);
+ r_refdef.vieworg[2]-=513;rankFaces[0].normal[2]=0;rankFaces[0].distance=0;rb_order_cache.rankRegion=0;RB_PrepareOrderRanks(&rankCache,rankFaces,128);
  // A branch must never hide a leaf that survives the individual proof.
  unsigned char visible83[128];vec3_t zero83={0};
  for(int test83=0;test83<100;test83++){
   occlusionPlane=test83;memset(visible83,0,sizeof(visible83));
-  RB_VisitVisibility(rb_order_cache.tree,rb_order_cache.ids,0,visible83,0,zero83,zero83,zero83,0,0);
+  RB_VisitVisibility(rb_order_cache.tree,rb_order_cache.ids,rb_order_cache.bounds,0,visible83,0,zero83,zero83,zero83,0,0);
   for(int leaf83=0;leaf83<128;leaf83++){
    vec3_t center83;float radius83=0;
    for(int a=0;a<3;a++){center83[a]=(randomRuns[leaf83].low[a]+randomRuns[leaf83].high[a])*.5f;float half83=(randomRuns[leaf83].high[a]-randomRuns[leaf83].low[a])*.5f;if(radius83<half83)radius83=half83;}
-   if(!RB_OccludedSphere(-1,center83,radius83))assert(visible83[leaf83]);
+   if(randomRuns[leaf83].high[0]+.01f>=occlusionPlane)assert(visible83[leaf83]);
   }
  }
  occlusionPlane=-1e30f;

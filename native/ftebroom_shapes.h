@@ -31,7 +31,7 @@ static void shapeOptions(bool horizontal)
     ImGui::Combo(
       horizontal?"Shape":"##Shape", &shape, "Cuboid\0Cylinder\0Cone\0UV sphere\0Icosahedron\0Stairs\0Arch\0"))
     cvars->SetString("ftebroom_shape", ids[shape]);
-  if(horizontal)toolOptionFlow(ImGui::CalcTextSize("Shape settings").x+2*ImGui::GetStyle().FramePadding.x);
+  if(horizontal)toolOptionFlow(ImGui::CalcTextSize("Shape settings",nullptr,true).x+2*ImGui::GetStyle().FramePadding.x);
   if (ImGui::Button("Shape settings", {horizontal?0.f:ImGui::GetContentRegionAvail().x,0}))
     ImGui::OpenPopup("Shape parameters");
   if (ImGui::BeginPopup("Shape parameters"))
@@ -79,7 +79,7 @@ static void shapeOptions(bool horizontal)
       cvars->SetFloat("ftebroom_shape_group", group);
     ImGui::EndPopup();
   }
-  if(horizontal)toolOptionFlow(ImGui::CalcTextSize("Replace selection").x+2*ImGui::GetStyle().FramePadding.x);
+  if(horizontal)toolOptionFlow(ImGui::CalcTextSize("Replace selection",nullptr,true).x+2*ImGui::GetStyle().FramePadding.x);
   ImGui::BeginDisabled(cvars->GetFloat("ftebroom_selection_count") < 1);
   if (ImGui::Button("Replace selection", {horizontal?0.f:ImGui::GetContentRegionAvail().x,0}))
     command("ftebroom_shape_apply\n");

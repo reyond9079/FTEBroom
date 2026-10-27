@@ -36,7 +36,7 @@ for name in (
             raise RuntimeError("Rebuild the engine with zz-editor-brush-index.patch before packaging")
         if b'FTEBROOM_REGISTRY_PASS' not in (engine if engine.is_file() else bundle / name).read_bytes():
             raise RuntimeError("Rebuild the engine with model-registry-growth.patch before packaging")
-        for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid', b'ftebroom_incremental_support', b'ftebroom_incremental_bounds', b'ftebroom_pick_candidates', b'ftebroom_collect_marks', b'ftebroom_opaque_batches', b'ftebroom_grid_fade_end', b'ftebroom_label_distance'):
+        for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid', b'ftebroom_incremental_support', b'ftebroom_incremental_bounds', b'ftebroom_pick_candidates', b'ftebroom_collect_marks', b'ftebroom_opaque_batches', b'ftebroom_grid_fade_end', b'ftebroom_label_distance', b'ftebroom_visibility_workers'):
             if symbol not in (engine if engine.is_file() else bundle / name).read_bytes():
                 raise RuntimeError("Rebuild the engine with the alpha82 ordered opaque and grid passes before packaging")
         shutil.copy2(engine if engine.is_file() else bundle / name, root / "bin" / name)

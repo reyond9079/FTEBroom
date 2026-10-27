@@ -170,6 +170,8 @@ void fb_transform_draw()
             DrawQCPatchWireframe(mesh,info,"ftebroom/movepatch",'1 0.5 0',1);
             memfree(mesh);
         } else {
+            if(!cvar("ca_brush_view") && cvar("ftebroom_show_models"))
+                fb_entity_draw_instance(item->id,fb_transform_delta,'1 0 0','0 1 0','0 0 1');
             static vector corners[8];
             for(int c=0;c<8;c++) for(int axis=0;axis<3;axis++)
                 corners[c][axis]=((c&(1i<<axis))?item->high[axis]:item->low[axis])+fb_transform_delta[axis];
