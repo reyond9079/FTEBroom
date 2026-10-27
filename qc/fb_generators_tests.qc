@@ -17,6 +17,7 @@ void fb_fullbench_tick()
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")==9){localcmd("exec profile82-stages.cfg\n");return;}
     if(cvar("ftebroom_fullbench_qa")==8){
         localcmd("ftebroom_test_generators frame76\nin 2 ftebroom_test_generators perf80 1\nin 4 ftebroom_test_generators incremental81finish\nin 7 ftebroom_test_generators perf80 2\nin 9 ftebroom_test_generators incremental81finish\nin 12 ftebroom_test_generators create78undo\nin 14 ftebroom_test_generators create78redo\nin 17 ftebroom_test_generators perf80 3\nin 19 ftebroom_test_generators incremental81finish\nin 21 ftebroom_test_generators incremental81check\nin 21.5 ftebroom_test_generators incremental81stress\nin 24 ftebroom_camera_focus\nin 24 set ftebroom_show_models 0\nin 27 screenshot incremental81-live.png\nin 28 ftebroom_test_generators document80\nin 38 screenshot incremental81-rebuilt.png\nin 39 ftebroom_test_generators incremental81check\nin 41 quit force\n");return;
     }
@@ -46,6 +47,19 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="state82"){
+        fb_static_preview_prepare();print(sprintf("RB_VERTEX82_DELTA delta=%v drag=%i mode=%i\n",fb_vertex_delta,fb_vertex_drag,fb_perf80_mode));int live=0,base=0,masked=0;
+        for(int n=2;n<fb_render_access_count;n++){if(fb_render_access[n]&1)live++;if(fb_static_access[n]&1)base++;if((fb_render_access[n]&1)&&!(fb_static_access[n]&1))masked++;}
+        print(sprintf("RB_STATE82 nodes=%i selected=%i vertexBrushes=%i vertexValid=%i faces=%i grid=%i\n",fb_node_count,selectedbrushcount,fb_vertex_brushcount,fb_vertex_preview_valid,fb_render_face_count,fb_grid_face_count));
+        print(sprintf("RB_ACCESS82 live=%i base=%i masked=%i active=%g tool=%g native=%s\n",live,base,masked,fb_active,cvar("ftebroom_tool"),cvar_string("ftebroom_native_faces_drawn")));return TRUE;
+    }
+    if(argv(1)=="cube82"||argv(1)=="cube82drag"){
+        fb_cancel();fb_tool_deactivate();fb_selection_clear();fb_createbox('-6500 0 128','128 128 128');fb_document_tick();
+        fb_perf80_model=1;fb_perf80_id=selectedbrushes[0].id;fb_perf80_start(3);fb_perf80_mode=0;
+        fb_vertex_deselect();fb_vertex_handles[0].selected=TRUE;fb_vertex_drag=1;fb_vertex_anchor=fb_vertex_handles[0].point;
+        int cube82Valid=fb_vertex_build('0 0 8',FALSE,0);print(sprintf("RB_CUBE82 valid=%i brushes=%i handles=%i\n",cube82Valid,fb_vertex_brushcount,fb_vertex_count));print(strcat("RB_CUBE82_ERROR ",fb_geom_error,"\n"));if(argv(1)=="cube82drag"&&cube82Valid){fb_perf80_pixel=project(fb_vertex_anchor);fb_perf80_pixel_z=0;fb_vertex_pixel=fb_perf80_pixel;fb_perf80_since=gettime(0);fb_perf80_mode=3;}return TRUE;
+    }
+    if(argv(1)=="vertex82"){fb_perf80_start(3);fb_perf80_mode=0;int vertex82Valid=fb_vertex_build('0 0 8',FALSE,0);print(sprintf("RB_VERTEX82 valid=%i\n",vertex82Valid));return TRUE;}
     if(argv(1)=="state81"){print(sprintf("RB_STATE81 now=%g start=%g frames=%g benchmark=%g\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark")));print(sprintf("RB_VIEW81 show=%g mod=%g draw=%g tool=%g owner=%i active=%g\n",cvar("ca_show"),cvar("ftebroom_mod_preview"),getproperty(VF_DRAWWORLD),cvar("ftebroom_tool"),fb_owner,fb_active));return TRUE;}
     if(argv(1)=="incremental81stress"){fb_perf81_stress();return TRUE;}
     if(argv(1)=="incremental81finish"){fb_perf81_finish();return TRUE;}

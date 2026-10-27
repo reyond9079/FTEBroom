@@ -67,6 +67,7 @@ void fb_camera_step(float dt)
     if(cvar("ca_brush_view")!=0 || fb_camera_gesture==2) return;
     makevectors((vector)getproperty(VF_CL_VIEWANGLES));
     vector motion=v_forward*cvar("ftebroom_forward")+v_right*cvar("ftebroom_right")+'0 0 1'*cvar("ftebroom_up");
+    if(cvar("ftebroom_skip_setup") && cvar_string("ftebroom_test_motion")!="")motion=stov(cvar_string("ftebroom_test_motion"));
     if(vlen(motion)>0 && !cvar("ftebroom_ctrl")) fb_focus_active=FALSE;
     if(vlen(motion)>1) motion=normalize(motion);
     float speed=bound(100,autocvar_ftebroom_fly_speed,10000)*fb_camera_scale();
@@ -83,6 +84,7 @@ void ftebroom_camera()
     if(!fb_camera_zoom) fb_camera_zoom=bound(30,autocvar_ftebroom_fov,150);
     fb_camera_focus_step(now);
     fb_camera_step(dt);
+    if(cvar("ftebroom_skip_setup") && cvar_string("ftebroom_test_camera_lock")!="")fb_camera_position(stov(cvar_string("ftebroom_test_camera_lock")));
     setproperty(VF_ORIGIN,fb_camera_eye);
     if(!cvar("ca_brush_view")) setproperty(VF_AFOV,fb_camera_zoom);
     cvar_set("ftebroom_camera_offset",vtos(fb_cameraoffset));

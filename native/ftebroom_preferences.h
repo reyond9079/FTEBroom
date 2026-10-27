@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <iomanip>
 static const char* preferenceVariables[] = {
-  "ftebroom_grid_aa","gl_texture_anisotropy","gl_texturemode","vid_multisample",
+  "ftebroom_grid_fade_start","ftebroom_grid_fade_end","ftebroom_grid_aa","gl_texture_anisotropy","gl_texturemode","vid_multisample",
   "ftebroom_autosave_interval","ftebroom_autosave_count","ftebroom_drag_mode",
   "ftebroom_wheel_grid","ftebroom_wheel_invert","ftebroom_hover_highlight",
   "ftebroom_selection_dimensions","ftebroom_selection_spikes","ftebroom_view_layout",

@@ -2,7 +2,7 @@
 void fb_patch_preview(patchvert_t *points,patchinfo_t info);
 // Handles are shared by position; geometry snapshots remain immutable during a drag.
 typedef struct {
-    fb_poly_t source,preview;int model,id,contents;int *handles;int *removed;
+    fb_poly_t source,preview;int model,id,contents,changed;int *handles;int *removed;
     patchinfo_t patch;patchvert_t *control;patchvert_t *controlPreview;int controlCount;
 } fb_vertex_brush_t;
 typedef struct {vector point;int selected,collapsed;} fb_vertex_handle_t;
@@ -11,7 +11,7 @@ fb_vertex_handle_t fb_vertex_handles[2048];
 int fb_vertex_brushcount,fb_vertex_count,fb_vertex_mode,fb_vertex_epoch;
 int fb_vertex_drag,fb_vertex_hover,fb_vertex_view,fb_vertex_alt;
 vector fb_vertex_pixel,fb_vertex_lastpixel,fb_vertex_anchor,fb_vertex_delta,fb_vertex_segment;
-int fb_vertex_preview_valid;
+int fb_vertex_preview_valid,fb_vertex_preview_epoch;
 int fb_vertex_adding,fb_vertex_add_hover;
 vector fb_vertex_add_point;
 fb_affine_t fb_vertex_matrix;
@@ -161,13 +161,13 @@ int fb_vertex_build(vector delta,int remove,float snap)
         }
         fb_vertex_delta=delta;fb_vertex_preview_valid=TRUE;return TRUE;
     }
-    fb_poly_t *results=memalloc(sizeof(fb_poly_t)*fb_vertex_brushcount);int valid=TRUE;
+    fb_poly_t *results=memalloc(sizeof(fb_poly_t)*fb_vertex_brushcount);int *affected=memalloc(sizeof(int)*fb_vertex_brushcount);int valid=TRUE;
     for(int b=0;b<fb_vertex_brushcount;b++) {
         fb_vertex_brush_t *item=&fb_vertex_brushes[b];fb_poly_t *source=&item->source;
-        vector *points=memalloc(sizeof(vector)*(source->nv+1));int count=0;
+        vector *points=memalloc(sizeof(vector)*(source->nv+1));int count=0,touches=snap>0;
         for(int v=0;v<source->nv;v++) {
             if(item->removed[v])continue;
-            int selected=fb_vertex_membership(item,v);
+            int selected=fb_vertex_membership(item,v);if(selected)touches=TRUE;
             if(remove && selected) continue;
             vector point=source->vertices[v];if(selected) {
                 if(fb_vertex_matrix_enabled) point=fb_affine_point(&fb_vertex_matrix,point);else point+=delta;
@@ -181,24 +181,27 @@ int fb_vertex_build(vector delta,int remove,float snap)
                 float d=fb_vertex_add_point*source->faces[f].attr.planenormal-source->faces[f].attr.planedist;
                 if(d>FB_GEOM_PLANE) inside=FALSE;if(fabs(d)<FB_GEOM_PLANE) onSurface=TRUE;
             }
-            if(inside && onSurface) points[count++]=fb_vertex_add_point+delta;
+            if(inside && onSurface){points[count++]=fb_vertex_add_point+delta;touches=TRUE;}
         }
+        if(!touches){memfree(points);continue;}affected[b]=TRUE;
         int ok=fb_hull(points,count,&results[b]);
         if(ok && !remove && !snap && fb_vertex_mode!=FB_TOOL_VERTEX && results[b].nv!=source->nv) ok=FALSE;
         if(ok) fb_vertex_materials(item,&results[b],delta);
         memfree(points);if(!ok) {valid=FALSE;break;}
     }
     if(valid) for(int b=0;b<fb_vertex_brushcount;b++) {
+        fb_vertex_brushes[b].changed=affected[b];
         fb_poly_free(&fb_vertex_brushes[b].preview);fb_vertex_brushes[b].preview=results[b];
         memfill8((__variant*)&results[b],0,sizeof(fb_poly_t));
     }
-    for(int b=0;b<fb_vertex_brushcount;b++) fb_poly_free(&results[b]);memfree(results);
+    for(int b=0;b<fb_vertex_brushcount;b++) fb_poly_free(&results[b]);memfree(results);memfree(affected);
     if(valid) {
-        fb_vertex_delta=delta;fb_vertex_preview_valid=TRUE;
+        fb_vertex_delta=delta;fb_vertex_preview_valid=TRUE;fb_vertex_preview_epoch++;
         if(fb_vertex_drag==1 && fb_vertex_mode==FB_TOOL_VERTEX && !fb_vertex_matrix_enabled && !fb_vertex_adding) {
             for(int h=0;h<fb_vertex_count;h++)fb_vertex_handles[h].collapsed=TRUE;
             for(int b=0;b<fb_vertex_brushcount;b++) {
                 fb_vertex_brush_t *item=&fb_vertex_brushes[b];
+                if(!item->changed){for(int v=0;v<item->source.nv;v++)fb_vertex_handles[item->handles[v]].collapsed=FALSE;continue;}
                 for(int v=0;v<item->source.nv;v++) {
                     if(item->removed[v])continue;
                     vector point=item->source.vertices[v];if(fb_vertex_membership(item,v))point+=delta;
@@ -231,6 +234,7 @@ void fb_vertex_commit(string label)
     fb_tx_begin(label);int ok=TRUE;
     for(int b=0;b<fb_vertex_brushcount;b++) {
         fb_vertex_brush_t *item=&fb_vertex_brushes[b];static brushface_t faces[64];
+        if(!item->controlCount&&!item->changed)continue;
         if(item->controlCount) {
             if(!patch_history_edit(item->model,item->id,item->controlPreview,item->patch)){ok=FALSE;break;}
             continue;
@@ -363,7 +367,7 @@ void fb_vertex_up(vector pixel,int alt,int view)
 int fb_vertex_replaces(int model,int id)
 {
     if(!fb_vertex_preview_valid || (!fb_vertex_tool() && !fb_vertex_scope)) return FALSE;
-    for(int b=0;b<fb_vertex_brushcount;b++) if(fb_vertex_brushes[b].model==model && fb_vertex_brushes[b].id==id) return TRUE;
+    for(int b=0;b<fb_vertex_brushcount;b++) if(fb_vertex_brushes[b].model==model && fb_vertex_brushes[b].id==id && (fb_vertex_brushes[b].controlCount||fb_vertex_brushes[b].changed)) return TRUE;
     return FALSE;
 }
 void fb_vertex_draw()
@@ -428,6 +432,7 @@ void fb_vertex_draw()
             fb_patch_preview(item->controlPreview,item->patch);
             continue;
         }
+        if(!item->changed)continue;
         fb_poly_t *poly=&fb_vertex_brushes[b].preview;static brushface_t faces[64];
         for(int f=0;f<poly->nf;f++) faces[f]=poly->faces[f].attr;
         DrawQCBrushTextured(faces,poly->nf,'1 1 1',1);DrawQCBrushWireframe(faces,poly->nf,"ftebroom/vertexwire",'1 1 0',1);

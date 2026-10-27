@@ -42,6 +42,10 @@ static void viewOptionsPanel()
     }
     if(ImGui::BeginPopup("Apply MSAA")){ImGui::TextWrapped("MSAA is saved. Restart the application to apply it when using engine terrain or mod preview.");ImGui::EndPopup();}
     float aa=cvars->GetFloat("ftebroom_grid_aa");if(ImGui::SliderFloat("Grid smoothing",&aa,.05f,2.f))cvars->SetFloat("ftebroom_grid_aa",aa);
+    float gridStart=cvars->GetFloat("ftebroom_grid_fade_start"),gridEnd=cvars->GetFloat("ftebroom_grid_fade_end");
+    if(ImGui::InputFloat("Grid fade start",&gridStart,64.f,256.f,"%.0f"))cvars->SetFloat("ftebroom_grid_fade_start",std::max(0.f,gridStart));
+    if(ImGui::InputFloat("Grid draw distance",&gridEnd,64.f,256.f,"%.0f"))cvars->SetFloat("ftebroom_grid_fade_end",std::max(0.f,gridEnd));
+    ImGui::TextDisabled("World units; distance 0 keeps the grid unlimited. Brush edges are unaffected.");
     int anisotropy=std::clamp((int)cvars->GetFloat("gl_texture_anisotropy"),1,16);
     if(ImGui::SliderInt("Texture anisotropy",&anisotropy,1,16))cvars->SetFloat("gl_texture_anisotropy",float(anisotropy));
     char mode[80]={};cvars->GetString("gl_texturemode",mode,sizeof mode);bool smooth=std::string(mode)=="GL_LINEAR_MIPMAP_LINEAR";

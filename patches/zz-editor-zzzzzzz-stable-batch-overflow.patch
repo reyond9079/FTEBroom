@@ -1,0 +1,43 @@
+--- a/engine/gl/gl_backend.c
++++ b/engine/gl/gl_backend.c
+@@ -76,6 +76,10 @@
+ 
+ static void BE_SendPassBlendDepthMask(unsigned int sbits);
+ void GLBE_SubmitBatch(batch_t *batch);
++typedef struct rb_batch_overflow_s {struct rb_batch_overflow_s *next;unsigned int used;batch_t batches[1024];} rb_batch_overflow_t;
++static rb_batch_overflow_t *rb_batch_overflow,*rb_batch_current;
++static void RB_ClearBatchOverflow(void){while(rb_batch_overflow){rb_batch_overflow_t *next=rb_batch_overflow->next;BZ_Free(rb_batch_overflow);rb_batch_overflow=next;}rb_batch_current=NULL;}
++
+ #ifdef RTLIGHTS
+ static qboolean GLBE_RegisterLightShader(int mode);
+ #endif
+@@ -1570,6 +1574,7 @@
+ 		shaderstate.programfixedemu[u] = NULL;
+ 	}
+ 
++	RB_ClearBatchOverflow();
+ 	BZ_Free(shaderstate.wbatches);
+ 	shaderstate.wbatches = NULL;
+ 	shaderstate.maxwbatches = 0;
+@@ -5699,8 +5704,11 @@
+ 	batch_t *b;
+ 	if (shaderstate.wbatch >= shaderstate.maxwbatches)
+ 	{
+-		shaderstate.wbatch++;
+-		return NULL;
++        if(!rb_batch_current||rb_batch_current->used==1024){
++            rb_batch_overflow_t *next=BZ_Malloc(sizeof(*next));memset(next,0,sizeof(*next));
++            if(rb_batch_current)rb_batch_current->next=next;else rb_batch_overflow=next;rb_batch_current=next;
++        }
++        shaderstate.wbatch++;b=&rb_batch_current->batches[rb_batch_current->used++];b->fog=NULL;return b;
+ 	}
+ 	b = &shaderstate.wbatches[shaderstate.wbatch++];
+ 	b->fog = NULL;
+@@ -6389,6 +6397,7 @@
+ 			shaderstate.maxwbatches = newm;
+ 		}
+ 
++        RB_ClearBatchOverflow();
+ 		shaderstate.wbatch = 0;
+ 	}
+ 	//if the video mode changed, update any fbos (hopefully this won't happen on mirrors)

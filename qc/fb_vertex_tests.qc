@@ -3,6 +3,15 @@ void fb_vertex_expect(int ok,string label) {print(strcat(ok?"FTEBROOM_VERTEX_PAS
 float fb_vertex_testcommand()
 {
     if(argv(0)!="ftebroom_test_vertex" || !cvar("ftebroom_skip_setup")) return FALSE;
+    if(argv(1)=="subset82"){
+        fb_cancel();fb_tool_deactivate();fb_selection_clear();int subset82A=fb_createbox('10000 10000 128','128 128 128'),subset82B=fb_createbox('10400 10000 128','128 128 128');
+        brush_deselectall();brush_select(1,subset82A);brush_select(1,subset82B);fb_tool_activate(FB_TOOL_VERTEX);fb_vertex_rebuild();fb_vertex_deselect();fb_vertex_handles[0].selected=TRUE;fb_vertex_drag=1;
+        int subset82Valid=fb_vertex_build('0 0 8',FALSE,0),subset82Changed=0,subset82Replaced=0;
+        for(int i=0;i<fb_vertex_brushcount;i++){subset82Changed+=fb_vertex_brushes[i].changed;subset82Replaced+=fb_vertex_replaces(fb_vertex_brushes[i].model,fb_vertex_brushes[i].id);}
+        fb_vertex_expect(subset82Valid&&fb_vertex_brushcount==2&&subset82Changed==1&&subset82Replaced==1,"subset82_only_affected_brush_replaced");
+        fb_poly_t subset82Before={0},subset82After={0};fb_poly_from_brush(1,subset82B,&subset82Before);fb_vertex_commit("Vertex subset");fb_document_tick();fb_poly_from_brush(1,subset82B,&subset82After);
+        fb_vertex_expect(subset82Before.nv==subset82After.nv&&subset82Before.nf==subset82After.nf,"subset82_unaffected_topology");int subset82Equal=TRUE;for(int v=0;v<subset82Before.nv;v++)if(subset82Before.vertices[v]!=subset82After.vertices[v])subset82Equal=FALSE;fb_vertex_expect(subset82Equal,"subset82_unaffected_positions");fb_poly_free(&subset82Before);fb_poly_free(&subset82After);fb_vertex_cancel();return TRUE;
+    }
     if(substring(argv(1),0,4)=="cone") {
         int coneMode=0;if(argv(1)=="cone2d")coneMode=2;if(argv(1)=="conealt")coneMode=1;
         fb_cancel();fb_selection_clear();

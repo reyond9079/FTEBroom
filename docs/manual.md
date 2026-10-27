@@ -82,6 +82,8 @@ grid around Z in whole degrees. Enter an integer or drag the slider. **Reset gri
 rotation** restores zero. The angle is saved. It affects snapping and new XY-view
 or perspective shapes; side views retain their editing plane.
 
+Brush surface grids fade from 512 to 1,024 world units by default. In **Map → View options → Antialiasing and texture filtering**, change **Grid fade start** and **Grid draw distance**. Distance `0` disables the limit. These saved settings affect surface grid lines only; brush edges, textures and geometry remain visible.
+
 Click an object to select it. Drag selected objects to move them in XY; hold Alt
 to constrain movement to Z. Perspective dragging scales with distance: nearby
 objects move less for the same cursor displacement. Vertex dragging follows the

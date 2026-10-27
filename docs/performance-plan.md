@@ -1,6 +1,6 @@
 # Large-map editing, saving and material performance plan
 
-Status: alpha.81 retains an edited worldspawn-brush layer across commits, with measurements and validation in [the alpha.81 report](performance-alpha81.md). This remains an incremental performance program: brush submodels/group changes and asynchronous snapshot serialization still use their established paths. The alpha.80 results below are retained as the baseline; steady drag FPS must not be confused with commit latency.
+Status: alpha.82 adds ordered opaque batching, cached ordering dependencies and focused vertex previews. [Current measurements and limitations](performance-alpha82.md) distinguish stationary views from verified camera movement. Alpha.81 retains an edited worldspawn-brush layer across commits, with measurements and validation in [the alpha.81 report](performance-alpha81.md). This remains an incremental performance program: brush submodels/group changes and asynchronous snapshot serialization still use their established paths. The alpha.80 results below are retained as the baseline; steady drag FPS must not be confused with commit latency.
 
 ## Alpha.80 implementation and measurements
 
@@ -9,7 +9,7 @@ Test machine: Windows, Core Ultra 7 155H, RTX 4060 Laptop. Test document: E1M1 F
 - At 1920x1080, alpha.79 idle/create/move/vertex averages were 37.2 / 4.2 / 3.9 / 4.0 FPS. Alpha.80 measured 72.5 / 70.3 / 69.2 / 70.3 FPS. Corresponding alpha.80 p95 frame times were 15.8 / 16.6 / 17.0 / 16.2 ms.
 - At 2560x1440, alpha.79 averages were 35.6 / 4.1 / 3.8 / 3.9 FPS. Alpha.80 measured 72.0 / 70.2 / 87.5 / 89.8 FPS; p95 16.8 / 17.2 / 15.4 / 13.7 ms. Camera framing is recomputed for the viewport; CPU timing and visible work vary between runs, so the higher-resolution move result is not a claim that more pixels improve performance.
 - A complete save took 13.89 s before, versus 3.70 s and 4.48 s in the final two resolution runs. Engine serialization still accounts for 2.63–2.71 s. The native conversion/write/index stage fell from 11.13 s to 1.08–1.78 s.
-- A separate continuous camera-flight run measured 70.2 FPS at 1920x1080 and 93.2 FPS at 2560x1440, with p95 frame times of 16.9 and 13.2 ms. This moving-camera scenario does not reuse the preceding frame's visibility indices.
+- Correction in alpha.82: the earlier claimed camera-flight figures of 70.2 / 93.2 FPS are invalid as navigation measurements. The UI overwrote the test movement cvar every frame. The corrected test exercises the production camera step and verifies actual start/end positions. See the current report; the continuous-flight 60 FPS target is still unmet.
 - Commit remains a limitation: the release benchmark includes a 2.72–2.89 s longest pause and averages only 17.8–18.6 FPS over that entire eight-second window. Thus 60 FPS during active dragging is achieved in these tests, but a consistent 16.7 ms frame budget across confirmation/rebuild is not achieved.
 
 Changes shipped in this iteration:
@@ -52,7 +52,7 @@ The earlier fallback-material flight averages do not establish editing performan
 
 ## Phase 2: keep static geometry fast during a gesture
 
-Keep the unchanged map in native retained geometry while drawing a small dynamic preview separately. Exclude only replaced brushes from the static pass. Include both original and preview bounds in visibility updates. Never use stale occluders from a moving/deleted wall. Verify transparent ordering, outlines, grids, sky, selection and immediate revealing of objects behind edited geometry. Do not substitute a cached viewport image or reduce draw distance.
+Keep the unchanged map in native retained geometry while drawing a small dynamic preview separately. Exclude only replaced brushes from the static pass. Include both original and preview bounds in visibility updates. Never use stale occluders from a moving/deleted wall. Verify transparent ordering, outlines, grids, sky, selection and immediate revealing of objects behind edited geometry. Do not substitute a cached viewport image or reduce geometry draw distance. The subsequently authorized surface-grid fade affects grid lines only.
 
 ## Phase 3: incremental edits and GPU updates
 

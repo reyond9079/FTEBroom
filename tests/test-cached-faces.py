@@ -27,7 +27,17 @@ static int RB_OccludedSphere(int node,const float *center,float radius){(void)no
 #define VectorSubtract(a,b,c) do{for(int k=0;k<3;k++)(c)[k]=(a)[k]-(b)[k];}while(0)
 #define BZ_Realloc realloc
 struct globalvars_s {int data[64];};
-typedef struct {int id;} shader_t;
+#define BEF_NOSHADOWS 32
+#define SHADER_SORT_OPAQUE 4
+#define SBITS_SRCBLEND_ONE 16
+#define SBITS_DSTBLEND_ZERO 32
+#define SBITS_BLEND_BITS 49
+#define SBITS_ATEST_BITS 2
+#define SBITS_MISC_DEPTHWRITE 4
+typedef struct {int shaderbits;} shaderpass_t;
+typedef struct {int id,sort,numpasses;char name[64];shaderpass_t passes[1];} shader_t;
+static int batchMode;
+static float Cvar_VariableValue(const char *name){(void)name;return batchMode;}
 typedef struct {shader_t *shader;unsigned int flags;int twod;} rb_soup_context_t;
 static shader_t shaders[3]={{0},{1},{2}};static int currentShader=1;
 static struct globalvars_s *activeGlobals;
@@ -66,7 +76,7 @@ int main(void){
  unsigned int *bad=(unsigned int*)(vm.stringtable+faces[0].triangles);bad[1]=4;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==-1&&!cl_numstris);bad[1]=1;
  G_INT(OFS_PARM5)=2;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&uploads>before);
  // Alternating materials retain compact buffers and exact primitive order.
- currentShader=1;for(int i=0;i<count;i++)faces[i].shader=1+(i&1);
+ currentShader=1;for(int i=0;i<count;i++){faces[i].shader=1+(i&1);qcvertex_t *v=(qcvertex_t*)(vm.stringtable+faces[i].vertices);for(int j=0;j<4;j++){v[j].xyz[0]=(i&31)*64;v[j].xyz[1]=((i>>5)&31)*64;v[j].xyz[2]=(i>>10)*64;}}
  G_INT(OFS_PARM5)=3;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);
  assert(G_INT(OFS_RETURN)==count&&cl_numstris==count&&rb_mesh_caches[2].count<8);
  for(int i=0;i<count;i++){assert(cl_stris[i].shader==&shaders[1+(i&1)]);batch_t batch={0};assert(CSQC_ReyondBroomCachedBatch(&batch,-1-cl_stris[i].firstvert));mesh_t *mesh=*batch.mesh;assert(mesh->numindexes==6);assert(mesh->indexes[1]==mesh->indexes[0]+1);}
@@ -75,6 +85,13 @@ int main(void){
  cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&cl_numstris==count&&uploads==before);
  access[2]=0;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(!G_INT(OFS_RETURN)&&!cl_numstris);
  access[2]=1;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&cl_numstris==count);rb_geom.valid=0;
+ // Large independent opaque spans collapse to material/chunk draws.
+ for(int i=1;i<3;i++){shaders[i].sort=SHADER_SORT_OPAQUE;shaders[i].numpasses=1;strcpy(shaders[i].name,"ftebroom/opaque/test");shaders[i].passes[0].shaderbits=SBITS_MISC_DEPTHWRITE;}
+ batchMode=1;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);
+ assert(G_INT(OFS_RETURN)==count&&cl_numstris<16);submitted=0;for(int i=0;i<cl_numstris;i++)submitted+=cl_stris[i].numidx;assert(submitted==count*6);
+ // Alpha-tested/custom shaders remain ordered barriers.
+ shaders[1].passes[0].shaderbits|=SBITS_ATEST_BITS;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==count);
+ shaders[1].passes[0].shaderbits=SBITS_MISC_DEPTHWRITE;batchMode=0;rb_geom.generation++;
  // The edited layer must remain interleaved and must not re-upload the base.
  unsigned int configOffset=at;at+=sizeof(rb_incremental_config_t);unsigned int editOffset=at;at+=2*sizeof(editorqcface_t);
  rb_incremental_config_t *config=(rb_incremental_config_t*)(vm.stringtable+configOffset);*config=(rb_incremental_config_t){0,0,editOffset,2,1};
@@ -91,6 +108,28 @@ int main(void){
  access[1]=17;access[3]=0;access[4]=access[5]=17;vm.callargc=6;G_INT(OFS_PARM5)=configOffset;cl_numstris=0;PF_ReyondBroom_DrawFaces(&vm,pr_globals);assert(cl_numstris==3);
  rb_cache_source_t *many=malloc(70000*sizeof(*many));for(int i=0;i<70000;i++)many[i]=(rb_cache_source_t){faces[0].vertices,4,6,32,i&1,1};
  assert(RB_CacheGeometry(&vm,2,offset,70000,4,many,70000));assert(rb_mesh_caches[2].count<16);free(many);
+ // Overlapping depth ranges retain their original material order.
+ rb_face_draw_t overlap[4];memset(overlap,0,sizeof(overlap));unsigned int order[4];for(int i=0;i<4;i++){overlap[i].slot=0;overlap[i].shader=&shaders[1+(i&1)];overlap[i].low[0]=overlap[i].low[1]=overlap[i].low[2]=0;overlap[i].high[0]=overlap[i].high[1]=overlap[i].high[2]=16;}
+ assert(RB_OrderSpan(overlap,4,order));for(int i=0;i<4;i++)assert(order[i]==(unsigned int)i);
+ // Random overlapping faces exercise same-material and cross-material dependencies.
+ rb_face_draw_t randomRuns[128];unsigned int randomOrder[128],positions[128];unsigned int seed=1337;
+ for(int i=0;i<128;i++){memset(&randomRuns[i],0,sizeof(randomRuns[i]));randomRuns[i].slot=i%3;randomRuns[i].shader=&shaders[1+(i&1)];for(int a=0;a<3;a++){seed=seed*1664525u+1013904223u;randomRuns[i].low[a]=(seed>>24)*.25f;randomRuns[i].high[a]=randomRuns[i].low[a]+12;}}
+ assert(RB_OrderSpan(randomRuns,128,randomOrder));for(int i=0;i<128;i++)positions[randomOrder[i]]=i;
+ for(int i=0;i<128;i++)for(int j=i+1;j<128;j++)if(RB_OrderOverlap(randomRuns[i].low,randomRuns[i].high,randomRuns[j].low,randomRuns[j].high,.01f))assert(positions[i]<positions[j]);
+ r_refdef.vieworg[2]=10010;for(int i=0;i<4;i++){overlap[i].low[0]=i*19;overlap[i].high[0]=i*19+16;}
+ assert(RB_OrderSpan(overlap,4,order));for(int i=0;i<4;i++)assert(order[i]==(unsigned int)i);
+
+ // A retained whole-document order remains valid for changing visible subsets.
+ RB_ClearOrderCache();rb_order_cache.total=128;rb_order_cache.bounds=malloc(128*sizeof(*rb_order_cache.bounds));rb_order_cache.tree=malloc(256*sizeof(*rb_order_cache.tree));rb_order_cache.ids=malloc(128*sizeof(unsigned int));rb_order_cache.counts=malloc(128*sizeof(unsigned int));rb_order_cache.offsets=malloc(128*sizeof(unsigned int));rb_order_cache.local=malloc(128*sizeof(unsigned int));rb_order_cache.stamps=calloc(128,sizeof(unsigned int));memset(rb_order_cache.counts,255,128*sizeof(unsigned int));
+ rb_cached_grid_ref_t rankRefs[128];rb_cached_mesh_t rankMeshes[3];memset(rankMeshes,0,sizeof(rankMeshes));editorqcface_t rankFaces[128];memset(rankFaces,0,sizeof(rankFaces));
+ for(int i=0;i<3;i++){rankMeshes[i].shader=&shaders[1+(i&1)];rankMeshes[i].pass=BEF_NOSHADOWS;}
+ for(int i=0;i<128;i++){randomRuns[i].source=i;rankRefs[i]=(rb_cached_grid_ref_t){i%3,0};rankFaces[i].alpha=1;rb_order_cache.ids[i]=i;VectorCopy(randomRuns[i].low,rb_order_cache.bounds[i].low);VectorCopy(randomRuns[i].high,rb_order_cache.bounds[i].high);randomRuns[i].shader=rankMeshes[i%3].shader;}
+ unsigned int treeUsed=0;rb_order_bounds=rb_order_cache.bounds;RB_OrderTree(rb_order_cache.tree,&treeUsed,rb_order_cache.ids,0,128);
+ rb_mesh_cache_t rankCache={0};rankCache.refs=rankRefs;rankCache.meshes=rankMeshes;r_refdef.vieworg[2]=10;RB_PrepareOrderRanks(&rankCache,rankFaces,128);rb_order_cache.useRanks=1;
+ assert(rb_order_cache.ranks);assert(RB_OrderSpan(randomRuns,128,randomOrder));for(int i=0;i<128;i++)positions[randomOrder[i]]=i;
+ for(int i=0;i<128;i++)for(int j=i+1;j<128;j++)if(RB_OrderOverlap(randomRuns[i].low,randomRuns[i].high,randomRuns[j].low,randomRuns[j].high,.01f))assert(positions[i]<positions[j]);
+ rb_face_draw_t subset[64];unsigned int subsetOrder[64];for(int i=0;i<64;i++)subset[i]=randomRuns[i*2];assert(RB_OrderSpan(subset,64,subsetOrder));for(int i=1;i<64;i++)assert(rb_order_cache.ranks[subset[subsetOrder[i-1]].source]<rb_order_cache.ranks[subset[subsetOrder[i]].source]);
+ RB_ClearOrderCache();assert(!rb_order_cache.total&&!rb_order_cache.ranks&&!rb_order_cache.neighbors);
  CSQC_ReyondBroomClearMeshes();assert(alive==0);free(cl_stris);free(vm.stringtable);puts("PASS: 30,000 retained faces, unchanged arguments, exact index count, warm reuse, access changes, invalid triangles, revision rebuild and complete release");
 }
 '''

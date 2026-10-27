@@ -37,6 +37,7 @@ typedef struct {mesh_t **mesh;vbo_t *vbo;void *buildmeshes;} batch_t;
 typedef struct {void *root;size_t position,size;} vbobctx_t;
 static struct {int valid,reusable;unsigned int generation,accessOffset,accessCount;} rb_geom;
 static struct {int valid;} rb_occ,rb_labels;
+static struct {void *items;} rb_label_draw_cache;
 static int qrenderer=QR_OPENGL,alive,uploads;
 static void BE_VBO_Begin(vbobctx_t *c,size_t size){c->root=malloc(size);c->position=0;c->size=size;alive++;}
 static void BE_VBO_Data(vbobctx_t *c,void *data,size_t size,vboarray_t *a){assert(c->position+size<=c->size);a->root=c->root;a->data=(char*)c->root+c->position;a->size=size;memcpy(a->data,data,size);c->position+=size;}

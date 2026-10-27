@@ -1,3 +1,4 @@
+var float autocvar_ftebroom_opaque_batches=1;
 // SPDX-License-Identifier: GPL-2.0-or-later
 var float autocvar_ftebroom_show_brushes=1,autocvar_ftebroom_show_points=1,autocvar_ftebroom_show_models=1;
 var float autocvar_ftebroom_show_entity_names=1,autocvar_ftebroom_show_entity_bounds=1,autocvar_ftebroom_show_group_bounds=1,autocvar_ftebroom_show_brush_entity_bounds=1;
@@ -124,6 +125,7 @@ void fb_static_preview_prepare()
     if(!fb_static_preview_supported)return;
     static int capacity;static string signature="",previousMask="";
     string key=sprintf("%i %i %i %i %i %g",fb_grid_geometry_epoch,fb_filter_epoch,fb_visibility_epoch,fb_selection_epoch,fb_node_count,fb_active);key=strcat(key," ",itos(fb_incremental_epoch));
+    key=strcat(key," ",itos(fb_vertex_preview_epoch));
     key=strcat(key,sprintf(" %i %i %i %i %i",fb_transform_preview,fb_transform_duplicate,fb_vertex_preview_valid,fb_generator_count,fb_generator_hide_original));
     key=strcat(key,sprintf(" %i %v %g",fb_clip_count,fb_clip_normal,fb_clip_dist));
     key=strcat(key," ",cvar_string("ftebroom_tool"));

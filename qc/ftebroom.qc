@@ -1,3 +1,4 @@
+var float autocvar_ftebroom_grid_fade_start=512,autocvar_ftebroom_grid_fade_end=1024;
 int *fb_static_access;int fb_static_access_count,fb_static_preview_supported;
 void fb_static_preview_prepare();
 void fb_texture_align(string operation,int direction,int fraction);
@@ -522,7 +523,7 @@ void fb_surfacegrid(int geometryOnly)
         if(!pass && !gridVisible)continue;if(pass && !edges)continue;
         for(int i=0;i<fb_grid_visible_count;i++) {
             fb_grid_face_t *face=&fb_grid_faces[fb_grid_visible[i]];
-            if(!pass)addtrisoup_simple("ftebroom/surfacegrid",3,face.vertices,face.triangles,(face.count-2)*3);
+            if(!pass){if(autocvar_ftebroom_grid_fade_end<=0 || vlen(face.center-eye)<autocvar_ftebroom_grid_fade_end+face.radius)addtrisoup_simple("ftebroom/surfacegrid",3,face.vertices,face.triangles,(face.count-2)*3);}
             else addtrisoup_simple("ftebroom/brushedges",3|DRAWFLAG_LINES,&face.vertices[face.count],face.lines,face.count*2);
         }
     }

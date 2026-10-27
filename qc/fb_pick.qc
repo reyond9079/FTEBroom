@@ -1,3 +1,4 @@
+var float autocvar_ftebroom_label_cache=1;
 int fb_filter_epoch,fb_visibility_epoch,fb_transform_preview;
 float fb_active;
 int fb_render_allowed(int node,int flags);
@@ -307,13 +308,13 @@ void fb_pick_draw_entities_uncached(int labelsOnly)
     }
 }
 // Cache document properties once, independently of the camera. Culling and
-// occlusion are still evaluated for every rendered view and every frame.
+// visibility is retained only while its document revision and full view remain unchanged.
 typedef struct {int node,id,model;vector center,label,color;float radius;string name;} fb_point_render_t;
 fb_point_render_t *fb_point_render;int fb_point_render_count;
 var float autocvar_ftebroom_point_cache=1;
 var float autocvar_ftebroom_native_overlays=1;
 var float autocvar_ftebroom_cached_meshes=1;
-vector(fb_point_render_t *points,int count,int stride,int mode) ftebroom_draw_labels=#0:ftebroom_draw_labels;
+vector(fb_point_render_t *points,int count,int stride,int mode,int revision) ftebroom_draw_labels=#0:ftebroom_draw_labels;
 typedef struct {trisoup_simple_vert_t *solid;trisoup_simple_vert_t *wire;int model;} fb_point_geometry_t;
 typedef struct {int stride,flags;string solidShader,wireShader;int *solidIndices;int *wireIndices;int wireFlags;int revision;} fb_point_params_t;
 int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_point_params_t *params) ftebroom_draw_point_boxes=#0:ftebroom_draw_point_boxes;
@@ -362,7 +363,7 @@ void fb_pick_draw_entities(int labelsOnly)
     fb_point_render_prepare();
     cvar_set("ftebroom_selected_entity",fb_entity_classname(fb_selected_entity()));
     if(labelsOnly && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_labels)){
-        float nativeStarted=gettime(1);vector result=ftebroom_draw_labels(fb_point_render,fb_point_render_count,sizeof(fb_point_render_t),ortho?1:0);
+        float nativeStarted=gettime(1);vector result=ftebroom_draw_labels(fb_point_render,fb_point_render_count,sizeof(fb_point_render_t),ortho?1:0,fb_point_upload_epoch);
         if(result_x>=0){fb_label_native_traces+=(int)result_y;if(cvar("ftebroom_benchmark"))fb_label_trace_seconds+=gettime(1)-nativeStarted;return;}
     }
     vector eye=getproperty(VF_ORIGIN),mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
