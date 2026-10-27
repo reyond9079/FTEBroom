@@ -32,8 +32,13 @@ void fb_entity_publish()
 {
     static string previous="";fb_document_tick();fb_entity_targets();
     int linkedRoot=fb_selection_open_node(),linked=FALSE;
-    while(linkedRoot>=2 && fb_nodes[linkedRoot].fields["_tb_linked_group_id"]=="")linkedRoot=fb_nodes[linkedRoot].parent;
-    if(linkedRoot>=2)linked=TRUE;
+    // QC logical expressions need not short-circuit. Validate the index before
+    // reading a node, including the unopened startup document's -1 sentinel.
+    int linkedSteps=0;
+    while(linkedRoot>=2 && linkedRoot<fb_node_count && linkedSteps++<fb_node_count){
+        if(fb_nodes[linkedRoot].fields)if(fb_nodes[linkedRoot].fields["_tb_linked_group_id"]!=""){linked=TRUE;break;}
+        linkedRoot=fb_nodes[linkedRoot].parent;
+    }
     cvar_set("ftebroom_linked_open",itos(linked));
     string signature=strcat(itos(fb_grid_geometry_epoch),"/",itos(fb_grid_geometry_epoch));for(int i=0;i<fb_property_entity_count;i++)signature=strcat(signature," ",itos(fb_property_entities[i]));
     if(signature==previous)return;strunzone(previous);previous=strzone(signature);

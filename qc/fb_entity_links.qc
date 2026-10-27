@@ -34,7 +34,7 @@ int fb_container_bounds(int node,vector *bounds)
     if(!fb_container_cache[node].valid)return FALSE;
     bounds[0]=fb_container_cache[node].mins;bounds[1]=fb_container_cache[node].maxs;return TRUE;
 }
-fb_point_render_t *fb_container_render;int fb_container_render_count;
+fb_point_render_t *fb_container_render;int fb_container_render_count,fb_container_upload_epoch;
 int *fb_container_visible;
 void fb_container_render_prepare()
 {
@@ -43,7 +43,7 @@ void fb_container_render_prepare()
     int current=fb_grid_geometry_epoch;
     if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==current && entityRevision==fb_entity_render_epoch)return;
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=current;entityRevision=fb_entity_render_epoch;
-    fb_document_lists_prepare();fb_container_cache_prepare();memfree(fb_container_render);memfree(fb_container_visible);
+    fb_document_lists_prepare();fb_container_cache_prepare();fb_container_upload_epoch++;memfree(fb_container_render);memfree(fb_container_visible);
     fb_container_render=memalloc(max(1,fb_container_node_count)*sizeof(fb_point_render_t));fb_container_visible=memalloc(max(1,fb_container_node_count)*sizeof(int));fb_container_render_count=0;
     for(int entry=0;entry<fb_container_node_count;entry++){
         int node=fb_container_nodes[entry];if(!fb_render_allowed(node,FB_PICK_LOCKED))continue;
@@ -64,14 +64,14 @@ void fb_container_draw(int labels)
     }
     fb_container_render_prepare();
     int visibleCount=-1;
-    if(!ortho && checkbuiltin(ftebroom_cull_points))visibleCount=ftebroom_cull_points(fb_container_render,fb_container_render_count,fb_container_visible,sizeof(fb_point_render_t));
+    if(!ortho && checkbuiltin(ftebroom_cull_points))visibleCount=ftebroom_cull_points(fb_container_render,fb_container_render_count,fb_container_visible,sizeof(fb_point_render_t),fb_container_upload_epoch);
     int entries=visibleCount<0?fb_container_render_count:visibleCount;
     for(int entry=0;entry<entries;entry++) {
         int index=visibleCount<0?entry:fb_container_visible[entry];fb_point_render_t *item=&fb_container_render[index];int n=item->node,group=item->id;
         if(group && !groups)continue;if(!group && !entities)continue;
         bounds[0]=fb_container_cache[n].mins;bounds[1]=fb_container_cache[n].maxs;
         if(visibleCount<0 && !ortho){vector delta=item->center-camera;float radius=item->radius,depth=delta*forward;if(depth+radius<0||fabs(delta*right)>depth*tx+radius*(1+tx)||fabs(delta*up)>depth*ty+radius*(1+ty))continue;}
-        if(labels){vector top=(bounds[0]+bounds[1])*0.5;top_z=bounds[1][2]+12;if(!ortho && (top-camera)*forward<=0)continue;vector pixel=project(top);pixel_z=0;if(pixel_x<mn_x||pixel_y<mn_y||pixel_x>=mn_x+size_x||pixel_y>=mn_y+size_y)continue;if(!ortho && !fb_label_visible(camera,top,n))continue;drawstring(pixel,fb_nodes[n].name,'8 8 0','0.35 0.6 1',1,0);}
+        if(labels){vector top=(bounds[0]+bounds[1])*0.5;top_z=bounds[1][2]+12;float labelAlpha=fb_label_alpha(top,fb_selection_selected(n),ortho);if(labelAlpha<=0)continue;if(!ortho && (top-camera)*forward<=0)continue;vector pixel=project(top);pixel_z=0;if(pixel_x<mn_x||pixel_y<mn_y||pixel_x>=mn_x+size_x||pixel_y>=mn_y+size_y)continue;if(!ortho && !fb_label_visible(camera,top,n))continue;drawstring(pixel,fb_nodes[n].name,'8 8 0','0.35 0.6 1',labelAlpha,0);}
         else {
             vector color='0.2 0.45 1';if(group && fb_nodes[n].fields["_tb_linked_group_id"]!="")color='0.65 0.35 1';
             fb_container_bounds_t *box=&fb_container_cache[n];

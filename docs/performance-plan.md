@@ -1,6 +1,6 @@
 # Large-map editing, saving and material performance plan
 
-Status: alpha.82 adds ordered opaque batching, cached ordering dependencies and focused vertex previews. [Current measurements and limitations](performance-alpha82.md) distinguish stationary views from verified camera movement. Alpha.81 retains an edited worldspawn-brush layer across commits, with measurements and validation in [the alpha.81 report](performance-alpha81.md). This remains an incremental performance program: brush submodels/group changes and asynchronous snapshot serialization still use their established paths. The alpha.80 results below are retained as the baseline; steady drag FPS must not be confused with commit latency.
+Status: alpha.83 adds hierarchical visibility, radix ordering and broader safe material grouping. [Current navigation measurements and validation](performance-alpha83.md). Alpha.82 adds ordered opaque batching, cached ordering dependencies and focused vertex previews. [Current measurements and limitations](performance-alpha82.md) distinguish stationary views from verified camera movement. Alpha.81 retains an edited worldspawn-brush layer across commits, with measurements and validation in [the alpha.81 report](performance-alpha81.md). This remains an incremental performance program: brush submodels/group changes and asynchronous snapshot serialization still use their established paths. The alpha.80 results below are retained as the baseline; steady drag FPS must not be confused with commit latency.
 
 ## Alpha.80 implementation and measurements
 

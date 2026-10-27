@@ -80,6 +80,9 @@ static void viewOptionsPanel()
   viewOption("Point entities", "ftebroom_show_points");
   viewOption("Models", "ftebroom_show_models");
   viewOption("Class names", "ftebroom_show_entity_names");
+  float labelDistance=cvars->GetFloat("ftebroom_label_distance");
+  if(ImGui::InputFloat("Entity label distance",&labelDistance,128.f,512.f,"%.0f"))cvars->SetFloat("ftebroom_label_distance",std::max(0.f,labelDistance));
+  ImGui::TextDisabled("World units; 0 is unlimited. Selected labels stay visible at any distance.");
   viewOption("Point bounds", "ftebroom_show_entity_bounds");
   viewOption("Group bounds", "ftebroom_show_group_bounds");
   viewOption("Brush entity bounds", "ftebroom_show_brush_entity_bounds");

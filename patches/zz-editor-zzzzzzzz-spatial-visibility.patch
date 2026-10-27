@@ -1,0 +1,437 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1951,6 +1951,7 @@
+ }
+ static unsigned int rb_label_queries,rb_label_tiles,rb_label_hint_hits,rb_label_tree_hits,rb_label_visible;
+ static qboolean RB_OccludedSphere(int node,const float *center,float radius);
++static unsigned char *RB_PointVisibility(pubprogfuncs_t *vm,unsigned int offset,unsigned int total,unsigned int revision);
+ static qboolean RB_OccludedPoint(const float *point);
+ static qboolean RB_LabelsComplete(void);
+ static qboolean RB_LabelOrigin(const float *origin);
+@@ -2110,7 +2111,9 @@
+  }
+  points=(editorqcpoint_t*)(prinst->stringtable+offset);indices=(int*)(prinst->stringtable+output);
+  if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ unsigned char *hierarchy=prinst->callargc>4?RB_PointVisibility(prinst,offset,total,G_INT(OFS_PARM4)):NULL;
+  for(i=0;i<total;i++){
++  if(hierarchy&&!hierarchy[i])continue;
+   editorqcpoint_t *p=&points[i];vec3_t delta;float depth,radius=p->radius;
+   VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
+   if(!p->model && (depth+radius<0 || fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx) || fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty)))continue;
+@@ -3209,8 +3212,8 @@
+  trace_t trace=World_Move(&csqc_world,G_VECTOR(OFS_PARM0),vec3_origin,vec3_origin,G_VECTOR(OFS_PARM1),MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);
+  G_INT(OFS_RETURN)=trace.fraction>=.999f;
+ }
+-typedef struct {unsigned int index;vec3_t pixel;} rb_label_draw_t;
+-static struct {qboolean valid;pubprogfuncs_t *vm;char *base;unsigned int offset,total,revision,mode,generation,count,capacity;float matrix[16],rect[4];rb_label_draw_t *items;} rb_label_draw_cache;
++typedef struct {unsigned int index;vec3_t pixel;float alpha;} rb_label_draw_t;
++static struct {qboolean valid;pubprogfuncs_t *vm;char *base;unsigned int offset,total,revision,mode,generation,count,capacity;float matrix[16],rect[4],distance;rb_label_draw_t *items;unsigned int selectedCount,selectedCapacity;int *selected;} rb_label_draw_cache;
+ static unsigned int RB_LabelViewGeneration(void);
+ 
+ // ReyondBroom bulk overlay passes begin. QC snapshots retain ownership.
+@@ -3218,25 +3221,35 @@
+ {
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),stride=G_INT(OFS_PARM2),mode=G_INT(OFS_PARM3),i;
+  int saved[18],argc=vm->callargc,drawn=0,tested=0;vec3_t forward,right,up;float tx,ty;editorqcpoint_t *points;
++ float labelDistance=Cvar_VariableValue("ftebroom_label_distance");unsigned int selectedCount=argc>6?G_INT(OFS_PARM6):0,selectedOffset=argc>6?G_INT(OFS_PARM5):0;
+  unsigned int revision=argc>4?G_INT(OFS_PARM4):0,generation=RB_LabelViewGeneration();float rect[4];
+  G_VECTOR(OFS_RETURN)[0]=-1;G_VECTOR(OFS_RETURN)[1]=G_VECTOR(OFS_RETURN)[2]=0;
+  if(stride!=sizeof(editorqcpoint_t))return;if(!total){G_VECTOR(OFS_RETURN)[0]=0;return;}
+  if(total>1000000 || !RB_QCBuffer(vm,offset,total,stride)){PR_BIError(vm,"ReyondBroom: invalid label snapshot\n");return;}
++ if(selectedCount>1000000||(selectedCount&&!RB_QCBuffer(vm,selectedOffset,selectedCount,sizeof(int))))return;
+  rb_label_queries=rb_label_tiles=rb_label_hint_hits=rb_label_tree_hits=rb_label_visible=0;
+  points=(editorqcpoint_t*)(vm->stringtable+offset);if(r_refdef.dirty)V_ApplyRefdef();rect[0]=r_refdef.grect.x;rect[1]=r_refdef.grect.y;rect[2]=r_refdef.grect.width;rect[3]=r_refdef.grect.height;AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
+  memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
+  qboolean cacheable=argc>4&&generation&&Cvar_VariableValue("ftebroom_label_cache");
+- qboolean reuse=cacheable&&rb_label_draw_cache.valid&&rb_label_draw_cache.vm==vm&&rb_label_draw_cache.base==vm->stringtable&&rb_label_draw_cache.offset==offset&&rb_label_draw_cache.total==total&&rb_label_draw_cache.revision==revision&&rb_label_draw_cache.mode==mode&&rb_label_draw_cache.generation==generation&&!memcmp(rb_label_draw_cache.matrix,csqc_proj_matrix,sizeof(rb_label_draw_cache.matrix))&&!memcmp(rb_label_draw_cache.rect,rect,sizeof(rect));
++ qboolean sameSelection=rb_label_draw_cache.selectedCount==selectedCount&&(!selectedCount||!memcmp(rb_label_draw_cache.selected,vm->stringtable+selectedOffset,selectedCount*sizeof(int)));
++ qboolean reuse=cacheable&&sameSelection&&rb_label_draw_cache.distance==labelDistance&&rb_label_draw_cache.valid&&rb_label_draw_cache.vm==vm&&rb_label_draw_cache.base==vm->stringtable&&rb_label_draw_cache.offset==offset&&rb_label_draw_cache.total==total&&rb_label_draw_cache.revision==revision&&rb_label_draw_cache.mode==mode&&rb_label_draw_cache.generation==generation&&!memcmp(rb_label_draw_cache.matrix,csqc_proj_matrix,sizeof(rb_label_draw_cache.matrix))&&!memcmp(rb_label_draw_cache.rect,rect,sizeof(rect));
+  if(reuse){
+   for(unsigned int j=0;j<rb_label_draw_cache.count;j++){
+    rb_label_draw_t *entry=&rb_label_draw_cache.items[j];editorqcpoint_t *p=&points[entry->index];
+-   VectorCopy(entry->pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=1;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;PF_CL_drawcolouredstring(vm,pr_globals);drawn++;
++   VectorCopy(entry->pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=entry->alpha;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;PF_CL_drawcolouredstring(vm,pr_globals);drawn++;
+   }
+   vm->callargc=argc;memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));VectorSet(G_VECTOR(OFS_RETURN),drawn,0,0);return;
+  }
+  rb_label_draw_cache.valid=false;rb_label_draw_cache.count=0;
++ unsigned int selectedHashSize=1,*selectedHash=NULL;
++ if(selectedCount){while(selectedHashSize<selectedCount*2)selectedHashSize*=2;selectedHash=BZ_Malloc(selectedHashSize*sizeof(unsigned int));memset(selectedHash,0,selectedHashSize*sizeof(unsigned int));int *selected=(int*)(vm->stringtable+selectedOffset);for(unsigned int j=0;j<selectedCount;j++)if(selected[j]>=0){unsigned int id=(unsigned int)selected[j]+1,key=(id*2654435761u)&(selectedHashSize-1);while(selectedHash[key]&&selectedHash[key]!=id)key=(key+1)&(selectedHashSize-1);selectedHash[key]=id;}}
++
+  for(i=0;i<total;i++){
+-  editorqcpoint_t *p=&points[i];vec3_t delta,pixel;float depth,width;const char *name;
++  editorqcpoint_t *p=&points[i];vec3_t delta,pixel;float depth,width,alpha=1;
++  if(!(mode&1)&&labelDistance>0){
++   qboolean selected=false;if(selectedHash&&p->id>=0){unsigned int id=(unsigned int)p->id+1,key=(id*2654435761u)&(selectedHashSize-1);while(selectedHash[key]&&selectedHash[key]!=id)key=(key+1)&(selectedHashSize-1);selected=selectedHash[key]==id;}
++   if(!selected){VectorSubtract(p->label,r_refdef.vieworg,delta);float distanceSquared=DotProduct(delta,delta);if(distanceSquared>=labelDistance*labelDistance)continue;float fadeStart=labelDistance>128?labelDistance-128:0;if(distanceSquared>fadeStart*fadeStart)alpha=(labelDistance-sqrtf(distanceSquared))/128;}
++  }const char *name;
+   VectorSubtract(p->center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);
+   if(!(mode&1) && !p->model && (depth+p->radius<0||fabs(DotProduct(delta,right))>depth*tx+p->radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+p->radius*(1+ty)))continue;
+   VectorSubtract(p->label,r_refdef.vieworg,delta);if(!(mode&1)&&DotProduct(delta,forward)<=0)continue;
+@@ -3245,14 +3258,15 @@
+   VectorCopy(p->label,G_VECTOR(OFS_PARM0));PF_cs_project(vm,pr_globals);VectorCopy(G_VECTOR(OFS_RETURN),pixel);pixel[2]=0;
+   if(pixel[0]+((mode&2)?0:width)<r_refdef.grect.x||pixel[1]+((mode&2)?0:8)<r_refdef.grect.y||pixel[0]>=r_refdef.grect.x+r_refdef.grect.width||pixel[1]>=r_refdef.grect.y+r_refdef.grect.height)continue;
+   if(!(mode&1) && !RB_LabelsComplete()){trace_t tr=World_Move(&csqc_world,r_refdef.vieworg,vec3_origin,vec3_origin,p->label,MOVE_NOMONSTERS|MOVE_IGNOREHULL|REYONDBROOM_MOVE_OCCLUSION,(wedict_t*)csqc_world.edicts);tested++;if(tr.fraction<.999f)continue;}
+-  VectorCopy(pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=1;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;
++  VectorCopy(pixel,G_VECTOR(OFS_PARM0));G_INT(OFS_PARM1)=p->name;VectorSet(G_VECTOR(OFS_PARM2),8,8,0);VectorCopy(p->color,G_VECTOR(OFS_PARM3));G_FLOAT(OFS_PARM4)=alpha;G_FLOAT(OFS_PARM5)=0;vm->callargc=6;
+   PF_CL_drawcolouredstring(vm,pr_globals);drawn++;
+   if(cacheable){
+    if(rb_label_draw_cache.count==rb_label_draw_cache.capacity){rb_label_draw_cache.capacity=rb_label_draw_cache.capacity?rb_label_draw_cache.capacity*2:256;rb_label_draw_cache.items=BZ_Realloc(rb_label_draw_cache.items,rb_label_draw_cache.capacity*sizeof(*rb_label_draw_cache.items));}
+-   rb_label_draw_t *entry=&rb_label_draw_cache.items[rb_label_draw_cache.count++];entry->index=i;VectorCopy(pixel,entry->pixel);
++   rb_label_draw_t *entry=&rb_label_draw_cache.items[rb_label_draw_cache.count++];entry->index=i;entry->alpha=alpha;VectorCopy(pixel,entry->pixel);
+   }
+  }
+- if(cacheable){rb_label_draw_cache.vm=vm;rb_label_draw_cache.base=vm->stringtable;rb_label_draw_cache.offset=offset;rb_label_draw_cache.total=total;rb_label_draw_cache.revision=revision;rb_label_draw_cache.mode=mode;rb_label_draw_cache.generation=generation;memcpy(rb_label_draw_cache.matrix,csqc_proj_matrix,sizeof(rb_label_draw_cache.matrix));memcpy(rb_label_draw_cache.rect,rect,sizeof(rect));rb_label_draw_cache.valid=true;}
++ BZ_Free(selectedHash);
++ if(cacheable){if(selectedCount>rb_label_draw_cache.selectedCapacity){rb_label_draw_cache.selectedCapacity=selectedCount;rb_label_draw_cache.selected=BZ_Realloc(rb_label_draw_cache.selected,selectedCount*sizeof(int));}if(selectedCount)memcpy(rb_label_draw_cache.selected,vm->stringtable+selectedOffset,selectedCount*sizeof(int));rb_label_draw_cache.selectedCount=selectedCount;rb_label_draw_cache.distance=labelDistance;rb_label_draw_cache.vm=vm;rb_label_draw_cache.base=vm->stringtable;rb_label_draw_cache.offset=offset;rb_label_draw_cache.total=total;rb_label_draw_cache.revision=revision;rb_label_draw_cache.mode=mode;rb_label_draw_cache.generation=generation;memcpy(rb_label_draw_cache.matrix,csqc_proj_matrix,sizeof(rb_label_draw_cache.matrix));memcpy(rb_label_draw_cache.rect,rect,sizeof(rect));rb_label_draw_cache.valid=true;}
+  vm->callargc=argc;memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));VectorSet(G_VECTOR(OFS_RETURN),drawn,tested,0);
+ }
+ typedef struct {int id,model,node,count,u,v,sky,brushEnd;vec3_t center,normal;unsigned int points;float spacing,radius;unsigned int vertices,triangles,lines;int occluder;} rb_grid_face_t;
+@@ -3295,17 +3309,20 @@
+  if(!++rb_geom.generation){memset(rb_geom.stamp,0,rb_geom.capacity*sizeof(*rb_geom.stamp));rb_geom.generation=1;}
+  for(i=0;i<RB_GEOM_W*RB_GEOM_H;i++)rb_geom.geometry[i]=rb_geom.labels[i]=1e30f;
+  for(unsigned int layer=0;layer<2;layer++)for(i=0;i<(layer?rb_incremental.gridCount:total);i++){
+-  rb_grid_face_t *f=layer?&((rb_grid_face_t*)(vm->stringtable+rb_incremental.grid))[i]:&faces[i];vec3_t delta;float polygon[256][2],inverseDepth[256],depth,farDepth=0,lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};int j,x,y,x0,x1,y0,y1;double area=0;
++  rb_grid_face_t *f=layer?&((rb_grid_face_t*)(vm->stringtable+rb_incremental.grid))[i]:&faces[i];vec3_t delta;float polygon[256][2],inverseDepth[256],depth,nearFaceDepth=1e30f,farDepth=0,lo[2]={1e30f,1e30f},hi[2]={-1e30f,-1e30f};int j,x,y,x0,x1,y0,y1;double area=0;
+   if(!f->occluder||(f->occluder&8)||f->node<0||(unsigned int)f->node>=accessCount||!(access[f->node]&1)||!(access[f->node]&4)||f->count<3||f->count>256)continue;
+   VectorSubtract(rb_geom.eye,f->center,delta);if(DotProduct(delta,f->normal)<=.05f)continue;VectorSubtract(f->center,rb_geom.eye,delta);depth=DotProduct(delta,rb_geom.forward);
+-  if(depth<=f->radius+4)continue;float projected=f->radius*max(rb_geom.w/(2*tx),rb_geom.h/(2*ty))/(depth-f->radius);if(projected*2<min(rb_geom.w/RB_GEOM_W,rb_geom.h/RB_GEOM_H))continue;
++  // A wide face may be entirely in front of the near plane even when its
++  // bounding sphere crosses it. Test actual vertices below; only apply the
++  // small-polygon bound when the sphere itself is wholly in front.
++  if(depth+f->radius<=4)continue;if(depth>f->radius+4){float projected=f->radius*max(rb_geom.w/(2*tx),rb_geom.h/(2*ty))/(depth-f->radius);if(projected*2<min(rb_geom.w/RB_GEOM_W,rb_geom.h/RB_GEOM_H))continue;}
+   if(!RB_QCBuffer(vm,f->points,f->count,sizeof(vec3_t)))continue;vec3_t *points=(vec3_t*)(vm->stringtable+f->points);
+   for(j=0;j<f->count;j++){
+-   float v[4],out[4];VectorSubtract(points[j],rb_geom.eye,delta);float z=DotProduct(delta,rb_geom.forward);if(z<=4)break;inverseDepth[j]=1.0f/z;if(farDepth<z)farDepth=z;VectorCopy(points[j],v);v[3]=1;Matrix4x4_CM_Transform4(csqc_proj_matrix,v,out);if(out[3]<=0)break;
++   float v[4],out[4];VectorSubtract(points[j],rb_geom.eye,delta);float z=DotProduct(delta,rb_geom.forward);if(z<=4)break;inverseDepth[j]=1.0f/z;if(nearFaceDepth>z)nearFaceDepth=z;if(farDepth<z)farDepth=z;VectorCopy(points[j],v);v[3]=1;Matrix4x4_CM_Transform4(csqc_proj_matrix,v,out);if(out[3]<=0)break;
+    polygon[j][0]=(1+out[0]/out[3])*.5f*r_refdef.vrect.width+r_refdef.vrect.x;polygon[j][1]=(1-out[1]/out[3])*.5f*r_refdef.vrect.height+r_refdef.vrect.y;
+    if(lo[0]>polygon[j][0])lo[0]=polygon[j][0];if(hi[0]<polygon[j][0])hi[0]=polygon[j][0];if(lo[1]>polygon[j][1])lo[1]=polygon[j][1];if(hi[1]<polygon[j][1])hi[1]=polygon[j][1];
+   }
+-  if(j<f->count)continue;for(j=0;j<f->count;j++){int next=(j+1)%f->count;area+=(double)polygon[j][0]*polygon[next][1]-(double)polygon[next][0]*polygon[j][1];}if(fabs(area)<.01)continue;
++  if(j<f->count||hi[0]<rb_geom.x||hi[1]<rb_geom.y||lo[0]>rb_geom.x+rb_geom.w||lo[1]>rb_geom.y+rb_geom.h)continue;for(j=0;j<f->count;j++){int next=(j+1)%f->count;area+=(double)polygon[j][0]*polygon[next][1]-(double)polygon[next][0]*polygon[j][1];}if(fabs(area)<.01)continue;
+   // Reciprocal view depth is affine over a projected planar polygon.
+   // Bound each covered tile locally instead of using the farthest polygon vertex.
+   double dx1=(double)polygon[1][0]-polygon[0][0],dy1=(double)polygon[1][1]-polygon[0][1],dx2=(double)polygon[2][0]-polygon[0][0],dy2=(double)polygon[2][1]-polygon[0][1];
+@@ -3313,8 +3330,10 @@
+   double q1=(double)inverseDepth[1]-inverseDepth[0],q2=(double)inverseDepth[2]-inverseDepth[0];
+   double qa=(q1*dy2-q2*dy1)/determinant,qb=(dx1*q2-dx2*q1)/determinant,qc=inverseDepth[0]-qa*polygon[0][0]-qb*polygon[0][1],error=0;
+   for(j=0;j<f->count;j++){double residual=fabs(qa*polygon[j][0]+qb*polygon[j][1]+qc-inverseDepth[j]);if(error<residual)error=residual;}
+-  x0=max(0,(int)ceil((lo[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w));x1=min(RB_GEOM_W-1,(int)floor((hi[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w)-1);y0=max(0,(int)ceil((lo[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h));y1=min(RB_GEOM_H-1,(int)floor((hi[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h)-1);
++  x0=(int)ceil(max(0,min(RB_GEOM_W,(lo[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w)));x1=(int)floor(max(0,min(RB_GEOM_W,(hi[0]-rb_geom.x)*RB_GEOM_W/rb_geom.w)))-1;y0=(int)ceil(max(0,min(RB_GEOM_H,(lo[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h)));y1=(int)floor(max(0,min(RB_GEOM_H,(hi[1]-rb_geom.y)*RB_GEOM_H/rb_geom.h)))-1;
+   for(y=y0;y<=y1;y++)for(x=x0;x<=x1;x++){
++   unsigned int existing=x+y*RB_GEOM_W;
++   if((!(f->occluder&1)||rb_geom.geometry[existing]<=nearFaceDepth-.1f)&&(!(f->occluder&2)||rb_geom.labels[existing]<=nearFaceDepth-.1f))continue;
+    qboolean inside=true;double minInverse=1e30;int corner;for(corner=0;corner<4&&inside;corner++){double px=rb_geom.x+(x+((corner&1)?1:0))*rb_geom.w/RB_GEOM_W,py=rb_geom.y+(y+((corner&2)?1:0))*rb_geom.h/RB_GEOM_H;
+     double inverse=qa*px+qb*py+qc;if(minInverse>inverse)minInverse=inverse;
+     for(j=0;j<f->count;j++){int next=(j+1)%f->count;double cross=((double)polygon[next][0]-polygon[j][0])*(py-polygon[j][1])-((double)polygon[next][1]-polygon[j][1])*(px-polygon[j][0]);if((area>0?cross:-cross)<=.001){inside=false;break;}}
+@@ -3497,12 +3516,17 @@
+ typedef struct {vec3_t low,high;} rb_order_bounds_t;
+ typedef struct {vec3_t low,high;unsigned int begin,count,left,right;} rb_order_tree_t;
+ static struct {
+- rb_order_bounds_t *bounds;rb_order_tree_t *tree;unsigned int *ids,*offsets,*counts,*neighbors,*local,*stamps;
++ rb_order_bounds_t *bounds;rb_order_tree_t *tree;unsigned int *ids,*offsets,*counts,*neighbors,*local,*stamps,*nodes;unsigned char *visible;unsigned int visibilityGeneration,gridOffset,gridRevision;int gridCompatible;
+  unsigned int total,used,capacity,stamp;float pad;unsigned int *ranks;float rankPad;qboolean building,useRanks;unsigned int viewGeneration,stableFrames;
+ } rb_order_cache;
+ static void RB_ClearOrderCache(void){
+- BZ_Free(rb_order_cache.ranks);BZ_Free(rb_order_cache.bounds);BZ_Free(rb_order_cache.tree);BZ_Free(rb_order_cache.ids);BZ_Free(rb_order_cache.offsets);BZ_Free(rb_order_cache.counts);BZ_Free(rb_order_cache.neighbors);BZ_Free(rb_order_cache.local);BZ_Free(rb_order_cache.stamps);memset(&rb_order_cache,0,sizeof(rb_order_cache));
+-}
++ BZ_Free(rb_order_cache.visible);BZ_Free(rb_order_cache.nodes);BZ_Free(rb_order_cache.ranks);BZ_Free(rb_order_cache.bounds);BZ_Free(rb_order_cache.tree);BZ_Free(rb_order_cache.ids);BZ_Free(rb_order_cache.offsets);BZ_Free(rb_order_cache.counts);BZ_Free(rb_order_cache.neighbors);BZ_Free(rb_order_cache.local);BZ_Free(rb_order_cache.stamps);memset(&rb_order_cache,0,sizeof(rb_order_cache));
++}
++typedef struct {rb_order_bounds_t *bounds;rb_order_tree_t *tree;unsigned int *ids,total,revision,offset,generation;unsigned char *visible;pubprogfuncs_t *vm;char *base;} rb_point_visibility_t;
++static rb_point_visibility_t rb_point_visibility[4];
++static void RB_FreePointVisibility(rb_point_visibility_t *snapshot){BZ_Free(snapshot->bounds);BZ_Free(snapshot->tree);BZ_Free(snapshot->ids);BZ_Free(snapshot->visible);memset(snapshot,0,sizeof(*snapshot));}
++static void RB_ClearPointVisibility(void){for(int i=0;i<4;i++)RB_FreePointVisibility(&rb_point_visibility[i]);}
++static qboolean RB_GridVisibilityCompatible(pubprogfuncs_t *vm,rb_grid_face_t *faces,unsigned int offset,unsigned int total,unsigned int revision);
+ static void RB_ClearMeshCache(unsigned int group)
+ {
+  rb_mesh_cache_t *cache=&rb_mesh_caches[group];
+@@ -3516,7 +3540,7 @@
+  }
+  BZ_Free(cache->indices);BZ_Free(cache->scratch);BZ_Free(cache->meshes);BZ_Free(cache->refs);memset(cache,0,sizeof(*cache));
+ }
+-void CSQC_ReyondBroomClearMeshes(void){BZ_Free(rb_label_draw_cache.items);memset(&rb_label_draw_cache,0,sizeof(rb_label_draw_cache));rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);BZ_Free(rb_face_draws);rb_face_draws=NULL;rb_face_draw_count=rb_face_draw_capacity=0;}
++void CSQC_ReyondBroomClearMeshes(void){RB_ClearPointVisibility();BZ_Free(rb_label_draw_cache.items);BZ_Free(rb_label_draw_cache.selected);memset(&rb_label_draw_cache,0,sizeof(rb_label_draw_cache));rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);BZ_Free(rb_face_draws);rb_face_draws=NULL;rb_face_draw_count=rb_face_draw_capacity=0;}
+ qboolean CSQC_ReyondBroomCachedBatch(void *opaque,unsigned int id)
+ {
+  unsigned int group=id>>16,slot=id&65535;batch_t *batch=opaque;
+@@ -3641,8 +3665,10 @@
+  qboolean reuse=previousFadeEnd==fadeEnd&&RB_CachedView(&rb_grid_cache,accessOffset,accessCount,params.flags);
+  if(reuse)count=rb_grid_cache.viewCount;
+  if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ qboolean sharedVisibility=RB_GridVisibilityCompatible(vm,faces,offset,total,revision);
+  if(!reuse){
+  for(unsigned int i=0;i<total;i++) {
++  if(sharedVisibility&&!rb_order_cache.visible[i])continue;
+   rb_grid_face_t *face=&faces[i];vec3_t delta;float depth,extent;if(face->occluder&8)continue;
+   if(face->node!=previous){previous=face->node;allowed=face->node>=0&&(unsigned int)face->node<accessCount&&(access[face->node]&1);if(allowed){VectorSubtract(bounds[face->node*2],r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=bounds[face->node*2+1][0];if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))allowed=0;}}
+   if(allowed&&RB_OccludedSphere(face->node,bounds[face->node*2],bounds[face->node*2+1][0]))allowed=0;
+@@ -3823,14 +3849,59 @@
+ // graph; an edited source, material rebuild or renderer reset clears the cache.
+ static void RB_PrepareOrderCache(rb_mesh_cache_t *cache,editorqcface_t *faces,unsigned int total){
+  if(rb_order_cache.total)return;
+- rb_order_cache.total=total;rb_order_cache.bounds=BZ_Malloc(total*sizeof(*rb_order_cache.bounds));rb_order_cache.tree=BZ_Malloc(total*2*sizeof(*rb_order_cache.tree));rb_order_cache.ids=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.offsets=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.counts=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.local=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.stamps=BZ_Malloc(total*sizeof(unsigned int));
++ rb_order_cache.total=total;rb_order_cache.visible=BZ_Malloc(total);rb_order_cache.nodes=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.bounds=BZ_Malloc(total*sizeof(*rb_order_cache.bounds));rb_order_cache.tree=BZ_Malloc(total*2*sizeof(*rb_order_cache.tree));rb_order_cache.ids=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.offsets=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.counts=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.local=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.stamps=BZ_Malloc(total*sizeof(unsigned int));
+  memset(rb_order_cache.counts,255,total*sizeof(unsigned int));memset(rb_order_cache.stamps,0,total*sizeof(unsigned int));
+  for(unsigned int i=0;i<total;i++){
+-  rb_order_cache.ids[i]=i;rb_order_bounds_t *b=&rb_order_cache.bounds[i];for(int a=0;a<3;a++){b->low[a]=1e30f;b->high[a]=-1e30f;}
++  rb_order_cache.ids[i]=i;rb_order_cache.nodes[i]=faces[i].node;rb_order_bounds_t *b=&rb_order_cache.bounds[i];for(int a=0;a<3;a++){b->low[a]=1e30f;b->high[a]=-1e30f;}
+   rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];
+   for(int v=0;v<faces[i].count;v++)for(int a=0;a<3;a++){float x=m->mesh.xyz_array[ref.base+v][a];if(x<b->low[a])b->low[a]=x;if(x>b->high[a])b->high[a]=x;}
+  }
+  rb_order_bounds=rb_order_cache.bounds;unsigned int used=0;RB_OrderTree(rb_order_cache.tree,&used,rb_order_cache.ids,0,total);
++}
++// A spatial branch is rejected only when its complete expanded box is hidden
++// or outside the frustum. Leaves retain the existing exact per-object tests.
++static void RB_VisitVisibility(rb_order_tree_t *tree,unsigned int *ids,unsigned int index,unsigned char *visible,qboolean frustum,const float *forward,const float *right,const float *up,float tx,float ty){
++ rb_order_tree_t *node=&tree[index];vec3_t center,extent,delta;float squared=0,cube=0;
++ for(int a=0;a<3;a++){center[a]=(node->low[a]+node->high[a])*.5f;extent[a]=fmaxf(fabsf(node->low[a]-center[a]),fabsf(node->high[a]-center[a]))+.1f;squared+=extent[a]*extent[a];if(cube<extent[a])cube=extent[a];}
++ if(frustum){float radius=sqrtf(squared),depth;VectorSubtract(center,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))return;}
++ if(RB_OccludedSphere(-1,center,cube))return;
++ if(node->count){for(unsigned int i=node->begin;i<node->begin+node->count;i++)visible[ids[i]]=1;return;}
++ RB_VisitVisibility(tree,ids,node->left,visible,frustum,forward,right,up,tx,ty);RB_VisitVisibility(tree,ids,node->right,visible,frustum,forward,right,up,tx,ty);
++}
++static void RB_PrepareFaceVisibility(void){
++ if(!rb_geom.valid)return;if(rb_order_cache.visibilityGeneration==rb_geom.generation)return;
++ vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);float tx=tan(r_refdef.fov_x*M_PI/360),ty=tan(r_refdef.fov_y*M_PI/360);
++ memset(rb_order_cache.visible,0,rb_order_cache.total);RB_VisitVisibility(rb_order_cache.tree,rb_order_cache.ids,0,rb_order_cache.visible,true,forward,right,up,tx,ty);rb_order_cache.visibilityGeneration=rb_geom.generation;
++}
++static qboolean RB_GridVisibilityCompatible(pubprogfuncs_t *vm,rb_grid_face_t *faces,unsigned int offset,unsigned int total,unsigned int revision){
++ if(!rb_geom.valid||!rb_order_cache.total||rb_order_cache.total!=total||rb_order_cache.visibilityGeneration!=rb_geom.generation||rb_mesh_caches[2].vm!=vm||rb_mesh_caches[2].base!=vm->stringtable)return false;
++ if(rb_order_cache.gridOffset!=offset||rb_order_cache.gridRevision!=revision){
++  rb_order_cache.gridOffset=offset;rb_order_cache.gridRevision=revision;rb_order_cache.gridCompatible=true;
++  for(unsigned int i=0;i<total&&rb_order_cache.gridCompatible;i++){
++   rb_grid_face_t *f=&faces[i];rb_order_bounds_t *b=&rb_order_cache.bounds[i];if(rb_order_cache.nodes[i]!=(unsigned int)f->node||!RB_QCBuffer(vm,f->points,f->count,sizeof(vec3_t))){rb_order_cache.gridCompatible=false;break;}
++   vec3_t *points=(vec3_t*)(vm->stringtable+f->points);for(int v=0;v<f->count;v++)for(int a=0;a<3;a++)if(points[v][a]<b->low[a]-.05f||points[v][a]>b->high[a]+.05f)rb_order_cache.gridCompatible=false;
++  }
++ }
++ return rb_order_cache.gridCompatible;
++}
++static unsigned char *RB_PointVisibility(pubprogfuncs_t *vm,unsigned int offset,unsigned int total,unsigned int revision){
++ if(!rb_geom.valid||!revision||total<10000)return NULL;
++ rb_point_visibility_t *snapshot=NULL;static unsigned int nextSlot;
++ for(int i=0;i<4;i++)if(rb_point_visibility[i].vm==vm&&rb_point_visibility[i].offset==offset){snapshot=&rb_point_visibility[i];break;}
++ if(!snapshot){for(int i=0;i<4;i++)if(!rb_point_visibility[i].total){snapshot=&rb_point_visibility[i];break;}if(!snapshot)snapshot=&rb_point_visibility[nextSlot++%4];}
++ editorqcpoint_t *points=(editorqcpoint_t*)(vm->stringtable+offset);
++ if(snapshot->vm!=vm||snapshot->base!=vm->stringtable||snapshot->offset!=offset||snapshot->total!=total||snapshot->revision!=revision){
++  RB_FreePointVisibility(snapshot);snapshot->vm=vm;snapshot->base=vm->stringtable;snapshot->offset=offset;snapshot->total=total;snapshot->revision=revision;
++  snapshot->bounds=BZ_Malloc(total*sizeof(*snapshot->bounds));snapshot->tree=BZ_Malloc(total*2*sizeof(*snapshot->tree));snapshot->ids=BZ_Malloc(total*sizeof(unsigned int));snapshot->visible=BZ_Malloc(total);
++  for(unsigned int i=0;i<total;i++){snapshot->ids[i]=i;for(int a=0;a<3;a++){snapshot->bounds[i].low[a]=points[i].center[a]-points[i].radius;snapshot->bounds[i].high[a]=points[i].center[a]+points[i].radius;}}
++  rb_order_bounds=snapshot->bounds;unsigned int used=0;RB_OrderTree(snapshot->tree,&used,snapshot->ids,0,total);
++ }
++ if(snapshot->generation!=rb_geom.generation){
++  // Animated models keep their established per-model frustum policy. This
++  // branch only applies an occlusion proof enclosing every existing proxy.
++  vec3_t zero={0};memset(snapshot->visible,0,total);RB_VisitVisibility(snapshot->tree,snapshot->ids,0,snapshot->visible,false,zero,zero,zero,0,0);snapshot->generation=rb_geom.generation;
++ }
++ return snapshot->visible;
+ }
+ static qboolean RB_OrderNeighbors(unsigned int source,float pad){
+  if(pad>rb_order_cache.pad){rb_order_cache.pad=ceilf(pad/4)*4;rb_order_cache.used=0;memset(rb_order_cache.counts,255,rb_order_cache.total*sizeof(unsigned int));}
+@@ -3846,10 +3917,21 @@
+  }
+  rb_order_cache.offsets[source]=begin;rb_order_cache.counts[source]=rb_order_cache.used-begin;return true;
+ }
+-static rb_face_draw_t *rb_rank_runs;
+-static int RB_OrderRankCompare(const void *a,const void *b){unsigned int x=*(const unsigned int*)a,y=*(const unsigned int*)b;unsigned int rx=rb_order_cache.ranks[rb_rank_runs[x].source],ry=rb_order_cache.ranks[rb_rank_runs[y].source];return rx<ry?-1:rx>ry;}
++// Rank keys fit twenty bits (the validated snapshot limit is 500,000 faces).
++// Two stable radix passes avoid comparator calls and random source lookups.
++static void RB_OrderByRank(rb_face_draw_t *runs,unsigned int count,unsigned int *order){
++ unsigned int *keys=BZ_Malloc(count*sizeof(*keys)),*temporary=BZ_Malloc(count*sizeof(*temporary));
++ for(unsigned int i=0;i<count;i++){keys[i]=rb_order_cache.ranks[runs[i].source];order[i]=i;}
++ for(unsigned int shift=0;shift<20;shift+=10){
++  unsigned int buckets[1024]={0},sum=0;unsigned int *input=shift?temporary:order,*output=shift?order:temporary;
++  for(unsigned int i=0;i<count;i++)buckets[(keys[input[i]]>>shift)&1023]++;
++  for(unsigned int i=0;i<1024;i++){unsigned int n=buckets[i];buckets[i]=sum;sum+=n;}
++  for(unsigned int i=0;i<count;i++){unsigned int id=input[i];output[buckets[(keys[id]>>shift)&1023]++]=id;}
++ }
++ BZ_Free(temporary);BZ_Free(keys);
++}
+ static qboolean RB_OrderSpan(rb_face_draw_t *runs,unsigned int count,unsigned int *order){
+- if(rb_order_cache.ranks&&rb_order_cache.useRanks&&!rb_order_cache.building){qboolean ranked=true;for(unsigned int i=0;i<count;i++){order[i]=i;if(runs[i].source>=rb_order_cache.total)ranked=false;}if(ranked){rb_rank_runs=runs;qsort(order,count,sizeof(*order),RB_OrderRankCompare);return true;}}
++ if(rb_order_cache.ranks&&rb_order_cache.useRanks&&!rb_order_cache.building){qboolean ranked=true;for(unsigned int i=0;i<count;i++){order[i]=i;if(runs[i].source>=rb_order_cache.total)ranked=false;}if(ranked){RB_OrderByRank(runs,count,order);return true;}}
+  const unsigned int none=~0u;unsigned int hashSize=1;while(hashSize<count*2)hashSize*=2;
+  unsigned int *hash=BZ_Malloc(hashSize*sizeof(*hash)),*group=BZ_Malloc(count*sizeof(*group)),*head=BZ_Malloc(count*sizeof(*head)),*last=BZ_Malloc(count*sizeof(*last)),*next=BZ_Malloc(count*sizeof(*next)),*indegree=BZ_Malloc(count*sizeof(*indegree)),*links=BZ_Malloc(count*sizeof(*links)),*ids=BZ_Malloc(count*sizeof(*ids)),*queue=BZ_Malloc(count*2*sizeof(*queue)),*ready=BZ_Malloc(count*sizeof(*ready));memset(ready,0,count*sizeof(*ready));unsigned char *queued=BZ_Malloc(count);rb_order_tree_t *tree=BZ_Malloc(count*2*sizeof(*tree));rb_order_edge_t *edges=NULL;
+  memset(hash,255,hashSize*sizeof(*hash));memset(head,255,count*sizeof(*head));memset(last,255,count*sizeof(*last));memset(next,255,count*sizeof(*next));memset(indegree,0,count*sizeof(*indegree));memset(links,255,count*sizeof(*links));memset(queued,0,count);
+@@ -3867,7 +3949,7 @@
+  // and the editor's near plane of four units. This also protects intersecting edges.
+  vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);double farSquared=0;for(unsigned int i=0;i<count;i++){double distance=0;for(int a=0;a<3;a++){double lo=((double)runs[i].low[a]-r_refdef.vieworg[a])*forward[a],hi=((double)runs[i].high[a]-r_refdef.vieworg[a])*forward[a];distance+=lo>hi?lo:hi;}if(distance>0&&distance*distance>farSquared)farSquared=distance*distance;}
+  float pad=.01f+farSquared/16777216.0;if(rb_order_cache.building)pad=rb_order_cache.rankPad;
+- if(retained&&rb_order_cache.ranks&&rb_order_cache.useRanks&&!rb_order_cache.building&&pad<=rb_order_cache.rankPad){for(unsigned int i=0;i<count;i++)order[i]=i;rb_rank_runs=runs;qsort(order,count,sizeof(*order),RB_OrderRankCompare);BZ_Free(bounds);BZ_Free(edges);BZ_Free(tree);BZ_Free(queued);BZ_Free(ready);BZ_Free(queue);BZ_Free(ids);BZ_Free(links);BZ_Free(indegree);BZ_Free(next);BZ_Free(last);BZ_Free(head);BZ_Free(group);BZ_Free(hash);return true;}
++ if(retained&&rb_order_cache.ranks&&rb_order_cache.useRanks&&!rb_order_cache.building&&pad<=rb_order_cache.rankPad){for(unsigned int i=0;i<count;i++)order[i]=i;RB_OrderByRank(runs,count,order);BZ_Free(bounds);BZ_Free(edges);BZ_Free(tree);BZ_Free(queued);BZ_Free(ready);BZ_Free(queue);BZ_Free(ids);BZ_Free(links);BZ_Free(indegree);BZ_Free(next);BZ_Free(last);BZ_Free(head);BZ_Free(group);BZ_Free(hash);return true;}
+  if(retained){
+   if(!++rb_order_cache.stamp){memset(rb_order_cache.stamps,0,rb_order_cache.total*sizeof(unsigned int));rb_order_cache.stamp=1;}
+   for(unsigned int i=0;i<count;i++){unsigned int source=runs[i].source;rb_order_cache.local[source]=i;rb_order_cache.stamps[source]=rb_order_cache.stamp;}
+@@ -3903,41 +3985,55 @@
+  rb_order_last_edges+=edgeCount;
+  BZ_Free(bounds);BZ_Free(edges);BZ_Free(tree);BZ_Free(queued);BZ_Free(ready);BZ_Free(queue);BZ_Free(ids);BZ_Free(links);BZ_Free(indegree);BZ_Free(next);BZ_Free(last);BZ_Free(head);BZ_Free(group);BZ_Free(hash);return valid;
+ }
++// Generated translucent helpers are in a later backend sort bucket. They do
++// not break opaque order; their own relative order is kept exactly as submitted.
++static qboolean RB_DeferredTransparent(const rb_face_draw_t *run){
++ shader_t *shader=run->shader;return run->slot!=~0u&&shader&&run->flags==BEF_NOSHADOWS&&shader->sort>SHADER_SORT_OPAQUE&&shader->numpasses==1&&!strncmp(shader->name,"ftebroom/filtered/",18);
++}
+ static void RB_PrepareOrderRanks(rb_mesh_cache_t *cache,editorqcface_t *faces,unsigned int total){
+  vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);double farSquared=0;
+  double distance=0;rb_order_tree_t *b=&rb_order_cache.tree[0];for(int a=0;a<3;a++){double lo=((double)b->low[a]-r_refdef.vieworg[a])*forward[a],hi=((double)b->high[a]-r_refdef.vieworg[a])*forward[a];distance+=lo>hi?lo:hi;}if(distance>0)farSquared=distance*distance;
+  float pad=.01f+farSquared/16777216.0;if(rb_order_cache.ranks&&pad<=rb_order_cache.rankPad)return;
+  if(!rb_order_cache.ranks)rb_order_cache.ranks=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.rankPad=ceilf(pad/4)*4;rb_order_cache.building=true;
+- rb_face_draw_t *runs=BZ_Malloc(total*sizeof(*runs));unsigned int *order=BZ_Malloc(total*sizeof(*order));
++ rb_face_draw_t *runs=BZ_Malloc(total*sizeof(*runs)),*opaque=BZ_Malloc(total*sizeof(*opaque));unsigned int *order=BZ_Malloc(total*sizeof(*order));
+  for(unsigned int i=0;i<total;i++){rb_face_draw_t *r=&runs[i];memset(r,0,sizeof(*r));rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];r->source=i;r->slot=ref.slot;r->shader=m->shader;r->flags=m->pass;r->batchable=faces[i].alpha==1&&RB_BatchableMaterial(m->shader,m->pass);VectorCopy(rb_order_cache.bounds[i].low,r->low);VectorCopy(rb_order_cache.bounds[i].high,r->high);rb_order_cache.ranks[i]=i;}
+- // Every custom/transparent source is an ordering barrier, even while culled.
+- for(unsigned int begin=0;begin<total;){if(!runs[begin].batchable){begin++;continue;}unsigned int end=begin+1;while(end<total&&runs[end].batchable)end++;unsigned int length=end-begin;if(RB_OrderSpan(runs+begin,length,order))for(unsigned int i=0;i<length;i++)rb_order_cache.ranks[begin+order[i]]=begin+i;begin=end;}
+- rb_order_cache.building=false;BZ_Free(order);BZ_Free(runs);
++ for(unsigned int begin=0;begin<total;){
++  if(!runs[begin].batchable&&!RB_DeferredTransparent(&runs[begin])){begin++;continue;}
++  unsigned int end=begin,count=0;while(end<total&&(runs[end].batchable||RB_DeferredTransparent(&runs[end]))){if(runs[end].batchable)opaque[count++]=runs[end];end++;}
++  if(count>1&&RB_OrderSpan(opaque,count,order))for(unsigned int i=0;i<count;i++)rb_order_cache.ranks[opaque[order[i]].source]=opaque[i].source;
++  begin=end;
++ }
++ rb_order_cache.building=false;BZ_Free(order);BZ_Free(opaque);BZ_Free(runs);
++}
++static void RB_AppendOrderedRun(rb_mesh_cache_t *cache,rb_face_draw_t *output,unsigned int *outCount,index_t *indices,unsigned int *cursor,rb_face_draw_t *r){
++ rb_cached_mesh_t *m=&cache->meshes[r->slot];unsigned int offset=cursor[r->slot];cursor[r->slot]+=r->count;
++ memcpy(indices+(m->scratch-cache->scratch)+offset,m->scratch+r->offset,r->count*sizeof(index_t));
++ rb_face_draw_t *o=*outCount?&output[*outCount-1]:NULL;
++ if(o&&o->slot==r->slot&&o->shader==r->shader&&o->flags==r->flags&&o->offset+o->count==offset)o->count+=r->count;
++ else{output[*outCount]=*r;output[(*outCount)++].offset=offset;}
+ }
+ static void RB_BatchOpaqueRuns(rb_mesh_cache_t *cache){
+  unsigned int count=rb_face_draw_count,outCount=0;rb_order_last_edges=0;if(count<2)return;
+- rb_face_draw_t *output=BZ_Malloc(count*sizeof(*output));index_t *indices=BZ_Malloc(cache->indexCapacity*sizeof(*indices));unsigned int *cursor=BZ_Malloc(cache->count*sizeof(*cursor)),*order=BZ_Malloc(count*sizeof(*order));memset(cursor,0,cache->count*sizeof(*cursor));
++ rb_face_draw_t *output=BZ_Malloc(count*sizeof(*output)),*opaque=BZ_Malloc(count*sizeof(*opaque));index_t *indices=BZ_Malloc(cache->indexCapacity*sizeof(*indices));unsigned int *cursor=BZ_Malloc(cache->count*sizeof(*cursor)),*order=BZ_Malloc(count*sizeof(*order));memset(cursor,0,cache->count*sizeof(*cursor));
+  for(unsigned int begin=0;begin<count;){
+   rb_face_draw_t *first=&rb_face_draws[begin];if(first->slot==~0u){output[outCount++]=*first;begin++;continue;}
+-  unsigned int end=begin+1;if(first->batchable)while(end<count&&rb_face_draws[end].slot!=~0u&&rb_face_draws[end].batchable)end++;
+-  unsigned int length=end-begin;for(unsigned int i=0;i<length;i++)order[i]=i;
+-  if(length>1&&!RB_OrderSpan(rb_face_draws+begin,length,order))for(unsigned int i=0;i<length;i++)order[i]=i;
+-  for(unsigned int i=0;i<length;i++){
+-   rb_face_draw_t *r=&rb_face_draws[begin+order[i]];rb_cached_mesh_t *m=&cache->meshes[r->slot];unsigned int offset=cursor[r->slot];cursor[r->slot]+=r->count;
+-   memcpy(indices+(m->scratch-cache->scratch)+offset,m->scratch+r->offset,r->count*sizeof(index_t));
+-   rb_face_draw_t *o=outCount?&output[outCount-1]:NULL;
+-   if(o&&o->slot==r->slot&&o->shader==r->shader&&o->flags==r->flags&&o->offset+o->count==offset)o->count+=r->count;
+-   else{output[outCount]=*r;output[outCount++].offset=offset;}
+-  }
++  if(!first->batchable&&!RB_DeferredTransparent(first)){RB_AppendOrderedRun(cache,output,&outCount,indices,cursor,first);begin++;continue;}
++  unsigned int end=begin,length=0;while(end<count&&rb_face_draws[end].slot!=~0u&&(rb_face_draws[end].batchable||RB_DeferredTransparent(&rb_face_draws[end]))){if(rb_face_draws[end].batchable)opaque[length++]=rb_face_draws[end];end++;}
++  for(unsigned int i=0;i<length;i++)order[i]=i;
++  if(length>1&&!RB_OrderSpan(opaque,length,order))for(unsigned int i=0;i<length;i++)order[i]=i;
++  for(unsigned int i=0;i<length;i++)RB_AppendOrderedRun(cache,output,&outCount,indices,cursor,&opaque[order[i]]);
++  for(unsigned int i=begin;i<end;i++)if(!rb_face_draws[i].batchable)RB_AppendOrderedRun(cache,output,&outCount,indices,cursor,&rb_face_draws[i]);
+   begin=end;
+  }
+  for(unsigned int i=0;i<cache->count;i++){rb_cached_mesh_t *m=&cache->meshes[i];memcpy(m->scratch,indices+(m->scratch-cache->scratch),m->pending*sizeof(index_t));}
+- memcpy(rb_face_draws,output,outCount*sizeof(*output));rb_face_draw_count=outCount;rb_order_last_runs=outCount;BZ_Free(order);BZ_Free(cursor);BZ_Free(indices);BZ_Free(output);
++ memcpy(rb_face_draws,output,outCount*sizeof(*output));rb_face_draw_count=outCount;rb_order_last_runs=outCount;BZ_Free(order);BZ_Free(cursor);BZ_Free(indices);BZ_Free(opaque);BZ_Free(output);
+ }
+ 
+ // Retain face attributes without changing primitive order or shader state.
+ static void QCBUILTIN PF_ReyondBroom_DrawFacesCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+ {
++ qboolean profile83=Cvar_VariableValue("ftebroom_native_profile")!=0;
++ double tick83=profile83?Sys_DoubleTime():0,stages83[7]={0};
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),revision=G_INT(OFS_PARM5);
+  rb_incremental_config_t edited=vm->callargc>6?RB_IncrementalConfig(vm,G_INT(OFS_PARM6)):(rb_incremental_config_t){0};
+  unsigned int deltaAt=0;
+@@ -3979,6 +4075,7 @@
+   valid=RB_CacheGeometry(vm,2,offset,total,revision,sources,total);BZ_Free(sources);
+   if(!valid){memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));return;}
+  }
++ if(profile83){stages83[0]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  for(unsigned int i=0;i<cache->count;i++){
+   rb_cached_mesh_t *m=&cache->meshes[i];unsigned int slot=((unsigned int)m->key*2654435761u)&8191;
+   while(names[slot].generation==generation&&names[slot].name!=m->key)slot=(slot+1)&8191;
+@@ -3987,10 +4084,11 @@
+  if(r_refdef.dirty)V_ApplyRefdef();vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);float tx=tan(r_refdef.fov_x*M_PI/360),ty=tan(r_refdef.fov_y*M_PI/360);
+  for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
+  int batchMode=Cvar_VariableValue("ftebroom_opaque_batches")!=0;
+- if(batchMode){RB_PrepareOrderCache(cache,faces,total);RB_PrepareOrderRanks(cache,faces,total);
++ if(batchMode){RB_PrepareOrderCache(cache,faces,total);RB_PrepareOrderRanks(cache,faces,total);RB_PrepareFaceVisibility();
+   if(rb_order_cache.viewGeneration==rb_geom.generation)rb_order_cache.stableFrames++;else rb_order_cache.stableFrames=0;
+   rb_order_cache.viewGeneration=rb_geom.generation;rb_order_cache.useRanks=rb_order_cache.stableFrames<3;
+  }
++ if(profile83){stages83[1]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  int scheduleFlags=batchMode|(batchMode&&rb_order_cache.useRanks?2:0);
+  qboolean reuse=RB_CachedView(cache,accessOffset,accessCount,scheduleFlags);
+  int previous=-1,visible=false,drawn=reuse?cache->viewCount:0;
+@@ -3999,6 +4097,7 @@
+  for(unsigned int i=0;i<total;i++){
+   editorqcface_t *f=&faces[i];vec3_t delta;float depth,radius;
+   unsigned int begin=deltaAt;while(deltaAt<edited.faceCount&&((editorqcface_t*)(vm->stringtable+edited.faces))[deltaAt].node<=f->node)deltaAt++;RB_IncrementalMarker(begin,deltaAt);
++  if(batchMode&&rb_geom.valid&&!rb_order_cache.visible[i])continue;
+   if(f->node!=previous){previous=f->node;visible=f->enabled&&f->node>=0&&(unsigned int)f->node<accessCount&&(access[f->node]&1)&&(f->enabled!=2||(access[f->node]&16));VectorSubtract(f->brushCenter,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=f->brushRadius;if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))visible=false;}
+   if(visible&&RB_OccludedSphere(f->node,f->brushCenter,f->brushRadius))visible=false;
+   if(!visible){if(f->brushEnd>(int)i&&(unsigned int)f->brushEnd<=total)i=f->brushEnd-1;continue;}
+@@ -4030,11 +4129,14 @@
+   run=&rb_face_draws[rb_face_draw_count-1];if(batchMode){VectorCopy(rb_order_cache.bounds[i].low,run->low);VectorCopy(rb_order_cache.bounds[i].high,run->high);}
+   drawn++;
+  }
++ if(profile83){stages83[2]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  RB_IncrementalMarker(deltaAt,edited.faceCount);
+  if(valid&&batchMode)RB_BatchOpaqueRuns(cache);
++ if(profile83){stages83[3]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  if(rb_face_draw_count>65536)valid=false;
+  if(valid){RB_CachedIndices(cache);cache->viewValid=rb_geom.valid;cache->viewGeneration=rb_geom.generation;cache->viewFlags=scheduleFlags;cache->viewCount=drawn;}
+  }
++ if(profile83){stages83[4]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  if(valid){
+   if(R2D_Flush)R2D_Flush();
+   for(unsigned int i=0;i<rb_face_draw_count;i++){
+@@ -4045,7 +4147,9 @@
+    scenetris_t *t=&cl_stris[cl_numstris++];t->shader=run->shader;t->flags=run->flags;t->firstvert=-1-(int)(196608+i);t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=run->count;
+   }
+  }
++ if(profile83){stages83[5]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=valid?drawn:-1;
++ static double sums83[7];static int frames83;if(profile83){for(int k=0;k<6;k++)sums83[k]+=stages83[k];if(++frames83==100){Con_Printf("RB_NATIVE_PROFILE resolve %.3f ranks %.3f cull %.3f order %.3f upload %.3f submit %.3f runs %u\n",sums83[0]*10,sums83[1]*10,sums83[2]*10,sums83[3]*10,sums83[4]*10,sums83[5]*10,rb_face_draw_count);memset(sums83,0,sizeof(sums83));frames83=0;}}
+ }
+ 
+ // ReyondBroom bulk overlay passes end.
+--- a/engine/gl/gl_shader.c
++++ b/engine/gl/gl_shader.c
+@@ -283,6 +283,18 @@
+ } shadercache_t;
+ 
+ static shadercachefile_t *shaderfiles;	//contents of a .shader file
++// Shader source names are compared without case. Their bucket key must use
++// the same rule, including mixed-case texture names imported from Quake WADs.
++static unsigned int Shader_SourceKey(const char *name, unsigned int modulus)
++{
++    unsigned int key=0;
++    for(;*name;name++){
++        unsigned char c=(unsigned char)*name;
++        if(c>='A'&&c<='Z')c+='a'-'A';
++        key+=((key<<3)+(key>>28)+c);
++    }
++    return key%modulus;
++}
+ static shadercache_t **shader_hash;		//locations of known inactive shaders.
+ 
+ unsigned int r_numshaders;	//number of active slots in r_shaders array.
+@@ -4569,7 +4581,7 @@
+ 			continue;
+ 		}
+ 
+-		key = Hash_Key ( token, HASH_SIZE );
++		key = Shader_SourceKey ( token, HASH_SIZE );
+ 
+ 		cache = ( shadercache_t * )Z_Malloc(sizeof(shadercache_t) + strlen(token));
+ 		strcpy(cache->name, token);
+@@ -4588,7 +4600,7 @@
+ 	unsigned int key;
+ 	shadercache_t *cache;
+ 
+-	key = Hash_Key ( name, HASH_SIZE );
++	key = Shader_SourceKey ( name, HASH_SIZE );
+ 	cache = shader_hash[key];
+ 
+ 	for ( ; cache; cache = cache->hash_next )
+@@ -8265,7 +8277,7 @@
+ 		{
+ 			unsigned int key;
+ 			shadercache_t *cache;
+-			key = Hash_Key (parsename, HASH_SIZE);
++			key = Shader_SourceKey (parsename, HASH_SIZE);
+ 			cache = shader_hash[key];
+ 			for ( ; cache; cache = cache->hash_next)
+ 			{

@@ -292,3 +292,14 @@ Bevel supports inward and asymmetric edge profiles and retained offcuts. [Usage,
 ## Symmetry settings and existing copies
 
 **Edit → Symmetry → Settings…** controls placement, guides and relinking. [Workflow, limits and checks](alpha54.md).
+
+## Entity label distance
+
+**Map → View options → Entity label distance** defaults to 768 world units.
+Labels fade over the last 128 units. Set `0` for unlimited distance. Selected
+entity/container labels are exempt from the distance limit; occluding surfaces
+still hide them. Orthographic views retain their normal unrestricted labels.
+This affects labels only, never geometry, entity models, bounds or texture detail.
+
+See [alpha.83 performance and validation](performance-alpha83.md) for large-map
+navigation measurements and the startup brush / mixed-case WAD fixes.

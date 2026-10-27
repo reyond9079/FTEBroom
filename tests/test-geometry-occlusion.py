@@ -80,6 +80,12 @@ int main(void){
   }tested++;
  }
  assert(inclined>1000);hidden+=inclined;
+ // Wide polygons must occlude even when their conservative sphere crosses
+ // the near plane; every actual vertex is still safely in front of it.
+ for(int i=0;i<4;i++){points[i][0]=vertices[i][0]*100;points[i][1]=vertices[i][1]*100;points[i][2]=16;}
+ f->normal[0]=0;f->normal[2]=-1;f->radius=sqrtf(320000);G_INT(OFS_PARM6)++;PF_ReyondBroom_PrepareGeometry(&vm,pr_globals);center[0]=center[1]=0;center[2]=24;assert(RB_OccludedSphere(2,center,1));
+ // A true near-plane crossing still cannot establish full polygon coverage.
+ points[0][2]=2;G_INT(OFS_PARM6)++;PF_ReyondBroom_PrepareGeometry(&vm,pr_globals);assert(!RB_OccludedSphere(2,center,1));points[0][2]=16;
  f->occluder=2;G_INT(OFS_PARM6)++;PF_ReyondBroom_PrepareGeometry(&vm,pr_globals);center[0]=center[1]=0;center[2]=24;assert(!RB_OccludedSphere(2,center,1));
  f->occluder=3;access[2]=1;G_INT(OFS_PARM6)++;PF_ReyondBroom_PrepareGeometry(&vm,pr_globals);assert(!RB_OccludedSphere(2,center,1));
  access[2]=5;f->count=2;G_INT(OFS_PARM6)++;PF_ReyondBroom_PrepareGeometry(&vm,pr_globals);assert(!RB_OccludedSphere(2,center,1));

@@ -1,3 +1,9 @@
+var float autocvar_ftebroom_label_distance=768;
+float fb_label_alpha(vector point,int selected,int ortho)
+{
+    if(ortho || selected || autocvar_ftebroom_label_distance<=0)return 1;
+    return bound(0,(autocvar_ftebroom_label_distance-vlen(point-getproperty(VF_ORIGIN)))/128,1);
+}
 var float autocvar_ftebroom_label_cache=1;
 int fb_filter_epoch,fb_visibility_epoch,fb_transform_preview;
 float fb_active;
@@ -291,7 +297,7 @@ void fb_pick_draw_entities_uncached(int labelsOnly)
             float width=strlen(item.name)*8;
             if(pixel_x+width<mn_x || pixel_y+8<mn_y || pixel_x>=mn_x+sz_x || pixel_y>=mn_y+sz_y)continue;
             if(!ortho){float startTrace=profileLabels?gettime(1):0;int visible=fb_label_visible(eye,label,node);if(profileLabels)fb_label_trace_seconds+=gettime(1)-startTrace;if(!visible)continue;}
-            float startText=profileLabels?gettime(1):0;drawstring(pixel,item.name,'8 8 0',colour,1,0);if(profileLabels)fb_label_draw_seconds+=gettime(1)-startText;continue;
+            float startText=profileLabels?gettime(1):0;drawstring(pixel,item.name,'8 8 0',colour,fb_label_alpha(label,fb_entity_selected(item.id),ortho),0);if(profileLabels)fb_label_draw_seconds+=gettime(1)-startText;continue;
         }
         fb_point_draw_ids[drawCount]=item.id;fb_point_draw_colors[drawCount++]=colour;
     }
@@ -314,7 +320,7 @@ fb_point_render_t *fb_point_render;int fb_point_render_count;
 var float autocvar_ftebroom_point_cache=1;
 var float autocvar_ftebroom_native_overlays=1;
 var float autocvar_ftebroom_cached_meshes=1;
-vector(fb_point_render_t *points,int count,int stride,int mode,int revision) ftebroom_draw_labels=#0:ftebroom_draw_labels;
+vector(fb_point_render_t *points,int count,int stride,int mode,int revision,int *selectedEntities,int selectedCount) ftebroom_draw_labels=#0:ftebroom_draw_labels;
 typedef struct {trisoup_simple_vert_t *solid;trisoup_simple_vert_t *wire;int model;} fb_point_geometry_t;
 typedef struct {int stride,flags;string solidShader,wireShader;int *solidIndices;int *wireIndices;int wireFlags;int revision;} fb_point_params_t;
 int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_point_params_t *params) ftebroom_draw_point_boxes=#0:ftebroom_draw_point_boxes;
@@ -322,7 +328,7 @@ int(fb_point_geometry_t *geometry,int total,int *visible,int visibleCount,fb_poi
 int fb_point_upload_epoch;
 fb_point_geometry_t *fb_point_geometry;int *fb_point_models;int fb_point_model_count;
 
-int(fb_point_render_t *points,int count,int *indices,int stride) ftebroom_cull_points=#0:ftebroom_cull_points;
+int(fb_point_render_t *points,int count,int *indices,int stride,int revision) ftebroom_cull_points=#0:ftebroom_cull_points;
 int *fb_point_visible;int fb_point_visible_capacity;
 void fb_point_render_prepare()
 {
@@ -363,7 +369,7 @@ void fb_pick_draw_entities(int labelsOnly)
     fb_point_render_prepare();
     cvar_set("ftebroom_selected_entity",fb_entity_classname(fb_selected_entity()));
     if(labelsOnly && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_labels)){
-        float nativeStarted=gettime(1);vector result=ftebroom_draw_labels(fb_point_render,fb_point_render_count,sizeof(fb_point_render_t),ortho?1:0,fb_point_upload_epoch);
+        float nativeStarted=gettime(1);vector result=ftebroom_draw_labels(fb_point_render,fb_point_render_count,sizeof(fb_point_render_t),ortho?1:0,fb_point_upload_epoch,fb_selected_entities,fb_selected_entity_count);
         if(result_x>=0){fb_label_native_traces+=(int)result_y;if(cvar("ftebroom_benchmark"))fb_label_trace_seconds+=gettime(1)-nativeStarted;return;}
     }
     vector eye=getproperty(VF_ORIGIN),mn=getproperty(VF_MIN),sz=getproperty(VF_SIZE),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
@@ -375,7 +381,7 @@ void fb_pick_draw_entities(int labelsOnly)
     int drawCount=0,profileLabels=cvar("ftebroom_benchmark"),visibleCount=-1;
     if(!ortho && checkbuiltin(ftebroom_cull_points)){
         if(fb_point_visible_capacity<fb_point_render_count){fb_point_visible_capacity=fb_point_render_count;memfree(fb_point_visible);fb_point_visible=memalloc(max(1,fb_point_visible_capacity)*sizeof(int));}
-        visibleCount=ftebroom_cull_points(fb_point_render,fb_point_render_count,fb_point_visible,sizeof(fb_point_render_t));
+        visibleCount=ftebroom_cull_points(fb_point_render,fb_point_render_count,fb_point_visible,sizeof(fb_point_render_t),fb_point_upload_epoch);
     }
     if(!labelsOnly && !ortho && visibleCount>=0 && autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_point_boxes)){
         fb_point_params_t params;params.stride=sizeof(fb_point_geometry_t);params.flags=1|(wire?2:0)|(models?4:0);params.solidShader="ftebroom/entitysolid";params.wireShader=entityWire;params.solidIndices=fb_entity_box_triangles;params.wireIndices=bbox_line_idxs;params.wireFlags=3|DRAWFLAG_LINES;params.revision=fb_point_upload_epoch;
@@ -393,7 +399,7 @@ void fb_pick_draw_entities(int labelsOnly)
             vector pixel=project(item->label);pixel_z=0;
             if(pixel_x+strlen(item->name)*8<mn_x || pixel_y+8<mn_y || pixel_x>=mn_x+sz_x || pixel_y>=mn_y+sz_y)continue;
             if(!ortho){float startTrace=profileLabels?gettime(1):0;int visible=fb_label_visible(eye,item->label,item->node);if(profileLabels)fb_label_trace_seconds+=gettime(1)-startTrace;if(!visible)continue;}
-            drawstring(pixel,item->name,'8 8 0',item->color,1,0);
+            drawstring(pixel,item->name,'8 8 0',item->color,fb_label_alpha(item->label,fb_entity_selected(item->id),ortho),0);
         }else fb_point_draw_ids[drawCount++]=entry;
     }
     if(!labelsOnly)for(int pass=0;pass<2;pass++){

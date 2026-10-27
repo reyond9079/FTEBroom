@@ -24,6 +24,7 @@ shim=r'''
 #define DotProduct(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
 typedef float vec3_t[3];typedef int qboolean;
 typedef struct {char *stringtable;unsigned int stringtablesize;int callargc;}pubprogfuncs_t;
+static unsigned char *RB_PointVisibility(pubprogfuncs_t *vm,unsigned int offset,unsigned int total,unsigned int revision){(void)vm;(void)offset;(void)total;(void)revision;return NULL;}
 struct globalvars_s {int words[64];};
 static struct {int dirty;vec3_t viewangles,vieworg;float fov_x,fov_y;}r_refdef;
 static int RB_QCBuffer(pubprogfuncs_t *vm,unsigned int p,unsigned int n,unsigned int stride){return p&&p<=vm->stringtablesize&&n<=(vm->stringtablesize-p)/stride;}

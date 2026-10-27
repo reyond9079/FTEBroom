@@ -7,12 +7,16 @@ from pathlib import Path
 shared = runpy.run_path(str(Path(__file__).with_name('test-cached-grid.py')))
 s, a = shared['s'], shared['a']
 face = s[s.index('typedef struct {\n int node,count,brushEnd,shader;'):s.index('typedef struct {unsigned int grid,gridCount,faces,faceCount,epoch;}')]
+face += '\n'+next(line for line in s.splitlines() if line.startswith('typedef struct {int node,id,model;vec3_t center,label,color;float radius;int name;}'))+'\n'
 function = s[s.index('static void RB_IncrementalMarker'):s.index('// ReyondBroom bulk overlay passes end.')]
 shim = r'''
 #include <math.h>
 #define M_PI 3.14159265358979323846
 #define QCBUILTIN
-static int RB_OccludedSphere(int node,const float *center,float radius){(void)node;(void)center;(void)radius;return 0;}
+#define Sys_DoubleTime() 0.0
+#define Con_Printf(...) ((void)0)
+static float occlusionPlane=-1e30f;
+static int RB_OccludedSphere(int node,const float *center,float radius){(void)node;return center[0]+radius<occlusionPlane;}
 #define OFS_RETURN 1
 #define OFS_PARM0 4
 #define OFS_PARM1 7
@@ -129,7 +133,24 @@ int main(void){
  assert(rb_order_cache.ranks);assert(RB_OrderSpan(randomRuns,128,randomOrder));for(int i=0;i<128;i++)positions[randomOrder[i]]=i;
  for(int i=0;i<128;i++)for(int j=i+1;j<128;j++)if(RB_OrderOverlap(randomRuns[i].low,randomRuns[i].high,randomRuns[j].low,randomRuns[j].high,.01f))assert(positions[i]<positions[j]);
  rb_face_draw_t subset[64];unsigned int subsetOrder[64];for(int i=0;i<64;i++)subset[i]=randomRuns[i*2];assert(RB_OrderSpan(subset,64,subsetOrder));for(int i=1;i<64;i++)assert(rb_order_cache.ranks[subset[subsetOrder[i-1]].source]<rb_order_cache.ranks[subset[subsetOrder[i]].source]);
+ // A branch must never hide a leaf that survives the individual proof.
+ unsigned char visible83[128];vec3_t zero83={0};
+ for(int test83=0;test83<100;test83++){
+  occlusionPlane=test83;memset(visible83,0,sizeof(visible83));
+  RB_VisitVisibility(rb_order_cache.tree,rb_order_cache.ids,0,visible83,0,zero83,zero83,zero83,0,0);
+  for(int leaf83=0;leaf83<128;leaf83++){
+   vec3_t center83;float radius83=0;
+   for(int a=0;a<3;a++){center83[a]=(randomRuns[leaf83].low[a]+randomRuns[leaf83].high[a])*.5f;float half83=(randomRuns[leaf83].high[a]-randomRuns[leaf83].low[a])*.5f;if(radius83<half83)radius83=half83;}
+   if(!RB_OccludedSphere(-1,center83,radius83))assert(visible83[leaf83]);
+  }
+ }
+ occlusionPlane=-1e30f;
  RB_ClearOrderCache();assert(!rb_order_cache.total&&!rb_order_cache.ranks&&!rb_order_cache.neighbors);
+ // Generated later-sort helpers preserve their own order while opaque runs join.
+ shader_t transparent83={0};transparent83.sort=SHADER_SORT_OPAQUE+1;transparent83.numpasses=1;strcpy(transparent83.name,"ftebroom/filtered/test");
+ rb_cached_mesh_t mergeMeshes83[3];memset(mergeMeshes83,0,sizeof(mergeMeshes83));index_t mergeIndices83[4]={10,11,20,21};rb_mesh_cache_t mergeCache83={0};mergeCache83.meshes=mergeMeshes83;mergeCache83.count=3;mergeCache83.scratch=mergeIndices83;mergeCache83.indexCapacity=4;mergeMeshes83[0].scratch=mergeIndices83;mergeMeshes83[0].pending=2;mergeMeshes83[2].scratch=mergeIndices83+2;mergeMeshes83[2].pending=2;
+ rb_face_draw_count=4;for(int i=0;i<4;i++){memset(&rb_face_draws[i],0,sizeof(rb_face_draws[i]));rb_face_draws[i].slot=i&1?2:0;rb_face_draws[i].offset=i/2;rb_face_draws[i].count=1;rb_face_draws[i].shader=i&1?&transparent83:&shaders[1];rb_face_draws[i].flags=BEF_NOSHADOWS;rb_face_draws[i].batchable=!(i&1);rb_face_draws[i].low[0]=i*100;rb_face_draws[i].high[0]=i*100+1;}
+ RB_BatchOpaqueRuns(&mergeCache83);assert(rb_face_draw_count==2&&rb_face_draws[0].slot==0&&rb_face_draws[0].count==2&&rb_face_draws[1].slot==2&&rb_face_draws[1].count==2);assert(mergeIndices83[0]==10&&mergeIndices83[1]==11&&mergeIndices83[2]==20&&mergeIndices83[3]==21);
  CSQC_ReyondBroomClearMeshes();assert(alive==0);free(cl_stris);free(vm.stringtable);puts("PASS: 30,000 retained faces, unchanged arguments, exact index count, warm reuse, access changes, invalid triangles, revision rebuild and complete release");
 }
 '''

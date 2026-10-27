@@ -37,14 +37,16 @@ void fb_incremental_settings()
     if(previous!=key){strunzone(previous);previous=strzone(key);}
 }
 // The single allocation keeps ownership simple and avoids per-face heap churn.
-__variant *fb_incremental_at(__variant *memory,int bytes){return memory+bytes/sizeof(__variant);}
+// Every packed field is word-aligned. A variant is vector-sized in QC;
+// dividing byte offsets by its size truncates headers into adjacent arrays.
+int *fb_incremental_at(int *memory,int bytes){return memory+bytes/sizeof(int);}
 fb_incremental_brush_t *fb_incremental_build(int node)
 {
     int model=fb_nodes[node].model,id=fb_nodes[node].id,count=brush_get(model,id,__NULL__,0,__NULL__),vertices=0;
     static vector temporary[256];
     for(int face=1;face<=count;face++)vertices+=brush_getfacepoints(model,id,face,temporary,256);
     int bytes=sizeof(fb_incremental_brush_t)+count*(sizeof(fb_grid_face_t)+sizeof(fb_render_face_t))+vertices*(sizeof(vector)*3+sizeof(trisoup_simple_vert_t)*3+sizeof(int)*8);
-    __variant *memory=memalloc(bytes);fb_incremental_brush_t *entry=(fb_incremental_brush_t*)memory;entry->node=node;
+    int *memory=memalloc(bytes);fb_incremental_brush_t *entry=(fb_incremental_brush_t*)memory;entry->node=node;
     int at=sizeof(fb_incremental_brush_t);
     entry->grid=(fb_grid_face_t*)fb_incremental_at(memory,at);at+=count*sizeof(fb_grid_face_t);
     entry->faces=(fb_render_face_t*)fb_incremental_at(memory,at);at+=count*sizeof(fb_render_face_t);
