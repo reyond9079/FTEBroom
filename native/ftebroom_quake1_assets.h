@@ -89,6 +89,12 @@ static void q1IndexAssets() {
   auto palette=q1Palette();
   std::map<std::string,ftebroom::quake1::Texture> textures;
   for(const auto& path:q1WadPaths())for(auto& tex:ftebroom::quake1::wad(q1Read(path))){q1MaterialWad[tex.name]=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();textures[tex.name]=std::move(tex);}
+  // TrenchBroom's marker represents an unassigned surface, not a missing WAD.
+  // Supply its editor appearance without changing the material stored in MAP.
+  if(!textures.count("__tb_empty")) {
+    auto grey=textures.find("fb_grey");
+    if(grey!=textures.end()){auto empty=grey->second;empty.name="__tb_empty";textures.emplace(empty.name,std::move(empty));}
+  }
   char writable[4096]={};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,writable,sizeof writable))throw std::runtime_error("No writable editor cache.");
   auto editor=std::filesystem::u8path(writable).parent_path();
   auto cache=editor/"textures/_ftebroom_q1";std::filesystem::create_directories(cache);

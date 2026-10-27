@@ -313,9 +313,16 @@ static void materialBrowser()
   char current[1024] = {};
   cvars->GetString("ftebroom_current_material", current, sizeof current);
   ImGui::SeparatorText(cvars->GetFloat("ftebroom_face_count") ? "Selected surfaces" : "New brush material");
+  if(gameProfile==2 && *current && current[0]!='<') {
+    std::string key=current;std::transform(key.begin(),key.end(),key.begin(),[](unsigned char c){return char(std::tolower(c));});if(key.rfind("textures/",0)!=0)key="textures/"+key;
+    if(!materials.count(key)) {
+      ImGui::TextWrapped("Texture is not present in the connected WADs. Add the WAD containing this texture.");
+    }
+  }
   if (*current && current[0] != '<')
   {
     auto name = std::string(current);
+    if(gameProfile==2)std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return char(std::tolower(c));});
     if (name.rfind("textures/", 0) != 0 && materials.count("textures/" + name))
       name = "textures/" + name;
     ImGui::Image((ImTextureID)thumbnail(name), {52, 52});

@@ -3,6 +3,24 @@ int fb_material_test_id;
 float fb_material_testcommand()
 {
     if(argv(0)!="ftebroom_test_materials" || !cvar("ftebroom_skip_setup")) return FALSE;
+    if(argv(1)=="case79view") {
+        fb_tool_deactivate();fb_selection_clear();cvar_set("ca_newbrushtexture",argv(2));
+        fb_createbox('0 0 96','128 128 128');fb_group_create("Material case regression");fb_selection_clear();
+        localcmd("ftebroom_camera_restore 0 -320 128 5 90 0 90\n");return TRUE;
+    }
+    if(argv(1)=="q1case79") {
+        float savedQ1=cvar("ftebroom_quake1");string savedEpoch=strzone(cvar_string("ftebroom_material_tag_epoch"));
+        cvar_set("ftebroom_quake1","1");
+        fb_transform_expect(fb_material_key("Textures/TechTrim16_b")=="techtrim16_b","q1case79_prefix_and_case");
+        if(fb_shader_previews)fb_transform_expect(fb_shader_previews[fb_material_key("TechTrim16_b")]!="","q1case79_actual_wad_preview");
+        cvar_set("ftebroom_material_tag_epoch","7901");string first=strzone(fb_surface_material_shader("techtrim16_b",1));
+        float oldShader=shaderforname(first,"{ { map textures/ftebroom/qa_red.tga } }");
+        cvar_set("ftebroom_material_tag_epoch","7902");string second=fb_surface_material_shader("techtrim16_b",1);
+        float newShader=shaderforname(second,"{ { map textures/ftebroom/qa_green.tga } }");
+        fb_transform_expect(oldShader>0 && newShader>0 && oldShader!=newShader,"q1case79_resource_generation_changes_shader");
+        cvar_set("ftebroom_quake1","0");fb_transform_expect(fb_material_key("Textures/TechTrim16_b")=="Textures/TechTrim16_b","q1case79_q3_names_unchanged");
+        cvar_set("ftebroom_quake1",ftos(savedQ1));cvar_set("ftebroom_material_tag_epoch",savedEpoch);strunzone(savedEpoch);strunzone(first);return TRUE;
+    }
     if(argv(1)=="drop63") {
         fb_tool_deactivate();fb_selection_clear();int drop63_id=fb_createbox('0 0 64','128 128 128');
         cvar_set("ca_brush_view","3");cvar_set("ca_brush_viewsize","512");fb_view_prepare();

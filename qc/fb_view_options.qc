@@ -112,6 +112,14 @@ int fb_render_visible(int model,int id)
     for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].model==model && fb_nodes[n].id==id)return fb_pick_allowed(n,FB_PICK_LOCKED);
     return FALSE;
 }
+// FTE returns a registered shader without replacing its generator script.
+// A new Q1 resource generation must not reuse a previous missing/old image.
+string fb_surface_material_shader(string material,float alpha)
+{
+    string name=strcat(alpha<1?"ftebroom/filtered/":"ftebroom/opaque/",material);
+    if(cvar("ftebroom_quake1"))name=strcat(name,"#q1_",cvar_string("ftebroom_material_tag_epoch"));
+    return name;
+}
 void fb_filter_patch(int model,int id)
 {
     patchinfo_t info;int total=patch_getmesh(model,id,__NULL__,0,&info);
@@ -123,7 +131,7 @@ void fb_filter_patch(int model,int id)
     if(!autocvar_ftebroom_render_faces) {
         string material=fb_material_key(info.shadername),preview="";
         if(fb_shader_previews)preview=fb_shader_previews[material];if(preview=="")preview=strcat("textures/",material);
-        shader=strcat("ftebroom/opaque/",material);
+        shader=fb_surface_material_shader(material,1);
         shaderforname(shader,strcat("{\ncull none\nsort opaque\n{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\ndepthwrite\n}\n}"));
     }
     for(int y=0;y<info.cpheight-1;y++)for(int x=0;x<info.cpwidth-1;x++) {
@@ -215,7 +223,7 @@ void fb_render_faces_prepare()
             if(!autocvar_ftebroom_render_faces) {
                 string material=fb_material_key(face.shadername),preview="";
                 if(fb_shader_previews)preview=fb_shader_previews[material];if(preview=="")preview=strcat("textures/",material);
-                shader=strcat(alpha<1?"ftebroom/filtered/":"ftebroom/opaque/",material);
+                shader=fb_surface_material_shader(material,alpha);
                 shaderforname(shader,strcat("{\ncull none\n",alpha<1?"":"sort opaque\n","{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\nalphagen vertex\n",alpha<1?"blendfunc blend\n":"depthwrite\n","}\n}"));
                 size=drawgetimagesize(shader);size_x=max(1,size_x);size_y=max(1,size_y);color='1 1 1'*shade;
                 if(material=="ftebroom/grid")color*=0.8;
