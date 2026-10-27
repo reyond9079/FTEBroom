@@ -47,6 +47,7 @@ int fb_face_occluder(brushface_t *face,int contents,int node,int model)
 }
 void fb_filter_prepare()
 {
+    float profile81Time=gettime(1);
     static int epoch=-1,materials=-1;static string previous="";
     string signature=sprintf("%g %g %g %g %g %g",autocvar_ftebroom_show_brushes,autocvar_ftebroom_show_points,autocvar_ftebroom_show_models,autocvar_ftebroom_render_faces,autocvar_ftebroom_shade_faces,autocvar_ftebroom_show_edges);
     signature=strcat(signature,sprintf(" %g %g %g %g %g %g %i",autocvar_ftebroom_hidden_tags,autocvar_ftebroom_entity_links,autocvar_ftebroom_show_entity_names,autocvar_ftebroom_show_entity_bounds,autocvar_ftebroom_show_group_bounds,autocvar_ftebroom_show_brush_entity_bounds,fb_open_group)," ",autocvar_ftebroom_hidden_classes,ftos(autocvar_ftebroom_bounds_visible));
@@ -55,7 +56,7 @@ void fb_filter_prepare()
     int materialEpoch=cvar("ftebroom_material_tag_epoch");
     if(materialEpoch!=materials){materials=materialEpoch;fb_filter_materials_load();epoch=-1;}
     if(epoch==fb_grid_geometry_epoch)return;epoch=fb_grid_geometry_epoch;
-    memfree(fb_filter_tags);fb_filter_tag_count=fb_node_count;fb_filter_tags=memalloc(fb_node_count*sizeof(int));
+    memfree(fb_filter_tags);fb_filter_tag_count=fb_node_count;fb_filter_tags=memalloc(fb_node_capacity*sizeof(int));
     static brushface_t faces[64];
     for(int n=2;n<fb_node_count;n++) {
         int tags=0;
@@ -69,6 +70,7 @@ void fb_filter_prepare()
         fb_filter_tags[n]=tags;
     }
     fb_filter_epoch++;
+    fb_commit_profile("fb_filter_prepare",profile81Time);
 }
 int fb_filter_allowed(int node)
 {
@@ -96,11 +98,12 @@ int fb_render_allowed(int node,int flags)
     if(geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch) {
         geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;
         fb_occlusion_revision++;memfree(fb_render_access);fb_render_access_count=fb_node_count;
-        fb_render_access=memalloc(fb_node_count*sizeof(int));
+        fb_render_access=memalloc(fb_node_capacity*sizeof(int));
         for(int n=0;n<fb_node_count;n++) {
             if(fb_pick_allowed(n,FB_PICK_LOCKED))fb_render_access[n]|=1;
             if(n>=fb_filter_tag_count || !(fb_filter_tags[n]&FB_TAG_TRIGGER))fb_render_access[n]|=4;
             if(fb_pick_allowed(n,0))fb_render_access[n]|=2;
+            if(fb_nodes[n].kind==FB_NODE_BRUSH && (fb_filter_custom(n)||brush_isselected(fb_nodes[n].model,fb_nodes[n].id)))fb_render_access[n]|=16;
         }
     }
     if(node<0 || node>=fb_render_access_count)return FALSE;
@@ -116,20 +119,16 @@ int fb_render_visible(int model,int id)
 // access table remains untouched for selection/UI and dynamic preview drawing.
 void fb_static_preview_prepare()
 {
-    fb_render_allowed(0,FB_PICK_LOCKED);
+    fb_render_allowed(0,FB_PICK_LOCKED);fb_incremental_access();
     fb_static_preview_supported=fb_grid_face_count>=30000 && cvar("ftebroom_cached_meshes");
     if(!fb_static_preview_supported)return;
-    static int capacity,indexGeometry=-1;static hashtable nodes;static string signature="",previousMask="";
-    string key=sprintf("%i %i %i %i %i %g",fb_grid_geometry_epoch,fb_filter_epoch,fb_visibility_epoch,fb_selection_epoch,fb_node_count,fb_active);
+    static int capacity;static string signature="",previousMask="";
+    string key=sprintf("%i %i %i %i %i %g",fb_grid_geometry_epoch,fb_filter_epoch,fb_visibility_epoch,fb_selection_epoch,fb_node_count,fb_active);key=strcat(key," ",itos(fb_incremental_epoch));
     key=strcat(key,sprintf(" %i %i %i %i %i",fb_transform_preview,fb_transform_duplicate,fb_vertex_preview_valid,fb_generator_count,fb_generator_hide_original));
     key=strcat(key,sprintf(" %i %v %g",fb_clip_count,fb_clip_normal,fb_clip_dist));
     key=strcat(key," ",cvar_string("ftebroom_tool"));
     if(key==signature)return;strunzone(signature);signature=strzone(key);
-    if(indexGeometry!=fb_grid_geometry_epoch){
-        indexGeometry=fb_grid_geometry_epoch;if(nodes)hash_destroytab(nodes);nodes=hash_createtab(max(64,fb_node_count),EV_INTEGER);
-        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind>=FB_NODE_BRUSH)nodes[sprintf("%i:%i",fb_nodes[n].model,fb_nodes[n].id)]=n+1i;
-    }
-    if(capacity<fb_render_access_count){capacity=fb_render_access_count;memfree(fb_static_access);fb_static_access=memalloc(capacity*sizeof(int));}
+    if(capacity<fb_render_access_count){capacity=max(fb_render_access_count,fb_node_capacity);memfree(fb_static_access);fb_static_access=memalloc(capacity*sizeof(int));}
     fb_static_access_count=fb_render_access_count;memcpy(fb_static_access,fb_render_access,fb_static_access_count*sizeof(int));
     string mask="";
     for(int pass=0;pass<2;pass++) {
@@ -137,7 +136,7 @@ void fb_static_preview_prepare()
         if(pass && !fb_generator_count)continue;
         for(int b=0;b<count;b++) {
             int model,id;if(pass){model=fb_generator_original[b].model;id=fb_generator_original[b].id;}else{model=selectedbrushes[b].model;id=selectedbrushes[b].id;}
-            int n=(int)nodes[sprintf("%i:%i",model,id)]-1i;if(n<2 || n>=fb_static_access_count)continue;
+            int n=fb_document_brush_node(model,id);if(n<2 || n>=fb_static_access_count)continue;
             if(!(fb_static_access[n]&1))continue;
             if(!fb_preview_replaces(model,id))continue;
             fb_static_access[n]&=~1i;mask=strcat(mask,itos(n),",");
@@ -184,8 +183,8 @@ typedef struct {
     vector *points;vector *uv;
     trisoup_simple_vert_t *vertices;int *triangles;int enabled;
 } fb_render_face_t;
-int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride) ftebroom_draw_faces = #0:ftebroom_draw_faces;
-int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,int revision) ftebroom_draw_faces_cached = #0:ftebroom_draw_faces_cached;
+int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,...) ftebroom_draw_faces = #0:ftebroom_draw_faces;
+int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,int revision,...) ftebroom_draw_faces_cached = #0:ftebroom_draw_faces_cached;
 int(vector *source,int count,fb_render_face_t *face,vector *params) ftebroom_build_face=#0:ftebroom_build_face;
 int fb_face_upload_epoch;
 var float autocvar_ftebroom_native_faces=1;
@@ -198,44 +197,10 @@ int *fb_render_triangles;int fb_render_vertex_capacity;
 typedef struct fb_render_shader_s {string name;struct fb_render_shader_s *next;} fb_render_shader_t;
 fb_render_shader_t *fb_render_shader_names;
 hashtable fb_render_shader_pool;
-void fb_render_faces_prepare()
+int *fb_render_first;
+int fb_render_append_brush(int n,int vertexOffset)
 {
-    static int geometry=-1,filters=-1,selection=-1;
-    if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch&&selection==fb_selection_epoch)return;
-    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;
-    while(fb_render_shader_names){fb_render_shader_t *entry=fb_render_shader_names;fb_render_shader_names=entry.next;strunzone(entry.name);memfree(entry);}
-    if(fb_render_shader_pool)hash_destroytab(fb_render_shader_pool);fb_render_shader_pool=hash_createtab(1024,EV_POINTER);
-    fb_render_face_count=0;
-    shaderforname("ftebroom/flatface","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
-    shaderforname("ftebroom/flattransparent","{\ncull none\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
-    if(autocvar_ftebroom_render_faces==2)return;
     static brushface_t faces[64];static vector points[64],brushBounds[2];
-    // Reuse four packed buffers rather than fragmenting the QC heap per face.
-    int required=0,vertexOffset=0;
-    for(int n=2;n<fb_node_count;n++) {
-        if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
-        if(!fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
-        int count=brush_get(fb_nodes[n].model,fb_nodes[n].id,__NULL__,0,__NULL__);
-        for(int f=0;f<min(count,64);f++) {
-            int vertices=brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,f+1,points,64);
-            if(vertices>=3 && vertices<=64)required+=vertices;
-        }
-    }
-    if(required>fb_render_vertex_capacity) {
-        // Reserve modest edit space rather than doubling all textured-face
-        // buffers when the first brush is added to an already large document.
-        if(required>65536)fb_render_vertex_capacity=required+max(4096,ceil(required/16.0));
-        else fb_render_vertex_capacity=max(required,max(1024,fb_render_vertex_capacity*2));
-        memfree(fb_render_points);memfree(fb_render_uv);
-        memfree(fb_render_vertices);memfree(fb_render_triangles);
-        fb_render_points=memalloc(fb_render_vertex_capacity*sizeof(vector));
-        fb_render_uv=memalloc(fb_render_vertex_capacity*sizeof(vector));
-        fb_render_vertices=memalloc(fb_render_vertex_capacity*sizeof(trisoup_simple_vert_t));
-        fb_render_triangles=memalloc(fb_render_vertex_capacity*3*sizeof(int));
-    }
-    for(int n=2;n<fb_node_count;n++) {
-        if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
-        if(!fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
         int contents,count=brush_get(fb_nodes[n].model,fb_nodes[n].id,faces,64,&contents);
         int hasBounds=brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,0,brushBounds,2);
         vector brushCenter=(brushBounds[0]+brushBounds[1])*0.5;
@@ -269,7 +234,7 @@ void fb_render_faces_prepare()
             item.vertices=&fb_render_vertices[vertexOffset];
             item.triangles=&fb_render_triangles[vertexOffset*3];vertexOffset+=vertices;
             item.brushCenter=brushCenter;item.brushRadius=brushRadius;
-            item.enabled=fb_filter_custom(n) || brush_isselected(fb_nodes[n].model,fb_nodes[n].id)!=0;
+            item.enabled=fb_incremental_enabled()?2i:(fb_filter_custom(n) || brush_isselected(fb_nodes[n].model,fb_nodes[n].id)!=0);
             fb_render_shader_t *shared=fb_render_shader_pool[shader];
             if(!shared){shared=memalloc(sizeof(fb_render_shader_t));shared.name=strzone(shader);shared.next=fb_render_shader_names;fb_render_shader_names=shared;fb_render_shader_pool[shader]=shared;}
             item.node=n;item.count=vertices;item.shader=shared.name;item.alpha=alpha;item.color=color;
@@ -289,10 +254,58 @@ void fb_render_faces_prepare()
             for(int p=0;p<vertices;p++)item.radius=max(item.radius,vlen(points[p]-item.center));
         }
         for(int i=firstFace;i<fb_render_face_count;i++)fb_render_faces[i].brushEnd=fb_render_face_count;
+
+    return vertexOffset;
+}
+void fb_render_faces_prepare()
+{
+    float profile81Time=gettime(1);
+    static int geometry=-1,filters=-1,selection=-1;
+    static string style;string nextStyle=strcat(cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces")," ",cvar_string("ftebroom_material_tag_epoch"));
+    if(geometry==fb_grid_geometry_epoch && (fb_incremental_enabled()?nextStyle==style:(filters==fb_filter_epoch&&selection==fb_selection_epoch)))return;
+    strunzone(style);style=strzone(nextStyle);
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;
+    while(fb_render_shader_names){fb_render_shader_t *entry=fb_render_shader_names;fb_render_shader_names=entry.next;strunzone(entry.name);memfree(entry);}
+    if(fb_render_shader_pool)hash_destroytab(fb_render_shader_pool);fb_render_shader_pool=hash_createtab(1024,EV_POINTER);
+    fb_render_face_count=0;memfree(fb_render_first);fb_render_first=memalloc(fb_node_capacity*sizeof(int));
+    shaderforname("ftebroom/flatface","{\ncull none\nsort opaque\n{\nmap $whiteimage\nrgbgen vertex\ndepthwrite\n}\n}");
+    shaderforname("ftebroom/flattransparent","{\ncull none\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
+    if(autocvar_ftebroom_render_faces==2)return;
+    static vector points[64];
+    // Reuse four packed buffers rather than fragmenting the QC heap per face.
+    int required=0,vertexOffset=0;
+    for(int n=2;n<fb_node_count;n++) {
+        if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
+        if(!fb_incremental_enabled() && !fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
+        int count=brush_get(fb_nodes[n].model,fb_nodes[n].id,__NULL__,0,__NULL__);
+        for(int f=0;f<min(count,64);f++) {
+            int vertices=brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,f+1,points,64);
+            if(vertices>=3 && vertices<=64)required+=vertices;
+        }
     }
+    if(required>fb_render_vertex_capacity) {
+        // Reserve modest edit space rather than doubling all textured-face
+        // buffers when the first brush is added to an already large document.
+        if(required>65536)fb_render_vertex_capacity=required+max(4096,ceil(required/16.0));
+        else fb_render_vertex_capacity=max(required,max(1024,fb_render_vertex_capacity*2));
+        memfree(fb_render_points);memfree(fb_render_uv);
+        memfree(fb_render_vertices);memfree(fb_render_triangles);
+        fb_render_points=memalloc(fb_render_vertex_capacity*sizeof(vector));
+        fb_render_uv=memalloc(fb_render_vertex_capacity*sizeof(vector));
+        fb_render_vertices=memalloc(fb_render_vertex_capacity*sizeof(trisoup_simple_vert_t));
+        fb_render_triangles=memalloc(fb_render_vertex_capacity*3*sizeof(int));
+    }
+    for(int n=2;n<fb_node_count;n++) {
+        if(fb_nodes[n].kind!=FB_NODE_BRUSH)continue;
+        if(!fb_incremental_enabled() && !fb_filter_custom(n)&&!brush_isselected(fb_nodes[n].model,fb_nodes[n].id))continue;
+        int first=fb_render_face_count;vertexOffset=fb_render_append_brush(n,vertexOffset);
+        if(fb_render_face_count>first)fb_render_first[n]=first+1;
+    }
+    fb_commit_profile("fb_render_faces_prepare",profile81Time);
 }
 void fb_filter_draw()
 {
+    float profile81Time=gettime(1);
     if(cvar("ca_brush_view"))return;
     fb_render_faces_prepare();
     vector eye=getproperty(VF_ORIGIN),fov=getproperty(VF_FOV);makevectors(getproperty(VF_ANGLES));
@@ -304,8 +317,8 @@ void fb_filter_draw()
         fb_render_allowed(0,FB_PICK_LOCKED);
         int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;
         int drawn=-1;
-        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch);
-        if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t));
+        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch,fb_incremental_config());
+        if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_incremental_config());
         nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
     }
     if(!nativePass)for(int i=0;i<fb_render_face_count;i++) {
@@ -338,6 +351,7 @@ void fb_filter_draw()
         if(node.kind==FB_NODE_PATCH && (fb_filter_custom(n) || brush_isselected(node.model,node.id)) && autocvar_ftebroom_render_faces!=2)fb_filter_patch(node.model,node.id);
         if(autocvar_ftebroom_render_faces==2)DrawEngineBrushWireframe(node.model,node.id);
     }
+    fb_commit_profile("fb_filter_draw",profile81Time);
 }
 string fb_structural_material(string material)
 {

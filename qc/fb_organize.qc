@@ -71,25 +71,28 @@ void fb_visibility_command(string operation)
     }
     fb_tx_commit();
 }
+void fb_visibility_node(int n)
+{
+    if(n<2 || n>=fb_node_count || fb_nodes[n].kind<FB_NODE_BRUSH)return;
+    int hideNative=!fb_pick_allowed(n,FB_PICK_LOCKED) || brush_isselected(fb_nodes[n].model,fb_nodes[n].id) || fb_filter_custom(n) || fb_preview_replaces(fb_nodes[n].model,fb_nodes[n].id);
+    brush_selected(fb_nodes[n].model,fb_nodes[n].id,-1,hideNative);
+}
 void fb_visibility_sync()
 {
     static int revision=-1,epoch=-1,filter=-1,geometry=-1,selectionEpoch=-1,previewState=-1;
+    static int *previous;static int previousCount;
     int preview=(fb_transform_preview && !fb_transform_duplicate)?fb_transform_count:0;
-    int current=fb_document_revision();if(current==revision && epoch==fb_visibility_epoch && filter==fb_filter_epoch && geometry==fb_grid_geometry_epoch && selectionEpoch==fb_selection_epoch && previewState==preview) return;
-    selectionEpoch=fb_selection_epoch;previewState=preview;
-    revision=current;epoch=fb_visibility_epoch;filter=fb_filter_epoch;geometry=fb_grid_geometry_epoch;
-    // Build membership once; scanning the selection for every node is quadratic.
-    hashtable selection=hash_createtab(max(64,selectedbrushcount*2),EV_STRING);
-    for(int b=0;b<selectedbrushcount;b++)selection[sprintf("%i:%i",selectedbrushes[b].model,selectedbrushes[b].id)]="1";
-    for(int n=2;n<fb_node_count;n++) if(fb_nodes[n].kind>=FB_NODE_BRUSH) {
-        int hidden=!fb_pick_allowed(n,FB_PICK_LOCKED);
-        int selected=selection[sprintf("%i:%i",fb_nodes[n].model,fb_nodes[n].id)]!="";
-        int hideNative=hidden || selected;
-        if(fb_filter_custom(n))hideNative=TRUE;
-        if(fb_preview_replaces(fb_nodes[n].model,fb_nodes[n].id))hideNative=TRUE;
-        brush_selected(fb_nodes[n].model,fb_nodes[n].id,-1,hideNative);
+    int current=fb_document_revision();if(current==revision && epoch==fb_visibility_epoch && filter==fb_filter_epoch && geometry==fb_grid_geometry_epoch && selectionEpoch==fb_selection_epoch && previewState==preview)return;
+    int full=geometry!=fb_grid_geometry_epoch || epoch!=fb_visibility_epoch || filter!=fb_filter_epoch || !fb_incremental_enabled();
+    if(geometry!=fb_grid_geometry_epoch){memfree(previous);previous=memalloc(fb_node_capacity*sizeof(int));previousCount=0;}
+    if(full)for(int n=2;n<fb_node_count;n++)fb_visibility_node(n);
+    else for(int i=0;i<previousCount;i++)fb_visibility_node(previous[i]);
+    previousCount=0;
+    for(int i=0;i<selectedbrushcount;i++){
+        int n=fb_document_brush_node(selectedbrushes[i].model,selectedbrushes[i].id);if(n<2)continue;
+        if(!full)fb_visibility_node(n);previous[previousCount++]=n;
     }
-    hash_destroytab(selection);
+    selectionEpoch=fb_selection_epoch;previewState=preview;revision=current;epoch=fb_visibility_epoch;filter=fb_filter_epoch;geometry=fb_grid_geometry_epoch;
 }
 int fb_organize_node(int entityIndex)
 {

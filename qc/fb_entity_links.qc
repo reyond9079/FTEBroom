@@ -3,11 +3,12 @@ typedef struct {vector mins,maxs;int valid;vector color;trisoup_simple_vert_t ve
 fb_container_bounds_t *fb_container_cache;
 void fb_container_cache_prepare()
 {
+    float profile81Time=gettime(1);
     static int revision=-1,geometry=-1,filters=-1,entityRevision=-1;
-    int current=fb_document_revision();
+    int current=fb_grid_geometry_epoch;
     if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && entityRevision==fb_entity_render_epoch)return;
     revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;entityRevision=fb_entity_render_epoch;
-    memfree(fb_container_cache);fb_container_cache=memalloc(fb_node_count*sizeof(fb_container_bounds_t));
+    memfree(fb_container_cache);fb_container_cache=memalloc(fb_node_capacity*sizeof(fb_container_bounds_t));
     static vector bounds[2];
     // Aggregate each leaf once through its ancestors. This replaces one full
     // document traversal per container and per viewport.
@@ -24,6 +25,7 @@ void fb_container_cache_prepare()
             else for(int axis=0;axis<3;axis++){item->mins[axis]=min(item->mins[axis],bounds[0][axis]);item->maxs[axis]=max(item->maxs[axis],bounds[1][axis]);}
         }
     }
+    fb_commit_profile("fb_container_cache_prepare",profile81Time);
 }
 int fb_container_bounds(int node,vector *bounds)
 {
@@ -36,8 +38,9 @@ fb_point_render_t *fb_container_render;int fb_container_render_count;
 int *fb_container_visible;
 void fb_container_render_prepare()
 {
+    float profile81Time=gettime(1);
     static int geometry=-1,filters=-1,visibility=-1,revision=-1,entityRevision=-1;
-    int current=fb_document_revision();
+    int current=fb_grid_geometry_epoch;
     if(geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==current && entityRevision==fb_entity_render_epoch)return;
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=current;entityRevision=fb_entity_render_epoch;
     fb_document_lists_prepare();fb_container_cache_prepare();memfree(fb_container_render);memfree(fb_container_visible);
@@ -48,6 +51,7 @@ void fb_container_render_prepare()
         fb_point_render_t *item=&fb_container_render[fb_container_render_count++];item->node=node;item->model=0;item->id=fb_nodes[node].kind==FB_NODE_GROUP;
         item->center=(box->mins+box->maxs)*.5;item->radius=vlen(box->maxs-box->mins)*.5+12;item->label=item->center;item->label[2]=box->maxs[2]+12;item->name=fb_nodes[node].name;
     }
+    fb_commit_profile("fb_container_render_prepare",profile81Time);
 }
 void fb_container_draw(int labels)
 {
@@ -83,8 +87,9 @@ typedef struct {int from,to;} fb_entity_link_t;
 fb_entity_link_t *fb_entity_connections;int fb_entity_connection_count;int *fb_entity_reachable;int *fb_entity_link_selected;vector *fb_entity_centers;
 void fb_entity_links_prepare()
 {
-    static int revision=-1,geometry=-1,filters=-1,selection=-1,visibility=-1;int current=fb_document_revision();
-    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && selection==fb_selection_epoch && visibility==fb_visibility_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;visibility=fb_visibility_epoch;
+    float profile81Time=gettime(1);
+    static int revision=-1,geometry=-1,filters=-1,selection=-1,visibility=-1;int current=fb_grid_geometry_epoch;
+    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && selection==fb_entity_selection_key() && visibility==fb_visibility_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_entity_selection_key();visibility=fb_visibility_epoch;
     memfree(fb_entity_connections);fb_entity_connections=__NULL__;fb_entity_connection_count=0;
     memfree(fb_entity_reachable);fb_entity_reachable=memalloc(fb_node_count*sizeof(int));memfree(fb_entity_centers);fb_entity_centers=memalloc(fb_node_count*sizeof(vector));
     memfree(fb_entity_link_selected);fb_entity_link_selected=memalloc(fb_node_count*sizeof(int));
@@ -122,6 +127,7 @@ void fb_entity_links_prepare()
         }}
         if(!changed)break;
     }
+    fb_commit_profile("fb_entity_links_prepare",profile81Time);
 }
 void fb_entity_links_draw()
 {
@@ -150,9 +156,9 @@ void fb_entity_links_draw()
     fb_entity_links_prepare();
     static int revision=-1,geometry=-1,filters=-1,visibility=-1,selection=-1,lastMode=-1;
     static int *drawLinks;static int drawCount;
-    int currentRevision=fb_document_revision();
-    if(revision!=currentRevision || geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch || selection!=fb_selection_epoch || lastMode!=mode){
-        revision=currentRevision;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;lastMode=mode;
+    int currentRevision=fb_grid_geometry_epoch;
+    if(revision!=currentRevision || geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch || selection!=fb_entity_selection_key() || lastMode!=mode){
+        revision=currentRevision;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_entity_selection_key();lastMode=mode;
         memfree(drawLinks);drawLinks=memalloc(max(1,fb_entity_connection_count)*sizeof(int));drawCount=0;
         for(int index=0;index<fb_entity_connection_count;index++){
             fb_entity_link_t candidate=fb_entity_connections[index];

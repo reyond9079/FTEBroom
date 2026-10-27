@@ -1,6 +1,6 @@
 # Large-map editing, saving and material performance plan
 
-Status: alpha.80 implements the first editing, retained geometry, material and save optimizations below. This remains an incremental performance program: complete per-brush GPU dirty ranges and asynchronous snapshot serialization are not implemented. Measurements and remaining pauses are recorded below; steady drag FPS must not be confused with commit latency.
+Status: alpha.81 retains an edited worldspawn-brush layer across commits, with measurements and validation in [the alpha.81 report](performance-alpha81.md). This remains an incremental performance program: brush submodels/group changes and asynchronous snapshot serialization still use their established paths. The alpha.80 results below are retained as the baseline; steady drag FPS must not be confused with commit latency.
 
 ## Alpha.80 implementation and measurements
 

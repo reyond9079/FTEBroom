@@ -57,10 +57,22 @@ int fb_selection_selected_uncached(int node)
     return found;
 }
 int fb_filter_epoch,fb_visibility_epoch;
+int fb_selection_world_only()
+{
+    static int epoch=-1,entities=-1,worldOnly;
+    if(epoch!=fb_selection_epoch || entities!=fb_selected_entity_count){
+        epoch=fb_selection_epoch;entities=fb_selected_entity_count;worldOnly=!entities;
+        for(int b=0;b<selectedbrushcount;b++)if(selectedbrushes[b].model!=1)worldOnly=FALSE;
+    }
+    return worldOnly;
+}
 int fb_selection_selected(int node)
 {
     if(node<0 || node>=fb_node_count || (!selectedbrushcount && !fb_selected_entity_count))return FALSE;
     if(fb_selection_leaf(node))return fb_selection_selected_uncached(node);
+    // World brushes belong to Default Layer, never to an entity/group node.
+    // Their selection cannot select linked groups elsewhere in the document.
+    if(node>=2 && fb_selection_world_only())return FALSE;
     static int selection=-1,geometry=-1,filters=-1,visibility=-1,opened=-1;
     static int *cached;
     if(selection!=fb_selection_epoch || geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch || opened!=fb_open_group) {
@@ -189,8 +201,13 @@ void fb_wire_cache_prepare()
     if(fb_wire_cache_epoch==fb_grid_geometry_epoch && fb_wire_cache_count==fb_node_count)return;
     for(int i=0;i<fb_wire_cache_count;i++){memfree(fb_wire_cache[i].points);memfree(fb_wire_cache[i].counts);memfree(fb_wire_cache[i].lines);memfree(fb_wire_cache[i].vertices);}
     memfree(fb_wire_cache);fb_wire_cache_count=fb_node_count;
-    fb_wire_cache=memalloc(max(1,fb_node_count)*sizeof(fb_wire_cache_t));
+    fb_wire_cache=memalloc(max(1,fb_node_capacity)*sizeof(fb_wire_cache_t));
     fb_wire_cache_epoch=fb_grid_geometry_epoch;
+}
+void fb_wire_cache_forget(int node)
+{
+    if(!fb_wire_cache || fb_wire_cache_epoch!=fb_grid_geometry_epoch || node<0 || node>=fb_node_capacity)return;
+    fb_wire_cache_t *cache=&fb_wire_cache[node];memfree(cache->points);memfree(cache->counts);memfree(cache->lines);memfree(cache->vertices);memfill8((__variant*)cache,0,sizeof(fb_wire_cache_t));
 }
 void fb_wire_cache_draw(int node)
 {

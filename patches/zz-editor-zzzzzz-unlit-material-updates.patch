@@ -1,0 +1,16 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -6773,7 +6773,12 @@
+ 	hm->numbrushes+=1;
+ 	hm->brushesedited = true;
+ 
+-	hm->recalculatebrushlighting = true;	//lightmaps need to be reallocated
++	// New faces already have lightmap=-1 and zero lightmap offsets. In an
++	// unlit editor MAP, each touched material is invalidated above; rebuilding
++	// every other material produces identical data and stalls a large map.
++	// Retain global allocation whenever real lightmaps or a relighter exist.
++	if (!Cvar_VariableValue("ftebroom_offline_brush_edit") || hm->relightcontext || hm->brushmaxlms || hm->brushlmremaps)
++		hm->recalculatebrushlighting = true;
+ 
+ 	//make sure the brush's bounds are added to the containing model.
+ 	AddPointToBounds(out->mins, model->mins, model->maxs);

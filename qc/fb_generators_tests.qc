@@ -17,6 +17,9 @@ void fb_fullbench_tick()
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")==8){
+        localcmd("ftebroom_test_generators frame76\nin 2 ftebroom_test_generators perf80 1\nin 4 ftebroom_test_generators incremental81finish\nin 7 ftebroom_test_generators perf80 2\nin 9 ftebroom_test_generators incremental81finish\nin 12 ftebroom_test_generators create78undo\nin 14 ftebroom_test_generators create78redo\nin 17 ftebroom_test_generators perf80 3\nin 19 ftebroom_test_generators incremental81finish\nin 21 ftebroom_test_generators incremental81check\nin 21.5 ftebroom_test_generators incremental81stress\nin 24 ftebroom_camera_focus\nin 24 set ftebroom_show_models 0\nin 27 screenshot incremental81-live.png\nin 28 ftebroom_test_generators document80\nin 38 screenshot incremental81-rebuilt.png\nin 39 ftebroom_test_generators incremental81check\nin 41 quit force\n");return;
+    }
     if(cvar("ftebroom_fullbench_qa")==7){
         localcmd("ftebroom_test_generators frame76\nin 2 set ftebroom_benchmark_name idle\nin 2 set ftebroom_benchmark 1\nin 14 ftebroom_test_generators perf80 1\nin 16 set ftebroom_benchmark_name create\nin 16 set ftebroom_benchmark 1\nin 28 ftebroom_test_generators perf80 0\nin 31 ftebroom_test_generators perf80 2\nin 33 set ftebroom_benchmark_name move\nin 33 set ftebroom_benchmark 1\nin 45 ftebroom_test_generators perf80 0\nin 48 ftebroom_test_generators perf80 3\nin 50 set ftebroom_benchmark_name vertex\nin 50 set ftebroom_benchmark 1\nin 62 ftebroom_test_generators perf80 0\nin 65 set ftebroom_benchmark_name release\nin 65 set ftebroom_benchmark 1\nin 66 ftebroom_test_generators create78begin\nin 66.1 ftebroom_test_generators create78update\nin 66.2 ftebroom_test_generators create78finish\nin 130 quit force\n");return;
     }
@@ -43,6 +46,10 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="state81"){print(sprintf("RB_STATE81 now=%g start=%g frames=%g benchmark=%g\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark")));print(sprintf("RB_VIEW81 show=%g mod=%g draw=%g tool=%g owner=%i active=%g\n",cvar("ca_show"),cvar("ftebroom_mod_preview"),getproperty(VF_DRAWWORLD),cvar("ftebroom_tool"),fb_owner,fb_active));return TRUE;}
+    if(argv(1)=="incremental81stress"){fb_perf81_stress();return TRUE;}
+    if(argv(1)=="incremental81finish"){fb_perf81_finish();return TRUE;}
+    if(argv(1)=="incremental81check"){fb_perf81_validate();return TRUE;}
     if(argv(1)=="perf80"){fb_perf80_start(stoi(argv(2)));return TRUE;}
     if(argv(1)=="document80"){fb_perf80_document();return TRUE;}
     if(argv(1)=="spike80"){fb_perf80_spikes();return TRUE;}
@@ -77,7 +84,7 @@ int fb_generators_testcommand()
         fb_update(fb_downpixel+'60 45 0',0,0);print(sprintf("RB_CREATE78 update owner=%i active=%g size=%v\n",fb_owner,fb_active,fb_boxsize));return TRUE;
     }
     if(argv(1)=="create78finish"){
-        fb_finish(fb_downpixel+'60 45 0',0,0);print("RB_CREATE78 finish\n");return TRUE;
+        float confirm81Time=gettime(1);fb_finish(fb_downpixel+'60 45 0',0,0);print(sprintf("RB_CREATE78 finish ms=%g\n",(gettime(1)-confirm81Time)*1000));return TRUE;
     }
     if(argv(1)=="cam77"){print(sprintf("RB_CAMERA77 eye=%v angles=%v viewport=%v %v\n",fb_camera_eye,(vector)getproperty(VF_ANGLES),(vector)getproperty(VF_MIN),(vector)getproperty(VF_SIZE)));return TRUE;}
     if(argv(1)=="bench76"){int brushes=0,patches=0,entities=0;for(int node=0;node<fb_node_count;node++){if(fb_nodes[node].kind==FB_NODE_BRUSH)brushes++;if(fb_nodes[node].kind==FB_NODE_PATCH)patches++;if(fb_nodes[node].fields)entities++;}print(sprintf("RB_MAP_COUNTS brushes=%i patches=%i entities=%i nodes=%i\n",brushes,patches,entities,fb_node_count));if(checkbuiltin(ftebroom_cached_mesh_stats))print(sprintf("RB_GPU_CACHES %v enabled=%g faces=%s\n",ftebroom_cached_mesh_stats(),cvar("ftebroom_cached_meshes"),cvar_string("ftebroom_native_faces_drawn")));print(sprintf("RB_BENCH_STATE time=%g start=%g frames=%g enabled=%g labels=%s\n",gettime(0),fb_benchmark_start,fb_benchmark_frames,cvar("ftebroom_benchmark"),cvar_string("ftebroom_label_stats")));return TRUE;}

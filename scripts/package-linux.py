@@ -39,9 +39,9 @@ if b'indexed brush queries enabled' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with zz-editor-brush-index.patch before packaging')
 if b'FTEBROOM_REGISTRY_PASS' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with model-registry-growth.patch before packaging')
-for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid'):
+for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid', b'ftebroom_incremental_support', b'ftebroom_incremental_bounds', b'ftebroom_pick_candidates', b'ftebroom_collect_marks'):
     if symbol not in (root/'fteqw-gl64').read_bytes():
-        raise RuntimeError('Rebuild the engine with the alpha75 native editor passes before packaging')
+        raise RuntimeError('Rebuild the engine with the alpha81 retained editor passes before packaging')
 spec = spec_from_file_location('compiler_libs', src/'scripts/bundle-compiler-libs.py')
 module = module_from_spec(spec)
 spec.loader.exec_module(module)

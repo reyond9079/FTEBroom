@@ -4,6 +4,12 @@ void fb_delete_selection()
 {
     fb_tool_refresh();fb_document_tick();
     if(!selectedbrushcount && !fb_selected_entity_count) return;
+    int worldOnly=fb_incremental_enabled() && !fb_selected_entity_count;
+    for(int b=0;b<selectedbrushcount;b++)if(selectedbrushes[b].model!=1)worldOnly=FALSE;
+    if(worldOnly){
+        fb_tx_begin("Delete");while(selectedbrushcount)brush_history_delete(selectedbrushes[0].model,selectedbrushes[0].id);
+        fb_selection_clear();fb_tx_commit();return;
+    }
     int *selected=memalloc(sizeof(int)*fb_node_count);
     for(int n=0;n<fb_node_count;n++) selected[n]=fb_selection_selected(n);
     fb_tx_begin("Delete");

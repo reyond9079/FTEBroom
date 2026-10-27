@@ -96,6 +96,7 @@ fb_obj_export.qc
 fb_issues.qc
 fb_view_options.qc
 fb_entity_links.qc
+fb_incremental.qc
 fb_spawn_master.qc
 fb_context.qc
 fb_renderer_restart.qc

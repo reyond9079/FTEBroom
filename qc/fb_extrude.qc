@@ -201,6 +201,7 @@ void fb_extrude_draw()
     // Geometry changes invalidate the outline; pointer motion within one face does not.
     static string previous="";
     string key=strcat(sprintf("%i %i %i %i %i",fb_grid_geometry_epoch,fb_selection_epoch,fb_visibility_epoch,fb_filter_epoch,fb_open_group),sprintf(" %i %i %i",hit.model,hit.id,hit.face));
+    key=strcat(key," ",itos(fb_incremental_epoch));
     if(key!=previous) {
         strunzone(previous);previous=strzone(key);fb_extrude_outline_count=0;
     static vector points[MAX_FACEPOINTS],source[MAX_FACEPOINTS];

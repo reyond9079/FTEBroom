@@ -11,6 +11,7 @@ void fb_extrude_cache()
 {
     static string previous="";
     string key=sprintf("%i %i %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch,fb_selection_epoch,fb_open_group);
+    key=strcat(key," ",itos(fb_incremental_epoch));
     if(key==previous)return;strunzone(previous);previous=strzone(key);fb_extrude_edge_count=0;
     if(fb_extrude_candidates)hash_destroytab(fb_extrude_candidates);fb_extrude_candidates=hash_createtab(512,EV_INTEGER);
     static brushface_t faces[64];static vector points[MAX_FACEPOINTS];

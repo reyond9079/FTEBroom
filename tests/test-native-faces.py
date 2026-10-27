@@ -18,13 +18,15 @@ shim=r'''
 #define OFS_PARM2 10
 #define OFS_PARM3 13
 #define OFS_PARM4 16
+#define OFS_PARM5 19
 #define G_INT(o) (((int*)pr_globals)[o])
 #define VectorSubtract(a,b,c) for(int axis=0;axis<3;axis++)(c)[axis]=(a)[axis]-(b)[axis]
 #define DotProduct(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
-typedef float vec3_t[3];
-typedef struct {char *stringtable;unsigned int stringtablesize;}pubprogfuncs_t;
+typedef float vec3_t[3];typedef int qboolean;
+typedef struct {char *stringtable;unsigned int stringtablesize;int callargc;}pubprogfuncs_t;
 struct globalvars_s {int words[64];};
 static struct {int dirty;vec3_t viewangles,vieworg;float fov_x,fov_y;}r_refdef;
+static int RB_QCBuffer(pubprogfuncs_t *vm,unsigned int p,unsigned int n,unsigned int stride){return p&&p<=vm->stringtablesize&&n<=(vm->stringtablesize-p)/stride;}
 static int errors,draws;
 static void V_ApplyRefdef(void){r_refdef.dirty=0;}
 static void AngleVectors(float *a,float *f,float *r,float *u){(void)a;memset(f,0,12);memset(r,0,12);memset(u,0,12);f[0]=r[1]=u[2]=1;}
@@ -60,6 +62,19 @@ int main(void){
  PF_ReyondBroom_CullPoints(&vm,pr_globals);assert(G_INT(OFS_RETURN)==2&&indices[0]==0&&indices[1]==2);
  G_INT(OFS_PARM1)=0;G_INT(OFS_PARM0)=0;PF_ReyondBroom_CullPoints(&vm,pr_globals);assert(G_INT(OFS_RETURN)==0);
  G_INT(OFS_PARM1)=3;PF_ReyondBroom_CullPoints(&vm,pr_globals);assert(G_INT(OFS_RETURN)==-1&&errors==2);
+ // Retained bounds are also the conservative picking broad phase.
+ memset(vm.stringtable,0,4096);float *boxes=(float*)(vm.stringtable+128);
+ for(int i=2;i<10;i++){float *box=boxes+i*8;box[0]=i*10;box[1]=box[2]=-1;box[3]=i*10+2;box[4]=box[5]=1;((int*)box)[6]=1;}
+ ((int*)(boxes+3*8))[6]=0;
+ G_INT(OFS_PARM0)=128;G_INT(OFS_PARM1)=10;G_INT(OFS_PARM2)=32;PF_ReyondBroom_IncrementalBounds(&vm,pr_globals);assert(G_INT(OFS_RETURN)==1&&boxes[0]==20&&boxes[3]==92&&boxes[8]==20&&boxes[11]==92);
+ vec3_t *ray=(vec3_t*)(vm.stringtable+1024);ray[1][0]=100;int *nodes=(int*)(vm.stringtable+3072);
+ G_INT(OFS_PARM3)=1024;G_INT(OFS_PARM4)=3072;G_INT(OFS_PARM5)=16;PF_ReyondBroom_PickCandidates(&vm,pr_globals);assert(G_INT(OFS_RETURN)==7&&nodes[0]==2&&nodes[1]==4&&nodes[6]==9);
+ ray[0][1]=ray[1][1]=2;PF_ReyondBroom_PickCandidates(&vm,pr_globals);assert(!G_INT(OFS_RETURN));
+ ray[0][1]=ray[1][1]=1;PF_ReyondBroom_PickCandidates(&vm,pr_globals);assert(G_INT(OFS_RETURN)==7);
+ G_INT(OFS_PARM5)=9;PF_ReyondBroom_PickCandidates(&vm,pr_globals);assert(G_INT(OFS_RETURN)==-1);
+ int *marks=(int*)(vm.stringtable+128);memset(marks,0,10*sizeof(int));marks[2]=marks[7]=17;marks[8]=16;
+ G_INT(OFS_PARM0)=128;G_INT(OFS_PARM1)=10;G_INT(OFS_PARM2)=17;G_INT(OFS_PARM3)=3072;PF_ReyondBroom_CollectMarks(&vm,pr_globals);assert(G_INT(OFS_RETURN)==2&&nodes[0]==2&&nodes[1]==7);
+ G_INT(OFS_PARM3)=4090;PF_ReyondBroom_CollectMarks(&vm,pr_globals);assert(G_INT(OFS_RETURN)==-1);
  free(vm.stringtable);puts("PASS: face ABI, exact argument restoration, visibility/frustum culling, empty pass and invalid buffers");
 }
 '''

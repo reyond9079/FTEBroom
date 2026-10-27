@@ -72,7 +72,7 @@ void fb_issues_scan()
                 if(softOutside)fb_issue_add(n,16,"","Object outside soft map bounds","Delete");}}
     }
     memfree(children);hash_destroytab(targets);hash_destroytab(sources);
-    fb_issue_seen=fb_grid_geometry_epoch;fb_issue_epoch++;
+    fb_issue_seen=(fb_grid_geometry_epoch+fb_incremental_epoch);fb_issue_epoch++;
     filestream file=fopen("ftebroom-issues.txt",FILE_WRITE);
     if((float)file>=0) {
         fputs(file,strcat(itos(fb_issue_epoch)," ",fb_map_quote(fb_nodes[0].fields["_tb_mod"]),"\n"));
@@ -109,7 +109,7 @@ int fb_issues_command()
     if(operation=="scan"){strunzone(operation);fb_issues_scan();return TRUE;}
     if(operation=="removemod") {
         string remove=strzone(argv(2));
-        if(epoch==fb_issue_epoch && fb_issue_seen==fb_grid_geometry_epoch) {
+        if(epoch==fb_issue_epoch && fb_issue_seen==(fb_grid_geometry_epoch+fb_incremental_epoch)) {
             string mods=fb_nodes[0].fields["_tb_mod"],kept="";int start=0;
             for(int p=0;p<=strlen(mods);p++)if(p==strlen(mods) || substring(mods,p,1)==";") {
                 string part=substring(mods,start,p-start);start=p+1;
@@ -122,7 +122,7 @@ int fb_issues_command()
         }
         strunzone(remove);strunzone(operation);return TRUE;
     }
-    if(epoch!=fb_issue_epoch || fb_issue_seen!=fb_grid_geometry_epoch || index<0 || index>=fb_issue_count){strunzone(operation);return TRUE;}
+    if(epoch!=fb_issue_epoch || fb_issue_seen!=(fb_grid_geometry_epoch+fb_incremental_epoch) || index<0 || index>=fb_issue_count){strunzone(operation);return TRUE;}
     fb_issue_t issue=fb_issues[index];fb_node_t node=fb_nodes[issue.node];fb_tool_refresh();
     fb_tx_begin(operation=="fix"?"Fix map issue":"Select map issue");fb_selection_clear();
     fb_selection_set(issue.node,TRUE);
@@ -144,5 +144,5 @@ int fb_issues_command()
 }
 void fb_issues_tick()
 {
-    if(cvar("ftebroom_issues_visible") && fb_issue_seen!=fb_grid_geometry_epoch && !fb_tx_depth && !fb_active)fb_issues_scan();
+    if(cvar("ftebroom_issues_visible") && fb_issue_seen!=(fb_grid_geometry_epoch+fb_incremental_epoch) && !fb_tx_depth && !fb_active)fb_issues_scan();
 }

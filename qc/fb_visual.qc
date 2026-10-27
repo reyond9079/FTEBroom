@@ -154,18 +154,25 @@ void fb_visual_flush()
 }
 // Trace editor brush planes, independent of game solidity and compiled BSP state.
 int fb_visual_spike_hit;
-hashtable fb_spike_nodes;int *fb_spike_models;int fb_spike_model_count;
+int *fb_spike_models;int fb_spike_model_count;
 int *fb_spike_ids;int *fb_spike_candidates;int fb_spike_id_capacity,fb_spike_candidate_capacity,fb_spike_candidate_count;
 void fb_spike_candidates_prepare(vector start,vector end)
 {
+    // Reuse live document bounds instead of rebuilding FTE's whole trace BVH
+    // after one edit. The exact convex-plane intersection below is unchanged.
+    if(fb_incremental_enabled()){
+        if(fb_spike_candidate_capacity<fb_node_count){memfree(fb_spike_candidates);fb_spike_candidate_capacity=fb_node_capacity;fb_spike_candidates=memalloc(fb_spike_candidate_capacity*sizeof(int));}
+        int found=fb_incremental_pick(start,end,fb_spike_candidates,fb_spike_candidate_capacity);
+        if(found>=0){fb_spike_candidate_count=found;return;}
+    }
+
     static int geometry=-1;
     if(geometry!=fb_grid_geometry_epoch){
-        geometry=fb_grid_geometry_epoch;if(fb_spike_nodes)hash_destroytab(fb_spike_nodes);
-        fb_spike_nodes=hash_createtab(max(64,fb_node_count*2),EV_INTEGER);
+        geometry=fb_grid_geometry_epoch;
         memfree(fb_spike_models);fb_spike_models=memalloc(max(1,fb_node_count)*sizeof(int));fb_spike_model_count=0;
         hashtable models=hash_createtab(64,EV_INTEGER);
         for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH){
-            int model=fb_nodes[n].model;fb_spike_nodes[sprintf("%i:%i",model,fb_nodes[n].id)]=n+1i;
+            int model=fb_nodes[n].model;
             if(!(int)models[itos(model)]){models[itos(model)]=1i;fb_spike_models[fb_spike_model_count++]=model;}
         }
         hash_destroytab(models);
@@ -188,7 +195,7 @@ void fb_spike_candidates_prepare(vector start,vector end)
             fb_spike_candidate_capacity=max(fb_spike_candidate_count+total,max(64,fb_spike_candidate_capacity*2));
             int *larger=memalloc(fb_spike_candidate_capacity*sizeof(int));memcpy(larger,fb_spike_candidates,fb_spike_candidate_count*sizeof(int));memfree(fb_spike_candidates);fb_spike_candidates=larger;
         }
-        for(int i=0;i<total;i++){int n=(int)fb_spike_nodes[sprintf("%i:%i",fb_spike_models[m],fb_spike_ids[i])]-1i;if(n>=2)fb_spike_candidates[fb_spike_candidate_count++]=n;}
+        for(int i=0;i<total;i++){int n=fb_document_brush_node(fb_spike_models[m],fb_spike_ids[i]);if(n>=2)fb_spike_candidates[fb_spike_candidate_count++]=n;}
     }
 }
 vector fb_visual_spike_trace(vector start,vector end,optional int reference)
@@ -255,14 +262,47 @@ void fb_visual_box(vector low,vector high,vector color,float alpha,int spikes,op
 }
 float fb_visual_profile[4];
 int *fb_visual_candidates;int fb_visual_candidate_count,fb_visual_candidate_capacity;
+int(int *marks,int count,int serial,int *nodes) ftebroom_collect_marks=#0:ftebroom_collect_marks;
+int fb_visual_candidates_incremental()
+{
+    if(!fb_incremental_enabled() || !checkbuiltin(ftebroom_collect_marks) || (autocvar_ftebroom_hover_highlight && fb_visual_hover>=0))return FALSE;
+    static int geometry=-1,filters=-1,visibility=-1,known,lockedCount,serial,capacity;
+    static int *locked;static int *marks;static hashtable points;
+    if(capacity!=fb_node_capacity){memfree(locked);memfree(marks);capacity=fb_node_capacity;locked=memalloc(capacity*sizeof(int));marks=memalloc(capacity*sizeof(int));geometry=-1;}
+    if(geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch){
+        geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;known=2;lockedCount=0;
+        if(points)hash_destroytab(points);points=hash_createtab(max(64,fb_node_capacity),EV_INTEGER);
+    }
+    for(int n=known;n<fb_node_count;n++){
+        if(!fb_selection_leaf(n))continue;
+        if(fb_nodes[n].kind==FB_NODE_ENTITY)points[itos(fb_nodes[n].id)]=n+1i;
+        if(fb_visual_locked(n))locked[lockedCount++]=n;
+    }
+    known=fb_node_count;
+    serial++;if(!serial){memfill8((__variant*)marks,0,capacity*sizeof(int));serial=1;}
+    for(int i=0;i<lockedCount;i++){int n=locked[i];if(fb_selection_leaf(n)&&fb_visual_locked(n))marks[n]=serial;}
+    for(int i=0;i<selectedbrushcount;i++){
+        int n=fb_document_brush_node(selectedbrushes[i].model,selectedbrushes[i].id);
+        if(n>=2 && fb_selection_leaf(n) && fb_render_allowed(n,FB_PICK_LOCKED))marks[n]=serial;
+    }
+    for(int i=0;i<fb_selected_entity_count;i++){
+        int n=(int)points[itos(fb_selected_entities[i])]-1i;
+        if(n>=2 && fb_render_allowed(n,FB_PICK_LOCKED))marks[n]=serial;
+    }
+    // A native linear compaction preserves the original overlay order without
+    // a QC walk through every node on each selection or brush transaction.
+    int count=ftebroom_collect_marks(marks,fb_node_count,serial,fb_visual_candidates);
+    if(count<0)return FALSE;fb_visual_candidate_count=count;return TRUE;
+}
 void fb_visual_candidates_prepare()
 {
     static int geometry=-1,filters=-1,visibility=-1,selection=-1,revision=-1,hover=-2,enabled=-1;
     int current=fb_document_revision(),highlight=autocvar_ftebroom_hover_highlight!=0;
     if(geometry==fb_grid_geometry_epoch&&filters==fb_filter_epoch&&visibility==fb_visibility_epoch&&selection==fb_selection_epoch&&revision==current&&hover==fb_visual_hover&&enabled==highlight)return;
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=fb_visual_hover;enabled=highlight;
-    if(fb_node_count>fb_visual_candidate_capacity){fb_visual_candidate_capacity=fb_node_count;memfree(fb_visual_candidates);fb_visual_candidates=memalloc(max(1,fb_node_count)*sizeof(int));}
+    if(fb_node_count>fb_visual_candidate_capacity){fb_visual_candidate_capacity=fb_node_capacity;memfree(fb_visual_candidates);fb_visual_candidates=memalloc(max(1,fb_node_capacity)*sizeof(int));}
     fb_visual_candidate_count=0;
+    if(fb_visual_candidates_incremental())return;
     for(int node=2;node<fb_node_count;node++){
         if(!fb_selection_leaf(node)||!fb_render_allowed(node,FB_PICK_LOCKED))continue;
         int selected=fb_nodes[node].kind==FB_NODE_ENTITY?fb_entity_selected(fb_nodes[node].id):brush_isselected(fb_nodes[node].model,fb_nodes[node].id);
@@ -271,7 +311,7 @@ void fb_visual_candidates_prepare()
 }
 void fb_visual_draw()
 {
-    float started=gettime(1);
+    float started=gettime(1),profile81Time=started;
     fb_visual_spike_count=0;fb_visual_surface_count=fb_visual_vertex_count=0;
     shaderforname("ftebroom/selectionoverlay","{\ncull none\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\nnodepthtest\n}\n}");
     shaderforname("ftebroom/selectiondepth","{\ncull none\npolygonoffset\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\n}\n}");
@@ -338,6 +378,7 @@ void fb_visual_draw()
     fb_visual_profile[3]+=gettime(1)-started;
     if(fb_visual_has_bounds) fb_visual_box(fb_visual_min,fb_visual_max,autocvar_ftebroom_color_selected,0.6,
         !cvar("ca_brush_view") && fb_visual_spikes && autocvar_ftebroom_selection_spikes);
+    fb_commit_profile("fb_visual_draw",profile81Time);
 }
 // Draw only the brush face boundary, after the 3D pass and outside cached views.
 void fb_visual_face_hover()
@@ -350,7 +391,7 @@ void fb_visual_face_hover()
     if(pointer_x<mn_x || pointer_y<mn_y || pointer_x>=mn_x+sz_x || pointer_y>=mn_y+sz_y)return;
     int ortho=cvar("ca_brush_view");
     static string last="";static vector points[256];static int count;
-    string key=strcat(sprintf("%v %v %v %v %v %i %g",pointer,getproperty(VF_ORIGIN),getproperty(VF_ANGLES),mn,sz,ortho,cvar("ca_brush_viewsize")),sprintf(" %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch));
+    string key=strcat(sprintf("%v %v %v %v %v %i %g",pointer,getproperty(VF_ORIGIN),getproperty(VF_ANGLES),mn,sz,ortho,cvar("ca_brush_viewsize")),sprintf(" %i %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch,fb_incremental_epoch));
     if(key!=last){strunzone(last);last=strzone(key);count=0;
         vector end=pointer;if(ortho)end_z+=1;else end_z+=8192;
         if(fb_pick_query(unproject(pointer),unproject(end),pointer,0,FB_HIT_BRUSH,ortho))

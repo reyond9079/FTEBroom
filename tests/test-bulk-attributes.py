@@ -6,8 +6,8 @@ from pathlib import Path
 
 shared = runpy.run_path(str(Path(__file__).with_name('test-cached-faces.py')))
 s, a = shared['s'], shared['a']
-face = s[s.index('typedef struct {\n int node,count,brushEnd,shader;'):s.index('void QCBUILTIN PF_ReyondBroom_DrawFaces(')]
-code = s[s.index('// Bulk attribute preparation'):s.index('// Retain face attributes')]
+face = s[s.index('typedef struct {\n int node,count,brushEnd,shader;'):s.index('typedef struct {unsigned int grid,gridCount,faces,faceCount,epoch;}')]
+code = s[s.index('// Bulk attribute preparation'):s.index('static void RB_IncrementalMarker')]
 extras = r'''
 #define VectorClear(a) memset(a,0,12)
 #define VectorAdd(a,b,c) do{for(int k=0;k<3;k++)(c)[k]=(a)[k]+(b)[k];}while(0)

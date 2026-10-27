@@ -48,6 +48,7 @@ static void Matrix4x4_CM_Transform4(const float *m,const float *v,float *o){(voi
 static int RB_QCBuffer(pubprogfuncs_t *vm,unsigned int p,unsigned int n,unsigned int stride){return p&&p<=vm->stringtablesize&&n<=(vm->stringtablesize-p)/stride;}
 static void PR_BIError(pubprogfuncs_t *vm,const char *error){(void)vm;puts(error);assert(0);}
 '''
+shim += 'static struct {unsigned int grid,gridCount,faces,faceCount,epoch;} rb_incremental;\n'
 checks = r'''
 int main(void){
  pubprogfuncs_t vm={calloc(1,4096),4096};struct globalvars_s globals={0};struct globalvars_s *pr_globals=&globals;

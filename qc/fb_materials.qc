@@ -7,25 +7,32 @@ string fb_material_key(string name)
     if(substring(name,0,9)=="textures/") return substring(name,9,-1);
     return name;
 }
+hashtable fb_material_counts;
 void fb_material_usage()
 {
-    static int revision,valid;
-    int current=fb_document_revision();
-    if(valid && revision==current) return;
-    valid=TRUE;revision=current;
-    hashtable counts=hash_createtab(512,EV_INTEGER);
+    float profile81Time=gettime(1);
+    static int valid,geometry=-1,edits=-1;
+    int rebuild=!valid || geometry!=fb_grid_geometry_epoch;
+    if(!rebuild && edits==fb_incremental_epoch)return;
+    valid=TRUE;geometry=fb_grid_geometry_epoch;edits=fb_incremental_epoch;
+    hashtable counts;
+    if(rebuild || !fb_material_counts){
+    if(fb_material_counts)hash_destroytab(fb_material_counts);
+    counts=fb_material_counts=hash_createtab(512,EV_INTEGER);
     static brushface_t faces[128];
     for(int n=0;n<fb_node_count;n++) {
         if(fb_nodes[n].kind==FB_NODE_BRUSH) {
             int total=brush_get(fb_nodes[n].model,fb_nodes[n].id,faces,128,__NULL__);
             for(int f=0;f<min(total,128);f++) {
-                string name=fb_material_key(faces[f].shadername);int count=counts[name];counts[name]=count+1;
+                string name=fb_material_key(faces[f].shadername);int count=counts[name];counts[name]=count+1i;
             }
         } else if(fb_nodes[n].kind==FB_NODE_PATCH) {
             patchinfo_t patch;patch_getcp(fb_nodes[n].model,fb_nodes[n].id,__NULL__,0,&patch);
-            string name=fb_material_key(patch.shadername);int count=counts[name];counts[name]=count+1;
+            string name=fb_material_key(patch.shadername);int count=counts[name];counts[name]=count+1i;
         }
     }
+    }
+    counts=fb_material_counts;
     filestream file=fopen("material-usage.txt",FILE_WRITE);
     if((float)file>=0) {
         for(int i=0;;i++) {
@@ -34,7 +41,7 @@ void fb_material_usage()
         }
         fclose(file);
     }
-    hash_destroytab(counts);
+    fb_commit_profile("fb_material_usage",profile81Time);
 }
 void fb_material_select(string mode)
 {

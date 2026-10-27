@@ -28,6 +28,7 @@ void fb_pick_handle(int id,vector point,float radius,int node)
 }
 int fb_pick_allowed(int node,int flags)
 {
+    if(node>=0 && node<fb_node_count && fb_nodes[node].kind<0)return FALSE;
     if(!(flags&FB_PICK_LOCKED) && fb_open_group) {
         int inside=FALSE;
         for(int p=node,depth=0;p>=0 && p<fb_node_count && depth++<fb_node_count;p=fb_nodes[p].parent)
@@ -180,6 +181,7 @@ void fb_pick_entity(int node,vector start,vector direction,float length)
     }
     hit.area=fb_pick_area(corners,4);fb_pick_add(hit);
 }
+int fb_incremental_pick(vector start,vector end,int *nodes,int capacity);
 int fb_pick_query(vector start,vector end,vector pixel,int flags,int kinds,int orthographic)
 {
     fb_document_tick();fb_filter_prepare();fb_hit_count=0;
@@ -187,7 +189,11 @@ int fb_pick_query(vector start,vector end,vector pixel,int flags,int kinds,int o
     float length=vlen(delta);
     if(length<0.000001) return 0;
     vector direction=delta/length;
-    for(int node=0;node<fb_node_count;node++) {
+    static int *candidates;static int capacity;
+    if(capacity<fb_node_count){memfree(candidates);capacity=fb_node_capacity;candidates=memalloc(capacity*sizeof(int));}
+    int candidateCount=-1;if(!(flags&FB_PICK_HIDDEN))candidateCount=fb_incremental_pick(start,end,candidates,capacity);
+    for(int index=0;index<(candidateCount<0?fb_node_count:candidateCount);index++) {
+        int node=candidateCount<0?index:candidates[index];
         if(!fb_pick_allowed(node,flags)) continue;
         int kind=fb_nodes[node].kind;
         if(kind==FB_NODE_BRUSH && (kinds&FB_HIT_BRUSH)) fb_pick_brush(node,start,direction,length);
@@ -319,12 +325,13 @@ int(fb_point_render_t *points,int count,int *indices,int stride) ftebroom_cull_p
 int *fb_point_visible;int fb_point_visible_capacity;
 void fb_point_render_prepare()
 {
+    float profile81Time=gettime(1);
     static int geometry=-1,selection=-1,filters=-1,visibility=-1,revision=-1,entityRevision=-1;
     static string colors;
     string currentColors=strcat(cvar_string("ftebroom_color_locked"),"|",cvar_string("ftebroom_color_selected"));
-    int currentRevision=fb_document_revision();
-    if(geometry==fb_grid_geometry_epoch && selection==fb_selection_epoch && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==currentRevision && entityRevision==fb_entity_render_epoch && colors==currentColors)return;
-    geometry=fb_grid_geometry_epoch;selection=fb_selection_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=currentRevision;entityRevision=fb_entity_render_epoch;
+    int currentRevision=fb_grid_geometry_epoch;
+    if(geometry==fb_grid_geometry_epoch && selection==fb_entity_selection_key() && filters==fb_filter_epoch && visibility==fb_visibility_epoch && revision==currentRevision && entityRevision==fb_entity_render_epoch && colors==currentColors)return;
+    geometry=fb_grid_geometry_epoch;selection=fb_entity_selection_key();filters=fb_filter_epoch;visibility=fb_visibility_epoch;revision=currentRevision;entityRevision=fb_entity_render_epoch;
     fb_point_upload_epoch++;strunzone(colors);colors=strzone(currentColors);
     fb_document_lists_prepare();memfree(fb_point_render);fb_point_render=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_render_t));fb_point_render_count=0;
     memfree(fb_point_geometry);memfree(fb_point_models);fb_point_geometry=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_geometry_t));fb_point_models=memalloc(max(1,fb_point_node_count)*sizeof(int));fb_point_model_count=0;
@@ -344,6 +351,7 @@ void fb_point_render_prepare()
         fb_point_geometry[fb_point_render_count-1].solid=fb_entity_vertices(id,TRUE);fb_point_geometry[fb_point_render_count-1].wire=fb_entity_vertices(id,FALSE);fb_point_geometry[fb_point_render_count-1].model=item->model;
         if(item->model)fb_point_models[fb_point_model_count++]=id;
     }
+    fb_commit_profile("fb_point_render_prepare",profile81Time);
 }
 int fb_point_preview_cache_allowed();
 void fb_pick_draw_entities(int labelsOnly)

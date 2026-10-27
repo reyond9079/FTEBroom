@@ -16,6 +16,34 @@ fb_node_t *fb_nodes;
 int fb_node_count,fb_node_capacity,fb_saved_revision,fb_seen_revision;
 entity fb_document_probe;
 int fb_grid_geometry_epoch;
+int fb_incremental_epoch;var int fb_incremental_revision=-1;
+int fb_incremental_apply(int first,int last,int redo);
+int *fb_incremental_config();
+void fb_incremental_access();
+int fb_entity_selection_key();
+void fb_incremental_reset();
+void fb_incremental_settings();
+void fb_incremental_draw_grid();
+var float autocvar_ftebroom_incremental_edits=1;
+int() ftebroom_incremental_support=#0:ftebroom_incremental_support;
+int fb_incremental_enabled(){return autocvar_ftebroom_incremental_edits && cvar("ftebroom_cached_meshes") && cvar("ftebroom_native_faces") && cvar("ftebroom_render_faces")!=2 && fb_node_count>=10000 && checkbuiltin(ftebroom_incremental_support);}
+hashtable fb_document_brush_index;var int fb_document_brush_index_epoch=-1;
+int fb_document_brush_node(int model,int id)
+{
+    if(fb_document_brush_index_epoch!=fb_grid_geometry_epoch){
+        fb_document_brush_index_epoch=fb_grid_geometry_epoch;
+        if(fb_document_brush_index)hash_destroytab(fb_document_brush_index);
+        fb_document_brush_index=hash_createtab(max(64,fb_node_capacity*2),EV_INTEGER);
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind>=FB_NODE_BRUSH)fb_document_brush_index[sprintf("%i:%i",fb_nodes[n].model,fb_nodes[n].id)]=n+1i;
+    }
+    return (int)fb_document_brush_index[sprintf("%i:%i",model,id)]-1i;
+}
+int fb_document_revision();
+void fb_commit_profile(string stage,float started)
+{
+    if(cvar("ftebroom_profile_commit") && gettime(1)-started>.005)
+        print(sprintf("RB_COMMIT81 %s ms=%g revision=%i\n",stage,(gettime(1)-started)*1000,fb_document_revision()));
+}
 int *fb_point_nodes;
 vector *fb_point_group_bounds;int *fb_point_group_flags;
 int *fb_container_nodes;
@@ -24,7 +52,7 @@ int fb_point_node_count,fb_container_node_count,fb_patch_node_count;
 void fb_document_lists_prepare()
 {
     static int geometry=-1,count=-1;
-    if(geometry==fb_grid_geometry_epoch&&count==fb_node_count)return;
+    if(geometry==fb_grid_geometry_epoch)return;
     geometry=fb_grid_geometry_epoch;count=fb_node_count;
     memfree(fb_point_nodes);memfree(fb_container_nodes);memfree(fb_patch_nodes);
     fb_point_nodes=memalloc(max(1,count)*sizeof(int));fb_container_nodes=memalloc(max(1,count)*sizeof(int));fb_patch_nodes=memalloc(max(1,count)*sizeof(int));
@@ -82,6 +110,11 @@ void fb_document_remap(int model,int oldid,int newid)
     fb_lines_remap(model,oldid,newid);
     fb_visibility_remap(model,oldid,newid);
     for(int i=0;i<fb_node_count;i++) if(fb_nodes[i].model==model) if(fb_nodes[i].id==oldid) fb_nodes[i].id=newid;
+    if(fb_document_brush_index_epoch==fb_grid_geometry_epoch){
+        int node=(int)fb_document_brush_index[sprintf("%i:%i",model,oldid)];
+        hash_delete(fb_document_brush_index,sprintf("%i:%i",model,oldid));
+        if(node)fb_document_brush_index[sprintf("%i:%i",model,newid)]=node;
+    }
 }
 void fb_document_brushes(int model,int parent)
 {
@@ -142,6 +175,8 @@ void fb_document_resolve()
 }
 void fb_document_rebuild()
 {
+    float profile81Time=gettime(1);
+    fb_incremental_reset();
     fb_document_clear();
     fb_document_add(FB_NODE_WORLD,1,0,-1,"World");
     fb_document_add(FB_NODE_LAYER,0,-1,0,"Default Layer");
@@ -180,19 +215,22 @@ void fb_document_rebuild()
     fb_document_resolve();
     cvar_set("ftebroom_node_count",itos(fb_node_count));
     fb_organize_publish();
+    fb_commit_profile("fb_document_rebuild",profile81Time);
 }
 // World-brush transactions do not change entity text or hierarchy. Keep their
 // parsed fields and rebuild only brush membership; complex transactions retain
 // the full loader. Node-indexed consumers are invalidated by the geometry epoch.
 void fb_document_rebuild_world_geometry()
 {
+    float profile81Time=gettime(1);
+    fb_incremental_reset();
     int oldCount=fb_node_count;fb_node_t *old=fb_nodes;
     int *remap=memalloc(max(1,oldCount)*sizeof(int));
     fb_nodes=memalloc(max(64,fb_node_capacity)*sizeof(fb_node_t));fb_node_count=0;
     int worldAdded=FALSE;
     for(int n=0;n<oldCount;n++){
         if(n==2 && !worldAdded){fb_document_brushes(1,1);worldAdded=TRUE;}
-        if(old[n].kind>=FB_NODE_BRUSH && old[n].model==1){
+        if(old[n].kind<0 || (old[n].kind>=FB_NODE_BRUSH && old[n].model==1)){
             if(!worldAdded){fb_document_brushes(1,1);worldAdded=TRUE;}
             strunzone(old[n].name);strunzone(old[n].tbid);strunzone(old[n].parentref);strunzone(old[n].layerref);
             if(old[n].fields)hash_destroytab(old[n].fields);
@@ -203,6 +241,7 @@ void fb_document_rebuild_world_geometry()
     memfree(old);memfree(remap);fb_grid_geometry_epoch++;
     fb_document_resolve();
     cvar_set("ftebroom_node_count",itos(fb_node_count));fb_organize_publish();
+    fb_commit_profile("fb_document_rebuild_world_geometry",profile81Time);
 }
 void fb_document_tick()
 {
@@ -229,10 +268,13 @@ void fb_document_tick()
             if(changed->kind==HIST_SELECTION || changed->kind==HIST_VISIBILITY || changed->kind==HIST_PIVOT)continue;
             if(changed->kind!=HIST_GEOMETRY || changed->brushmodel!=1){worldOnly=FALSE;break;}
         }
-        previousHistory=history;
+        int redo=history>previousHistory;previousHistory=history;
         fb_seen_revision=revision;structureRevision=structure;
         // Selection history must not rebuild every brush surface and grid cache.
-        if(reload){if(worldOnly)fb_document_rebuild_world_geometry();else fb_document_rebuild();}
+        if(reload){
+            if(worldOnly && fb_incremental_enabled() && fb_incremental_apply(first,last,redo))fb_incremental_revision=revision;
+            else if(worldOnly)fb_document_rebuild_world_geometry();else fb_document_rebuild();
+        }
     }
     // Selection is queried through brush_selection_index; no duplicate per-node flags.
 

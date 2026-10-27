@@ -4,11 +4,14 @@ int *fb_property_entities;int fb_property_entity_count,fb_property_epoch;
 void fb_entity_targets()
 {
     static int geometry=-1,selection=-1,revision=-1;
-    int current=fb_document_revision();
-    if(geometry==fb_grid_geometry_epoch && selection==fb_selection_epoch && revision==current)return;
-    geometry=fb_grid_geometry_epoch;selection=fb_selection_epoch;revision=current;
+    int current=fb_grid_geometry_epoch;
+    if(geometry==fb_grid_geometry_epoch && selection==fb_entity_selection_key() && revision==current)return;
+    geometry=fb_grid_geometry_epoch;selection=fb_entity_selection_key();revision=current;
     memfree(fb_property_entities);fb_property_entities=memalloc(max(1,fb_node_count)*sizeof(int));fb_property_entity_count=0;
     if(!selectedbrushcount && !fb_selected_entity_count) {fb_property_entities[fb_property_entity_count++]=0;return;}
+    int worldOnly=!fb_selected_entity_count;
+    for(int b=0;b<selectedbrushcount;b++)if(selectedbrushes[b].model!=1)worldOnly=FALSE;
+    if(worldOnly){fb_property_entities[fb_property_entity_count++]=0;return;}
     // Collect owning entities in one pass instead of scanning every brush per entity.
     int *chosen=memalloc(max(1,fb_node_count)*sizeof(int));
     for(int n=2;n<fb_node_count;n++) {
@@ -32,7 +35,7 @@ void fb_entity_publish()
     while(linkedRoot>=2 && fb_nodes[linkedRoot].fields["_tb_linked_group_id"]=="")linkedRoot=fb_nodes[linkedRoot].parent;
     if(linkedRoot>=2)linked=TRUE;
     cvar_set("ftebroom_linked_open",itos(linked));
-    string signature=strcat(itos(fb_document_revision()),"/",itos(fb_grid_geometry_epoch));for(int i=0;i<fb_property_entity_count;i++)signature=strcat(signature," ",itos(fb_property_entities[i]));
+    string signature=strcat(itos(fb_grid_geometry_epoch),"/",itos(fb_grid_geometry_epoch));for(int i=0;i<fb_property_entity_count;i++)signature=strcat(signature," ",itos(fb_property_entities[i]));
     if(signature==previous)return;strunzone(previous);previous=strzone(signature);
     filestream stream=fopen("ftebroom-entity-selection.txt",FILE_WRITE);if((float)stream<0)return;
     for(int i=0;i<fb_property_entity_count;i++) {

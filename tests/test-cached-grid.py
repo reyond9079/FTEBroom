@@ -29,7 +29,7 @@ shim = r'''
 typedef int qboolean;typedef unsigned short index_t;
 typedef float vec3_t[3],vecV_t[4],vec2_t[2],vec4_t[4];
 typedef struct {vec3_t xyz;vec2_t st;vec4_t rgba;} qcvertex_t;
-typedef struct {char *stringtable;unsigned int stringtablesize;} pubprogfuncs_t;
+typedef struct {char *stringtable;unsigned int stringtablesize;int callargc;} pubprogfuncs_t;
 typedef struct {void *root,*data;size_t size;} vboarray_t;
 typedef struct {vboarray_t coord,texcoord,colours[1],indicies;void *vbomem,*ebomem;unsigned int vertcount;} vbo_t;
 typedef struct {vecV_t *xyz_array;vec2_t *st_array;vec4_t *colors4f_array[1];index_t *indexes;int numvertexes,numindexes;unsigned int vbofirstelement;} mesh_t;

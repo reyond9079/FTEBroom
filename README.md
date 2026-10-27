@@ -2,18 +2,18 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 80: faster large-map editing, WAD/material caching and saving.** [Measurements, remaining commit pauses and optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 81: retained brush updates reduce large-map commit stalls.** [Measurements and validation](docs/performance-alpha81.md) · [Optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.80/ReyondBroom-0.5.0-alpha.80-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.80/ReyondBroom-0.5.0-alpha.80-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.81/ReyondBroom-0.5.0-alpha.81-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.81/ReyondBroom-0.5.0-alpha.81-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.80**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.80/ReyondBroom-0.5.0-alpha.80-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.81**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.81/ReyondBroom-0.5.0-alpha.81-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake III Arena and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 

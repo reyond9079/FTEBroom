@@ -14,7 +14,7 @@ int fb_export_map()
     cvar_set("ftebroom_export_status","-1");fb_document_tick();filestream file=fopen("export-map.map",FILE_WRITE);if((float)file<0)return FALSE;
     fb_clip_q3_export=TRUE;int success=TRUE;
     for(int e=0;e<fb_node_count;e++) {
-        if(e==1 || (e && (fb_nodes[e].kind>=FB_NODE_BRUSH || !fb_export_included(e))))continue;
+        if(fb_nodes[e].kind<0 || e==1 || (e && (fb_nodes[e].kind>=FB_NODE_BRUSH || !fb_export_included(e))))continue;
         fputs(file,"{\n");hashtable fields=(hashtable)fb_nodes[e].fields;
         for(int k=0;;k++) {
             string key=hash_getkey(fields,k);if isnull(key)break;

@@ -208,6 +208,7 @@ void fb_tool_pointer_move(vector pixel,float alt,int view)
     if(!fb_active && pixel==lastPixel && origin==lastOrigin && angles==lastAngles && tool==lastTool && history==lastHistory && fb_selection_epoch==lastSelection && view==lastView && alt==lastAlt && ctrl==lastCtrl && shift==lastShift)return;
     lastPixel=pixel;lastOrigin=origin;lastAngles=angles;lastTool=tool;lastHistory=history;lastSelection=fb_selection_epoch;lastView=view;lastAlt=alt;lastCtrl=ctrl;lastShift=shift;
 
+    if(fb_owner==FB_OWNER_SHAPE){fb_update(pixel,alt,view);return;}
     if(cvar("ftebroom_tool")==FB_TOOL_SPIN)fb_spin_move(pixel,alt,view);
     else if(cvar("ftebroom_tool")==FB_TOOL_POLYGONCUT||cvar("ftebroom_tool")==FB_TOOL_POLYGONSPAWN)fb_polygon_move(pixel,view);
     else if(cvar("ftebroom_tool")==FB_TOOL_BEND)fb_bend_move(pixel,alt,view);

@@ -6,8 +6,8 @@ from pathlib import Path
 
 shared = runpy.run_path(str(Path(__file__).with_name('test-cached-grid.py')))
 s, a = shared['s'], shared['a']
-face = s[s.index('typedef struct {\n int node,count,brushEnd,shader;'):s.index('void QCBUILTIN PF_ReyondBroom_DrawFaces(')]
-function = s[s.index('// Retain face attributes'):s.index('// ReyondBroom bulk overlay passes end.')]
+face = s[s.index('typedef struct {\n int node,count,brushEnd,shader;'):s.index('typedef struct {unsigned int grid,gridCount,faces,faceCount,epoch;}')]
+function = s[s.index('static void RB_IncrementalMarker'):s.index('// ReyondBroom bulk overlay passes end.')]
 shim = r'''
 #include <math.h>
 #define M_PI 3.14159265358979323846
@@ -20,6 +20,8 @@ static int RB_OccludedSphere(int node,const float *center,float radius){(void)no
 #define OFS_PARM3 13
 #define OFS_PARM4 16
 #define OFS_PARM5 19
+#define OFS_PARM6 22
+#define OFS_PARM7 25
 #define G_INT(n) (((int*)pr_globals)[n])
 #define DotProduct(a,b) ((a)[0]*(b)[0]+(a)[1]*(b)[1]+(a)[2]*(b)[2])
 #define VectorSubtract(a,b,c) do{for(int k=0;k<3;k++)(c)[k]=(a)[k]-(b)[k];}while(0)
@@ -39,14 +41,23 @@ static void AngleVectors(const float *angles,float *forward,float *right,float *
 typedef struct {shader_t *shader;int flags,firstvert,firstidx,numvert,numidx;} scenetris_t;
 static int cl_numstris,cl_maxstris;static scenetris_t *cl_stris;static void (*R2D_Flush)(void);
 '''
+config = s[s.index('typedef struct {unsigned int grid,gridCount,faces,faceCount,epoch;}'):s.index('static void QCBUILTIN PF_ReyondBroom_IncrementalSupport')]
+raw = s[s.index('void QCBUILTIN PF_ReyondBroom_DrawFaces('):s.index('// Compact point snapshots')]
+shim += r'''
+static void PR_BIError(pubprogfuncs_t *vm,const char *message){(void)vm;puts(message);assert(0);}
+static void RB_AddIndexedSoup(rb_soup_context_t *context,pubprogfuncs_t *vm,unsigned int vertices,unsigned int count,unsigned int indices,unsigned int total){
+ (void)vm;(void)indices;if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
+ cl_stris[cl_numstris++]=(scenetris_t){context->shader,context->flags,vertices,0,count,total};
+}
+'''
 checks = r'''
 int main(void){
  pubprogfuncs_t vm={calloc(1,32*1024*1024),32*1024*1024};struct globalvars_s globals;struct globalvars_s *pr_globals=&globals;activeGlobals=pr_globals;memset(&globals,0,sizeof(globals));
- const int count=30000;unsigned int offset=128,at=offset+count*sizeof(editorqcface_t),accessOffset=at;at+=16;int *access=(int*)(vm.stringtable+accessOffset);access[2]=1;
+ const int count=30000;unsigned int offset=128,at=offset+count*sizeof(editorqcface_t),accessOffset=at;at+=32;int *access=(int*)(vm.stringtable+accessOffset);access[2]=1;
  editorqcface_t *faces=(editorqcface_t*)(vm.stringtable+offset);
  for(int i=0;i<count;i++){editorqcface_t *f=&faces[i];f->node=2;f->count=4;f->brushEnd=count;f->shader=1;f->enabled=1;f->alpha=1;f->normal[2]=1;f->radius=f->brushRadius=100;f->vertices=at;at+=4*sizeof(qcvertex_t);f->triangles=at;at+=6*sizeof(int);unsigned int *indices=(unsigned int*)(vm.stringtable+f->triangles);indices[0]=0;indices[1]=1;indices[2]=2;indices[3]=0;indices[4]=2;indices[5]=3;}
  assert(at<vm.stringtablesize);r_refdef.vieworg[2]=10;r_refdef.fov_x=r_refdef.fov_y=90;
- G_INT(OFS_PARM0)=offset;G_INT(OFS_PARM1)=count;G_INT(OFS_PARM2)=accessOffset;G_INT(OFS_PARM3)=4;G_INT(OFS_PARM4)=sizeof(*faces);G_INT(OFS_PARM5)=1;int saved[18];memcpy(saved,globals.data+OFS_PARM0,sizeof(saved));
+ G_INT(OFS_PARM0)=offset;G_INT(OFS_PARM1)=count;G_INT(OFS_PARM2)=accessOffset;G_INT(OFS_PARM3)=8;G_INT(OFS_PARM4)=sizeof(*faces);G_INT(OFS_PARM5)=1;int saved[18];memcpy(saved,globals.data+OFS_PARM0,sizeof(saved));
  PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&cl_numstris>0);assert(!memcmp(saved,globals.data+OFS_PARM0,sizeof(saved)));assert(rb_mesh_caches[2].valid&&alive==2);unsigned int submitted=0;
  for(int i=0;i<cl_numstris;i++){assert(cl_stris[i].shader==&shaders[1]&&cl_stris[i].firstvert<0);submitted+=cl_stris[i].numidx;}assert(submitted==count*6);
  int before=uploads;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&uploads==before);
@@ -59,11 +70,25 @@ int main(void){
  G_INT(OFS_PARM5)=3;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);
  assert(G_INT(OFS_RETURN)==count&&cl_numstris==count&&rb_mesh_caches[2].count<8);
  for(int i=0;i<count;i++){assert(cl_stris[i].shader==&shaders[1+(i&1)]);batch_t batch={0};assert(CSQC_ReyondBroomCachedBatch(&batch,-1-cl_stris[i].firstvert));mesh_t *mesh=*batch.mesh;assert(mesh->numindexes==6);assert(mesh->indexes[1]==mesh->indexes[0]+1);}
- rb_geom.valid=rb_geom.reusable=1;rb_geom.generation=100;rb_geom.accessOffset=accessOffset;rb_geom.accessCount=4;
+ rb_geom.valid=rb_geom.reusable=1;rb_geom.generation=100;rb_geom.accessOffset=accessOffset;rb_geom.accessCount=8;
  cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&rb_mesh_caches[2].viewValid);before=uploads;
  cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&cl_numstris==count&&uploads==before);
  access[2]=0;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(!G_INT(OFS_RETURN)&&!cl_numstris);
  access[2]=1;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(G_INT(OFS_RETURN)==count&&cl_numstris==count);rb_geom.valid=0;
+ // The edited layer must remain interleaved and must not re-upload the base.
+ unsigned int configOffset=at;at+=sizeof(rb_incremental_config_t);unsigned int editOffset=at;at+=2*sizeof(editorqcface_t);
+ rb_incremental_config_t *config=(rb_incremental_config_t*)(vm.stringtable+configOffset);*config=(rb_incremental_config_t){0,0,editOffset,2,1};
+ editorqcface_t *edited=(editorqcface_t*)(vm.stringtable+editOffset);edited[0]=edited[1]=faces[0];edited[0].node=1;edited[1].node=3;edited[0].brushEnd=1;edited[1].brushEnd=2;edited[0].enabled=edited[1].enabled=2;edited[0].alpha=edited[1].alpha=.35f;
+ access[1]=access[3]=17;G_INT(OFS_PARM6)=configOffset;vm.callargc=7;rb_geom.valid=1;rb_geom.generation++;
+ cl_numstris=0;before=uploads;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==count+2&&uploads==before);assert(cl_stris[0].firstvert==(int)faces[0].vertices&&cl_stris[count+1].firstvert==(int)faces[0].vertices);
+ cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==count+2&&uploads==before&&vm.callargc==7);
+ for(int i=0;i<count;i++)faces[i].enabled=0;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(cl_numstris==2&&uploads==before);
+ access[1]=access[3]=1;rb_geom.generation++;cl_numstris=0;PF_ReyondBroom_DrawFacesCached(&vm,pr_globals);assert(!cl_numstris&&uploads==before);
+ // The uncached path merges the exact same edited ranges.
+ access[1]=access[3]=17;G_INT(OFS_PARM5)=configOffset;vm.callargc=6;cl_numstris=0;PF_ReyondBroom_DrawFaces(&vm,pr_globals);assert(cl_numstris==2&&vm.callargc==6);
+ // A hidden first brush in a sliced edited range must not skip its neighbor.
+ config->faceCount=4;edited[2]=edited[3]=faces[0];edited[2].node=4;edited[3].node=5;edited[2].brushEnd=3;edited[3].brushEnd=4;edited[2].enabled=edited[3].enabled=2;
+ access[1]=17;access[3]=0;access[4]=access[5]=17;vm.callargc=6;G_INT(OFS_PARM5)=configOffset;cl_numstris=0;PF_ReyondBroom_DrawFaces(&vm,pr_globals);assert(cl_numstris==3);
  rb_cache_source_t *many=malloc(70000*sizeof(*many));for(int i=0;i<70000;i++)many[i]=(rb_cache_source_t){faces[0].vertices,4,6,32,i&1,1};
  assert(RB_CacheGeometry(&vm,2,offset,70000,4,many,70000));assert(rb_mesh_caches[2].count<16);free(many);
  CSQC_ReyondBroomClearMeshes();assert(alive==0);free(cl_stris);free(vm.stringtable);puts("PASS: 30,000 retained faces, unchanged arguments, exact index count, warm reuse, access changes, invalid triangles, revision rebuild and complete release");
@@ -71,6 +96,6 @@ int main(void){
 '''
 with tempfile.TemporaryDirectory() as folder:
     file, exe = Path(folder) / 'faces.c', Path(folder) / 'faces.exe'
-    file.write_text(shared['shim'] + shared['layout'] + '\n' + shared['code'] + face + shim + function + checks)
+    file.write_text(shared['shim'] + shared['layout'] + '\n' + shared['code'] + face + shim + config + raw + function + checks)
     subprocess.run([a.compiler, '-std=c99', '-O2', str(file), '-lm', '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

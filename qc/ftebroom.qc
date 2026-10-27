@@ -26,6 +26,7 @@ int fb_primitive_create(vector low,vector high,int replace);
 void fb_primitive_preview(vector low,vector high);
 void fb_primitive_apply();
 void fb_visibility_sync();
+void fb_entity_links_prepare();
 void fb_visibility_command(string operation);
 void fb_group_create(string name);
 void fb_organize_action(string operation,int target,string value);
@@ -349,7 +350,7 @@ int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,f
 int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid_cached=#0:ftebroom_draw_grid_cached;
 int(fb_grid_face_t *faces,int count,vector *params) ftebroom_build_grid=#0:ftebroom_build_grid;
 int fb_grid_upload_epoch;
-int(fb_grid_face_t *faces,int count,int *access,int accessCount,int stride,int mode,int revision) ftebroom_prepare_occlusion=#0:ftebroom_prepare_occlusion;
+int(fb_grid_face_t *faces,int count,int *access,int accessCount,int stride,int mode,int revision,...) ftebroom_prepare_occlusion=#0:ftebroom_prepare_occlusion;
 var float autocvar_ftebroom_geometry_occlusion=1;
 var float autocvar_ftebroom_occlusion_culling=1;
 int fb_face_occluder(brushface_t *face,int contents,int node,int model);
@@ -364,41 +365,10 @@ int *fb_grid_packed_triangles;
 int *fb_grid_packed_lines;int fb_grid_vertex_capacity;
 int fb_sky_material(string material);
 var float autocvar_ftebroom_sky_overlays=0;
-void fb_surfacegrid(int geometryOnly)
+int *fb_grid_first;
+int fb_grid_append_brush(int b,int vertexOffset)
 {
-    static int epoch,valid,materialEpoch;
-    static brushface_t gridPlanes[MAX_BRUSHFACES];
-    static vector lastEye,lastAngles,lastSize,lastMin,lastFov;
-    static float lastGrid,lastAlpha,lastRotation;
-    static int lastFilters,lastVisibility,lastSky,wasPreview;
-    vector eye=getproperty(VF_ORIGIN),angles=getproperty(VF_ANGLES),size=getproperty(VF_SIZE);
-    vector viewport=getproperty(VF_MIN),fov=getproperty(VF_FOV);
-    float grid=fb_grid(),alpha=bound(0,cvar("ftebroom_grid_alpha"),1);
-    int currentMaterials=cvar("ftebroom_material_tag_epoch");int rebuild=!valid || epoch!=fb_grid_geometry_epoch || materialEpoch!=currentMaterials;
-    if(rebuild) {
-        epoch=fb_grid_geometry_epoch;valid=TRUE;materialEpoch=currentMaterials;
-        // Four contiguous allocations replace four allocations per face. The
-        // QC heap otherwise spends seconds walking hundreds of thousands of blocks.
-        int required=0,vertexOffset=0;static vector gridBounds[2];
-        for(int node=2;node<fb_node_count;node++)if(fb_nodes[node].kind==FB_NODE_BRUSH){
-            int faces=brush_get(fb_nodes[node].model,fb_nodes[node].id,__NULL__,0,__NULL__);
-            for(int face=1;face<=min(faces,MAX_BRUSHFACES);face++)required+=brush_getfacepoints(fb_nodes[node].model,fb_nodes[node].id,face,facepoints,MAX_FACEPOINTS);
-        }
-        if(required>fb_grid_vertex_capacity){
-            // A large document must not double all four packed arrays after
-            // its first new brush. Reserve modest edit headroom up front;
-            // subsequent growth stays proportional to the actual geometry.
-            if(required>65536)fb_grid_vertex_capacity=required+max(4096,ceil(required/16.0));
-            else fb_grid_vertex_capacity=max(required,max(1024,fb_grid_vertex_capacity*2));
-            memfree(fb_grid_packed_points);memfree(fb_grid_packed_vertices);memfree(fb_grid_packed_triangles);memfree(fb_grid_packed_lines);
-            fb_grid_packed_points=memalloc(fb_grid_vertex_capacity*sizeof(vector));
-            fb_grid_packed_vertices=memalloc(fb_grid_vertex_capacity*2*sizeof(trisoup_simple_vert_t));
-            fb_grid_packed_triangles=memalloc(fb_grid_vertex_capacity*3*sizeof(int));fb_grid_packed_lines=memalloc(fb_grid_vertex_capacity*2*sizeof(int));
-        }
-        memfree(fb_grid_brush_bounds);fb_grid_brush_bounds=memalloc(fb_node_count*2*sizeof(vector));
-        fb_grid_face_count=0;
-        for(int b=2;b<fb_node_count;b++) {
-          if(fb_nodes[b].kind!=FB_NODE_BRUSH)continue;
+    static brushface_t gridPlanes[MAX_BRUSHFACES];static vector gridBounds[2];
           int model=fb_nodes[b].model,id=fb_nodes[b].id;
           if(brush_getfacepoints(model,id,0,gridBounds,2)==2){fb_grid_brush_bounds[b*2]=(gridBounds[0]+gridBounds[1])*.5;fb_grid_brush_bounds[b*2+1]=[vlen(gridBounds[1]-gridBounds[0])*.5+.1,0,0];}
           else fb_grid_brush_bounds[b*2+1]='1000000000 0 0';
@@ -435,9 +405,51 @@ void fb_surfacegrid(int geometryOnly)
             face.radius=0;for(int j=0;j<n;j++)face.radius=max(face.radius,vlen(face.points[j]-face.center));
         }
           for(int face=firstFace;face<fb_grid_face_count;face++)fb_grid_faces[face].brushEnd=fb_grid_face_count;
+
+    return vertexOffset;
+}
+void fb_surfacegrid(int geometryOnly)
+{
+    static int epoch,valid,materialEpoch;
+    static vector lastEye,lastAngles,lastSize,lastMin,lastFov;
+    static float lastGrid,lastAlpha,lastRotation;
+    static int lastFilters,lastVisibility,lastSky,wasPreview;
+    vector eye=getproperty(VF_ORIGIN),angles=getproperty(VF_ANGLES),size=getproperty(VF_SIZE);
+    vector viewport=getproperty(VF_MIN),fov=getproperty(VF_FOV);
+    float grid=fb_grid(),alpha=bound(0,cvar("ftebroom_grid_alpha"),1);
+    int currentMaterials=cvar("ftebroom_material_tag_epoch");int rebuild=!valid || epoch!=fb_grid_geometry_epoch || materialEpoch!=currentMaterials;
+    float grid81Time=gettime(1);
+    if(rebuild) {
+        epoch=fb_grid_geometry_epoch;valid=TRUE;materialEpoch=currentMaterials;
+        // Four contiguous allocations replace four allocations per face. The
+        // QC heap otherwise spends seconds walking hundreds of thousands of blocks.
+        int required=0,vertexOffset=0;
+        for(int node=2;node<fb_node_count;node++)if(fb_nodes[node].kind==FB_NODE_BRUSH){
+            int faces=brush_get(fb_nodes[node].model,fb_nodes[node].id,__NULL__,0,__NULL__);
+            for(int face=1;face<=min(faces,MAX_BRUSHFACES);face++)required+=brush_getfacepoints(fb_nodes[node].model,fb_nodes[node].id,face,facepoints,MAX_FACEPOINTS);
+        }
+        if(required>fb_grid_vertex_capacity){
+            // A large document must not double all four packed arrays after
+            // its first new brush. Reserve modest edit headroom up front;
+            // subsequent growth stays proportional to the actual geometry.
+            if(required>65536)fb_grid_vertex_capacity=required+max(4096,ceil(required/16.0));
+            else fb_grid_vertex_capacity=max(required,max(1024,fb_grid_vertex_capacity*2));
+            memfree(fb_grid_packed_points);memfree(fb_grid_packed_vertices);memfree(fb_grid_packed_triangles);memfree(fb_grid_packed_lines);
+            fb_grid_packed_points=memalloc(fb_grid_vertex_capacity*sizeof(vector));
+            fb_grid_packed_vertices=memalloc(fb_grid_vertex_capacity*2*sizeof(trisoup_simple_vert_t));
+            fb_grid_packed_triangles=memalloc(fb_grid_vertex_capacity*3*sizeof(int));fb_grid_packed_lines=memalloc(fb_grid_vertex_capacity*2*sizeof(int));
+        }
+        memfree(fb_grid_brush_bounds);fb_grid_brush_bounds=memalloc(fb_node_capacity*2*sizeof(vector));
+        memfree(fb_grid_first);fb_grid_first=memalloc(fb_node_capacity*sizeof(int));
+        fb_grid_face_count=0;
+        for(int b=2;b<fb_node_count;b++) {
+          if(fb_nodes[b].kind!=FB_NODE_BRUSH)continue;
+          int first=fb_grid_face_count;vertexOffset=fb_grid_append_brush(b,vertexOffset);
+          if(fb_grid_face_count>first)fb_grid_first[b]=first+1;
         }
         memfree(fb_grid_visible);fb_grid_visible=memalloc(max(1,fb_grid_face_count)*sizeof(int));fb_grid_built_epoch=fb_grid_geometry_epoch;fb_occlusion_revision++;
     }
+    fb_commit_profile("grid_geometry",grid81Time);
     if(geometryOnly) {lastGrid=-1;wasPreview=TRUE;return;}
     static vector lastGridOrigin,lastGridX,lastGridY,lastGridZ;
     int gridChanged=lastGridOrigin!=autocvar_ftebroom_grid_origin||lastGridX!=autocvar_ftebroom_grid_basis_x||lastGridY!=autocvar_ftebroom_grid_basis_y||lastGridZ!=autocvar_ftebroom_grid_basis_z;
@@ -481,6 +493,7 @@ void fb_surfacegrid(int geometryOnly)
     makevectors(angles);vector forward=v_forward,right=v_right,up=v_up;
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int gridVisible=cvar("ftebroom_grid_visible"),edges=cvar("ftebroom_show_edges");
+    fb_incremental_draw_grid();
     shaderforname("ftebroom/brushedges","{\ncull none\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\n}\n}");
     if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid_compact) && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP))){
         fb_render_allowed(0,FB_PICK_LOCKED);int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=8|(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;params.revision=fb_grid_upload_epoch;
@@ -517,26 +530,32 @@ void fb_surfacegrid(int geometryOnly)
 
 void fb_prepare_occlusion()
 {
+    float profile81Time=gettime(1);
     fb_static_preview_prepare();
     if(!checkbuiltin(ftebroom_prepare_occlusion))return;
     int enabled=autocvar_ftebroom_occlusion_culling && cvar("ftebroom_quake1") && !cvar("ca_brush_view") && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP)) && cvar("ftebroom_render_faces")!=2 && fb_grid_built_epoch==fb_grid_geometry_epoch;
     int mode=enabled?2:0;fb_render_allowed(0,FB_PICK_LOCKED);
-    ftebroom_prepare_occlusion(fb_grid_faces,fb_grid_face_count,fb_static_preview_supported?fb_static_access:fb_render_access,fb_static_preview_supported?fb_static_access_count:fb_render_access_count,sizeof(fb_grid_face_t),mode,fb_occlusion_revision);
+    ftebroom_prepare_occlusion(fb_grid_faces,fb_grid_face_count,fb_static_preview_supported?fb_static_access:fb_render_access,fb_static_preview_supported?fb_static_access_count:fb_render_access_count,sizeof(fb_grid_face_t),mode,fb_occlusion_revision,fb_incremental_config());
+    fb_commit_profile("fb_prepare_occlusion",profile81Time);
 }
 #include "ftebroom_edit.qc"
 
 void ftebroom_prepare()
 {
+    float profile81Time=gettime(1);
     fb_grid();
+    fb_incremental_settings();
     fb_document_tick();
     fb_material_usage();
-    fb_entity_publish();
+    {float stage81_1=gettime(1);fb_entity_links_prepare();fb_commit_profile("fb_entity_links_prepare",stage81_1);}
+    {float stage81_2=gettime(1);fb_entity_publish();fb_commit_profile("fb_entity_publish",stage81_2);}
     fb_uv_publish();
     fb_filter_prepare();
-    fb_view_remember_selection();
+    {float stage81_3=gettime(1);fb_view_remember_selection();fb_commit_profile("fb_view_remember_selection",stage81_3);}
     curmousepos=[cvar("ftebroom_mouse_x"),cvar("ftebroom_mouse_y"),0];
-    fb_tool_pointer_move(curmousepos,cvar("ftebroom_alt"),cvar("ca_brush_view"));
-    fb_visibility_sync();
+    {float stage81_4=gettime(1);fb_tool_pointer_move(curmousepos,cvar("ftebroom_alt"),cvar("ca_brush_view"));fb_commit_profile("fb_tool_pointer_move",stage81_4);}
+    {float stage81_5=gettime(1);fb_visibility_sync();fb_commit_profile("fb_visibility_sync",stage81_5);}
+    fb_commit_profile("ftebroom_prepare",profile81Time);
 }
 void fb_trace_draw();
 void fb_issues_tick();
