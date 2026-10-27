@@ -1,0 +1,669 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -3516,18 +3516,20 @@
+  qboolean hidden=false;for(unsigned int i=0;i<rb_incremental.gridCount;i++)if(RB_LabelPolygon(rb_labels.total+i,direction,limit)){hidden=true;rb_label_last_face=rb_labels.total+i;break;}if(!hidden&&rb_labels.count)hidden=RB_LabelQuery(0,point,direction,inverse,limit);if(hidden)rb_label_tree_hits++;else rb_label_visible++;
+  if(!hint)hint=replacement;memcpy(hint->bits,bits,sizeof(bits));hint->generation=rb_label_generation;hint->face=hidden?rb_label_last_face:rb_labels.total;VectorCopy(rb_occ.eye,hint->eye);hint->hidden=hidden;return hidden;
+ }
++static unsigned int rb_access_revision;
++static qboolean RB_RetainedHardwareDepth(void);
+ static void QCBUILTIN PF_ReyondBroom_PrepareOcclusion(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),mode=G_INT(OFS_PARM5),revision=G_INT(OFS_PARM6);
+  rb_incremental_vm=vm;rb_incremental=vm->callargc>7?RB_IncrementalConfig(vm,G_INT(OFS_PARM7)):(rb_incremental_config_t){0};
+  if(rb_incremental.gridCount>131072||!RB_QCBuffer(vm,rb_incremental.grid,rb_incremental.gridCount,sizeof(rb_grid_face_t)))rb_incremental.grid=rb_incremental.gridCount=0;
+- static unsigned int lastRevision; if(lastRevision!=revision){lastRevision=revision;rb_label_generation++;}
++ rb_access_revision=revision;static unsigned int lastRevision; if(lastRevision!=revision){lastRevision=revision;rb_label_generation++;}
+  rb_geom.valid=false;rb_occ.valid=false;G_INT(OFS_RETURN)=-1;
+  if(!mode){rb_labels.valid=false;G_INT(OFS_RETURN)=0;return;}
+  if(stride!=sizeof(rb_grid_face_t))return;
+  if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(rb_grid_face_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))){if(!total){G_INT(OFS_RETURN)=0;return;}PR_BIError(vm,"ReyondBroom: invalid occluder snapshot\n");return;}
+  if(r_refdef.dirty)V_ApplyRefdef();VectorCopy(r_refdef.vieworg,rb_occ.eye);rb_occ.mode=mode;
+  RB_LabelPrepare(vm,offset,total,accessOffset,accessCount,rb_incremental.epoch?rb_incremental.epoch:revision);rb_occ.valid=true;
+- if(total>=30000 && Cvar_VariableValue("ftebroom_geometry_occlusion")!=0)PF_ReyondBroom_PrepareGeometry(vm,pr_globals);
++ if(total>=30000 && Cvar_VariableValue("ftebroom_geometry_occlusion")!=0&&!RB_RetainedHardwareDepth())PF_ReyondBroom_PrepareGeometry(vm,pr_globals);
+  G_INT(OFS_RETURN)=rb_labels.count;
+ }
+ typedef struct {int stride,flags,gridShader,edgeShader;unsigned int visible;} rb_grid_params_t;
+@@ -3582,16 +3584,24 @@
+ // Persistent geometry; camera-dependent indices are rebuilt without copying vertices.
+ typedef struct {
+  mesh_t mesh,*meshptr;vbo_t vbo;void *vertices,*shader;index_t *scratch;
+- unsigned int capacity,pending;int pass,material,key;
++ unsigned int capacity,pending;int pass,material,key;int multi,plane;void *extras;
+ } rb_cached_mesh_t;
+ typedef struct {unsigned int slot,base;} rb_cached_grid_ref_t;
+ typedef struct {
+  rb_cached_mesh_t *meshes;rb_cached_grid_ref_t *refs;
+  unsigned int count,total,revision,offset;pubprogfuncs_t *vm;char *base;
+  size_t bytes;qboolean valid;vboarray_t vertexBuffer,indexBuffer;void *vertexMemory,*indexMemory;index_t *indices,*scratch;unsigned int indexCapacity,indexUploaded;qboolean streamIndices;
+- unsigned int viewGeneration;int viewFlags,viewCount;qboolean viewValid;
++ unsigned int viewGeneration;int viewFlags,viewCount;qboolean viewValid;int *retainedAccess;unsigned int retainedCount,retainedEpoch;int retainedEligible;qboolean retained;void *retainedShaders[2];
+ } rb_mesh_cache_t;
+ static rb_mesh_cache_t rb_mesh_caches[3];
++static qboolean RB_RetainedHardwareDepth(void){
++#ifdef GLQUAKE
++ return Cvar_VariableValue("ftebroom_gpu_visibility")!=0&&Cvar_VariableValue("ca_brush_view")==0&&Cvar_VariableValue("ftebroom_bindless_materials")!=0&&Cvar_VariableValue("ftebroom_gpu_face_cull")!=0&&Cvar_VariableValue("ftebroom_gpu_grid_cull")!=0&&rb_mesh_caches[2].retained&&rb_mesh_caches[0].retained;
++#else
++ return false;
++#endif
++}
++
+ // Material-major retained chunks avoid one GPU/VAO object per material run.
+ // Source references keep both ordered and dependency-scheduled draws exact.
+ typedef struct {unsigned int slot,offset,count,source;void *shader;int flags;int batchable;vec3_t low,high;} rb_face_draw_t;
+@@ -3602,16 +3612,24 @@
+ 
+ #ifdef GLQUAKE
+ void GLBE_InitEditorMesh(vbo_t *vbo);
++void GLBE_BeginEditorMeshUpload(void);
+ void GLBE_DestroyEditorMesh(vbo_t *vbo);
++unsigned int GLBE_EditorMaterialsEpoch(void);
++shader_t *GLBE_EditorMaterialShader(void);
++shader_t *GLBE_EditorMaterial(shader_t *source,int *tag);
++void GLBE_ClearEditorMaterials(void);
+ qboolean GLBE_StreamEditorIndices(vboarray_t *buffer,void **memory,const index_t *indices,size_t count,qboolean streaming);
++#else
++#define GLBE_EditorMaterialsEpoch() 0u
++#define GLBE_EditorMaterial(source,tag) (*(tag)=0,(source))
+ #endif
+ #define rb_grid_cache rb_mesh_caches[0]
+-typedef struct {unsigned int offset,vertices,indices;int pass,material,key;} rb_cache_source_t;
++typedef struct {unsigned int offset,vertices,indices;int pass,material,key,tag,alphaTest;unsigned int face;vec3_t normal;float distance;} rb_cache_source_t;
+ typedef struct {vec3_t low,high,normal;float distance,depthPad;const float *points;int stride,count,winding;} rb_order_bounds_t;
+ typedef struct {vec3_t low,high;unsigned int begin,count,left,right;} rb_order_tree_t;
+ static struct {
+  rb_order_bounds_t *bounds;rb_order_tree_t *tree;unsigned int *ids,*offsets,*counts,*neighbors,*local,*stamps,*nodes;unsigned char *visible;unsigned int visibilityGeneration,gridOffset,gridRevision;int gridCompatible;
+- vec3_t rankEye;qboolean rankRegion;unsigned long long materialSignature;unsigned int total,used,capacity,stamp;float pad;unsigned int *sorted;unsigned char *drawVisible,*rankInactive;unsigned int *ranks;float rankPad;qboolean building,useRanks;unsigned int viewGeneration,stableFrames;
++ vec3_t rankEye;float rankRadius;qboolean rankRegion;unsigned long long materialSignature;unsigned int total,used,capacity,stamp;float pad;unsigned int *sorted;unsigned char *drawVisible,*rankInactive;unsigned int *ranks;float rankPad;qboolean building,useRanks;unsigned int viewGeneration,stableFrames;
+ } rb_order_cache;
+ static void RB_ClearOrderCache(void){
+  BZ_Free(rb_order_cache.rankInactive);BZ_Free(rb_order_cache.sorted);BZ_Free(rb_order_cache.drawVisible);BZ_Free(rb_order_cache.visible);BZ_Free(rb_order_cache.nodes);BZ_Free(rb_order_cache.ranks);BZ_Free(rb_order_cache.bounds);BZ_Free(rb_order_cache.tree);BZ_Free(rb_order_cache.ids);BZ_Free(rb_order_cache.offsets);BZ_Free(rb_order_cache.counts);BZ_Free(rb_order_cache.neighbors);BZ_Free(rb_order_cache.local);BZ_Free(rb_order_cache.stamps);memset(&rb_order_cache,0,sizeof(rb_order_cache));
+@@ -3630,11 +3648,15 @@
+ #ifdef GLQUAKE
+   if(qrenderer==QR_OPENGL)GLBE_DestroyEditorMesh(&cache->meshes[i].vbo);
+ #endif
+-  BZ_Free(cache->meshes[i].vertices);
++  BZ_Free(cache->meshes[i].extras);BZ_Free(cache->meshes[i].vertices);
+  }
+- BZ_Free(cache->indices);BZ_Free(cache->scratch);BZ_Free(cache->meshes);BZ_Free(cache->refs);memset(cache,0,sizeof(*cache));
+-}
+-void CSQC_ReyondBroomClearMeshes(void){RB_ClearPointVisibility();BZ_Free(rb_label_draw_cache.items);BZ_Free(rb_label_draw_cache.selected);memset(&rb_label_draw_cache,0,sizeof(rb_label_draw_cache));rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);BZ_Free(rb_face_draws);rb_face_draws=NULL;rb_face_draw_count=rb_face_draw_capacity=0;}
++ BZ_Free(cache->retainedAccess);BZ_Free(cache->indices);BZ_Free(cache->scratch);BZ_Free(cache->meshes);BZ_Free(cache->refs);memset(cache,0,sizeof(*cache));
++}
++void CSQC_ReyondBroomClearMeshes(void){
++#ifdef GLQUAKE
++ if(qrenderer==QR_OPENGL)GLBE_ClearEditorMaterials();
++#endif
++RB_ClearPointVisibility();BZ_Free(rb_label_draw_cache.items);BZ_Free(rb_label_draw_cache.selected);memset(&rb_label_draw_cache,0,sizeof(rb_label_draw_cache));rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);BZ_Free(rb_face_draws);rb_face_draws=NULL;rb_face_draw_count=rb_face_draw_capacity=0;}
+ qboolean CSQC_ReyondBroomCachedBatch(void *opaque,unsigned int id)
+ {
+  unsigned int group=id>>16,slot=id&65535;batch_t *batch=opaque;
+@@ -3664,10 +3686,10 @@
+  if(qrenderer!=QR_OPENGL||!BE_VBO_Begin||!BE_VBO_Data||!BE_VBO_Finish||!BE_VBO_Destroy)return false;
+  for(unsigned int i=0;i<records;i++){
+   rb_cache_source_t *f=&sources[i];if(!f->vertices||f->vertices>MAX_INDICIES||f->indices>MAX_INDICIES||!RB_QCBuffer(vm,f->offset,f->vertices,sizeof(qcvertex_t)))return false;
+-  bytes+=(size_t)f->vertices*2*(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t));bytes+=(size_t)f->indices*sizeof(index_t)*3;
++  bytes+=(size_t)f->vertices*(2*(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t))+(group==0?sizeof(vec3_t)+2*sizeof(vec2_t):f->tag?sizeof(vec3_t)+sizeof(vec2_t):0));bytes+=(size_t)f->indices*sizeof(index_t)*3;
+  }
+  for(unsigned int i=0;i<3;i++)if(i!=group)bytes+=rb_mesh_caches[i].bytes;
+- if(bytes>320u*1024*1024)return false;
++ if(bytes>384u*1024*1024)return false;
+  for(unsigned int i=0;i<3;i++)if(i!=group)bytes-=rb_mesh_caches[i].bytes;
+  RB_ClearMeshCache(group);cache->refs=BZ_Malloc((size_t)records*sizeof(*cache->refs));
+  typedef struct {int used,pass,material;unsigned int slot,vertices,indices;} material_chunk_t;
+@@ -3690,10 +3712,10 @@
+  BZ_Free(chunks);
+  bytes+=(size_t)slot*(sizeof(*cache->meshes)+47);
+  size_t resident=bytes;for(unsigned int i=0;i<3;i++)if(i!=group)resident+=rb_mesh_caches[i].bytes;
+- if(resident>320u*1024*1024){RB_ClearMeshCache(group);return false;}
++ if(resident>384u*1024*1024){RB_ClearMeshCache(group);return false;}
+  cache->count=slot;cache->meshes=BZ_Malloc(slot*sizeof(*cache->meshes));memset(cache->meshes,0,slot*sizeof(*cache->meshes));
+  for(unsigned int i=0;i<records;i++){
+-  rb_cache_source_t *f=&sources[i];rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];m->pass=f->pass;m->material=f->material;m->key=f->key;m->mesh.numvertexes=ref.base+f->vertices;m->capacity+=f->indices;cache->indexCapacity+=f->indices;
++  rb_cache_source_t *f=&sources[i];rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];m->pass=f->pass;m->material=f->material;m->key=f->key;m->multi=f->tag!=0;m->plane=group==0||m->multi;m->mesh.numvertexes=ref.base+f->vertices;m->capacity+=f->indices;cache->indexCapacity+=f->indices;
+  }
+  cache->indices=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);cache->scratch=BZ_Malloc(sizeof(index_t)*cache->indexCapacity);memset(cache->indices,0,sizeof(index_t)*cache->indexCapacity);memset(cache->scratch,0,sizeof(index_t)*cache->indexCapacity);unsigned int indexOffset=0;
+  for(unsigned int i=0;i<slot;i++){
+@@ -3703,19 +3725,26 @@
+   size_t stOffset=((size_t)n*sizeof(vecV_t)+15)&~(size_t)15,colorOffset=(stOffset+(size_t)n*sizeof(vec2_t)+15)&~(size_t)15;
+   m->vertices=BZ_Malloc(colorOffset+(size_t)n*sizeof(vec4_t)+15);unsigned char *aligned=(unsigned char*)(((uintptr_t)m->vertices+15)&~(uintptr_t)15);
+   m->mesh.xyz_array=(vecV_t*)aligned;m->mesh.st_array=(vec2_t*)(aligned+stOffset);m->mesh.colors4f_array[0]=(vec4_t*)(aligned+colorOffset);
++  if(m->plane){size_t second=((size_t)n*sizeof(vec2_t)+15)&~(size_t)15,normal=(second+(group==0?(size_t)n*sizeof(vec2_t):0)+15)&~(size_t)15;m->extras=BZ_Malloc(normal+(size_t)n*sizeof(vec3_t)+15);unsigned char *extra=(unsigned char*)(((uintptr_t)m->extras+15)&~(uintptr_t)15);m->mesh.lmst_array[0]=(vec2_t*)extra;if(group==0)m->mesh.lmst_array[1]=(vec2_t*)(extra+second);m->mesh.normals_array=(vec3_t*)(extra+normal);}
++
+   m->mesh.indexes=cache->indices+indexOffset;m->scratch=cache->scratch+indexOffset;m->mesh.vbofirstelement=indexOffset;indexOffset+=m->capacity;m->meshptr=&m->mesh;
+  }
+  for(unsigned int i=0;i<records;i++){
+   rb_cache_source_t *f=&sources[i];rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];qcvertex_t *source=(qcvertex_t*)(vm->stringtable+f->offset);
+-  for(unsigned int j=0;j<f->vertices;j++){VectorCopy(source[j].xyz,m->mesh.xyz_array[ref.base+j]);Vector2Copy(source[j].st,m->mesh.st_array[ref.base+j]);Vector4Copy(source[j].rgba,m->mesh.colors4f_array[0][ref.base+j]);}
++  for(unsigned int j=0;j<f->vertices;j++){VectorCopy(source[j].xyz,m->mesh.xyz_array[ref.base+j]);Vector2Copy(source[j].st,m->mesh.st_array[ref.base+j]);Vector4Copy(source[j].rgba,m->mesh.colors4f_array[0][ref.base+j]);if(group==0){rb_grid_face_t *face=(rb_grid_face_t*)(vm->stringtable+f->face);m->mesh.lmst_array[0][ref.base+j][0]=face->center[0];m->mesh.lmst_array[0][ref.base+j][1]=face->center[1];m->mesh.lmst_array[1][ref.base+j][0]=face->center[2];m->mesh.lmst_array[1][ref.base+j][1]=0;VectorCopy(face->normal,m->mesh.normals_array[ref.base+j]);}else if(m->multi){m->mesh.lmst_array[0][ref.base+j][0]=(f->tag>0?(f->tag-1)*4:0)+f->alphaTest;m->mesh.lmst_array[0][ref.base+j][1]=f->distance;VectorCopy(f->normal,m->mesh.normals_array[ref.base+j]);}}
+  }
+- size_t vertexBytes=0;for(unsigned int i=0;i<slot;i++)vertexBytes+=(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t))*cache->meshes[i].mesh.numvertexes;
+- vbobctx_t context;BE_VBO_Begin(&context,vertexBytes);
++ size_t vertexBytes=0;for(unsigned int i=0;i<slot;i++)vertexBytes+=(sizeof(vecV_t)+sizeof(vec2_t)+sizeof(vec4_t)+(cache->meshes[i].plane?sizeof(vec2_t)+sizeof(vec3_t):0)+(group==0?sizeof(vec2_t):0))*cache->meshes[i].mesh.numvertexes;
++ vbobctx_t context;
++#ifdef GLQUAKE
++ GLBE_BeginEditorMeshUpload();
++#endif
++ BE_VBO_Begin(&context,vertexBytes);
+  for(unsigned int i=0;i<slot;i++){
+   rb_cached_mesh_t *m=&cache->meshes[i];unsigned int n=m->mesh.numvertexes;
+-  BE_VBO_Data(&context,m->mesh.xyz_array,sizeof(vecV_t)*n,&m->vbo.coord);BE_VBO_Data(&context,m->mesh.st_array,sizeof(vec2_t)*n,&m->vbo.texcoord);BE_VBO_Data(&context,m->mesh.colors4f_array[0],sizeof(vec4_t)*n,&m->vbo.colours[0]);m->vbo.vertcount=n;
++  BE_VBO_Data(&context,m->mesh.xyz_array,sizeof(vecV_t)*n,&m->vbo.coord);BE_VBO_Data(&context,m->mesh.st_array,sizeof(vec2_t)*n,&m->vbo.texcoord);BE_VBO_Data(&context,m->mesh.colors4f_array[0],sizeof(vec4_t)*n,&m->vbo.colours[0]);if(m->plane){BE_VBO_Data(&context,m->mesh.lmst_array[0],sizeof(vec2_t)*n,&m->vbo.lmcoord[0]);BE_VBO_Data(&context,m->mesh.normals_array,sizeof(vec3_t)*n,&m->vbo.normals);if(group==0)BE_VBO_Data(&context,m->mesh.lmst_array[1],sizeof(vec2_t)*n,&m->vbo.lmcoord[1]);}m->vbo.vertcount=n;
+  }
+  BE_VBO_Finish(&context,cache->indices,sizeof(index_t)*cache->indexCapacity,&cache->indexBuffer,&cache->vertexMemory,&cache->indexMemory);
++ for(unsigned int i=0;i<slot;i++){rb_cached_mesh_t *m=&cache->meshes[i];BZ_Free(m->extras);m->extras=NULL;m->mesh.lmst_array[0]=m->mesh.lmst_array[1]=NULL;m->mesh.normals_array=NULL;}
+  cache->indexUploaded=cache->indexCapacity;cache->vertexBuffer=cache->meshes[0].vbo.coord;for(unsigned int i=0;i<slot;i++)cache->meshes[i].vbo.indicies=cache->indexBuffer;
+  cache->vm=vm;cache->base=vm->stringtable;cache->offset=offset;cache->total=total;cache->revision=revision;cache->bytes=bytes;cache->valid=true;return true;
+ }
+@@ -3725,7 +3754,7 @@
+  rb_cache_source_t *sources=BZ_Malloc((size_t)total*2*sizeof(*sources));qboolean valid=true;
+  for(int pass=0;pass<2;pass++)for(unsigned int i=0;i<total;i++){
+   rb_grid_face_t *f=&faces[i];if(f->count<3||f->count>256){valid=false;break;}
+-  sources[(size_t)pass*total+i]=(rb_cache_source_t){f->vertices+(pass?f->count*sizeof(qcvertex_t):0),f->count,pass?f->count*2:(f->count-2)*3,pass,0};
++  sources[(size_t)pass*total+i]=(rb_cache_source_t){f->vertices+(pass?f->count*sizeof(qcvertex_t):0),f->count,pass?f->count*2:(f->count-2)*3,pass,0};sources[(size_t)pass*total+i].face=offset+i*sizeof(rb_grid_face_t);
+  }
+  if(valid)valid=RB_CacheGeometry(vm,0,offset,total,revision,sources,total*2);BZ_Free(sources);return valid;
+ }
+@@ -3757,6 +3786,23 @@
+  return cache->viewValid&&rb_geom.valid&&rb_geom.reusable&&cache->viewGeneration==rb_geom.generation&&cache->viewFlags==flags&&rb_geom.accessOffset==accessOffset&&rb_geom.accessCount==accessCount;
+ }
+ 
++// Grid/edge primitive order is unchanged. The GPU performs the same face-side,
++// frustum, depth and grid-distance tests using the retained per-face attributes.
++static qboolean RB_RetainGrid(pubprogfuncs_t *vm,rb_grid_face_t *faces,unsigned int total,const int *access,unsigned int accessCount,rb_grid_params_t params,int *visible,int *drawn){
++ rb_mesh_cache_t *cache=&rb_grid_cache;if(!rb_mesh_caches[2].retained||!Cvar_VariableValue("ftebroom_gpu_grid_cull"))return false;
++ for(int pass=0;pass<2;pass++)if(params.flags&(pass?2:1)){
++  if(!cache->retainedShaders[pass])cache->retainedShaders[pass]=R_RegisterShader(pass?"ftebroom/gpu-brushedges":"ftebroom/gpu-surfacegrid",SUF_NONE,pass?"{\n cull none\n program ftebroom_edges_retained\n {\n map $whiteimage\n blendfunc blend\n rgbgen vertex\n alphagen vertex\n }\n }\n":"{\n cull none\n program ftebroom_grid_retained\n {\n map textures/ftebroom/overlay.tga\n blendfunc blend\n rgbgen vertex\n alphagen vertex\n }\n }\n");
++  shader_t *shader=cache->retainedShaders[pass];if(!shader||(!shader->prog&&!shader->passes[0].prog))return false;
++ }
++ if(cache->retained&&cache->retainedCount==accessCount&&cache->retainedEpoch==rb_access_revision&&cache->viewFlags==params.flags&&!memcmp(access,cache->retainedAccess,accessCount*sizeof(int))){*drawn=cache->viewCount;return true;}
++ int count=0;for(unsigned int i=0;i<total;i++){rb_grid_face_t *f=&faces[i];if(f->node<0||(unsigned int)f->node>=accessCount||!(access[f->node]&1)||(f->occluder&8)||(f->sky&&!(params.flags&4)))continue;visible[count++]=i;}
++ for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
++ for(int pass=0;pass<2;pass++)if(params.flags&(pass?2:1))for(int k=0;k<count;k++){
++  unsigned int i=visible[k];rb_grid_face_t *f=&faces[i];unsigned int indices=pass?f->count*2:(f->count-2)*3,offset=pass?f->lines:f->triangles;rb_cached_grid_ref_t ref=cache->refs[(size_t)pass*total+i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];
++  if(!RB_QCBuffer(vm,offset,indices,sizeof(unsigned int))||m->pending+indices>m->capacity)return false;unsigned int *source=(unsigned int*)(vm->stringtable+offset);for(unsigned int j=0;j<indices;j++)m->scratch[m->pending++]=ref.base+(source[j]<(unsigned int)f->count?source[j]:0);
++ }
++ RB_CachedIndices(cache);cache->retainedAccess=BZ_Realloc(cache->retainedAccess,accessCount*sizeof(int));memcpy(cache->retainedAccess,access,accessCount*sizeof(int));cache->retainedCount=accessCount;cache->retainedEpoch=rb_access_revision;cache->viewFlags=params.flags;cache->viewCount=count;cache->retained=true;*drawn=count;return true;
++}
+ static void QCBUILTIN PF_ReyondBroom_DrawGridCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+ {
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),boundsOffset=G_INT(OFS_PARM2),accessOffset=G_INT(OFS_PARM3),accessCount=G_INT(OFS_PARM4),paramsOffset=G_INT(OFS_PARM5),revision;
+@@ -3769,6 +3815,7 @@
+  if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(*faces))||!RB_QCBuffer(vm,boundsOffset,accessCount*2,sizeof(vec3_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))||!RB_QCBuffer(vm,params.visible,total,sizeof(int)))return;
+  faces=(rb_grid_face_t*)(vm->stringtable+offset);bounds=(vec3_t*)(vm->stringtable+boundsOffset);access=(int*)(vm->stringtable+accessOffset);visible=(int*)(vm->stringtable+params.visible);
+  if(!RB_CacheGrid(vm,faces,offset,total,revision)){PF_ReyondBroom_DrawGrid(vm,pr_globals);return;}
++ qboolean retained=RB_RetainGrid(vm,faces,total,access,accessCount,params,visible,&count);if(retained)goto submitRetainedGrid;rb_grid_cache.retained=false;
+  static float previousFadeEnd=-1;float fadeEnd=Cvar_VariableValue("ftebroom_grid_fade_end");
+  qboolean reuse=previousFadeEnd==fadeEnd&&RB_CachedView(&rb_grid_cache,accessOffset,accessCount,params.flags);
+  if(reuse)count=rb_grid_cache.viewCount;
+@@ -3797,10 +3844,12 @@
+  }
+  RB_CachedIndices(&rb_grid_cache);previousFadeEnd=fadeEnd;rb_grid_cache.viewValid=rb_geom.valid;rb_grid_cache.viewGeneration=rb_geom.generation;rb_grid_cache.viewFlags=params.flags;rb_grid_cache.viewCount=count;
+  }
++ submitRetainedGrid:
+  if(R2D_Flush)R2D_Flush();memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
+  for(int pass=0;pass<2;pass++) {
+   if(!(params.flags&(pass?2:1)))continue;
+   G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
++  if(retained)context.shader=rb_grid_cache.retainedShaders[pass];
+   for(unsigned int i=0;i<rb_grid_cache.count;i++) {
+    rb_cached_mesh_t *m=&rb_grid_cache.meshes[i];if(m->pass!=pass||!m->pending)continue;
+    if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
+@@ -3931,7 +3980,7 @@
+ }
+ static qboolean RB_BatchableMaterial(shader_t *shader,unsigned int flags){
+  if(!shader||flags!=BEF_NOSHADOWS||shader->sort!=SHADER_SORT_OPAQUE||shader->numpasses!=1)return false;
+- if(strncmp(shader->name,"ftebroom/opaque/",16)&&strcmp(shader->name,"ftebroom/flatface"))return false;
++ if(strncmp(shader->name,"ftebroom/opaque/",16)&&strcmp(shader->name,"ftebroom/flatface")&&strcmp(shader->name,"ftebroom/materials"))return false;
+  unsigned int blend=shader->passes[0].shaderbits&SBITS_BLEND_BITS;
+  return (!blend||blend==(SBITS_SRCBLEND_ONE|SBITS_DSTBLEND_ZERO))&&(shader->passes[0].shaderbits&SBITS_MISC_DEPTHWRITE)!=0;
+ }
+@@ -4222,16 +4271,20 @@
+  float pad=.01f+farSquared/16777216.0;unsigned long long materialSignature=1469598103934665603ull;
+  for(unsigned int i=0;i<cache->count;i++){rb_cached_mesh_t *m=&cache->meshes[i];rb_face_draw_t probe={0};probe.slot=i;probe.shader=m->shader;probe.flags=m->pass;unsigned int kind=(RB_BatchableMaterial(m->shader,m->pass)?1:0)|(RB_DeferredTransparent(&probe)?2:0);materialSignature^=((uintptr_t)m->shader>>3)^((unsigned long long)m->pass<<32)^kind;materialSignature*=1099511628211ull;}
+  vec3_t travel;VectorSubtract(r_refdef.vieworg,rb_order_cache.rankEye,travel);
+- if(rb_order_cache.ranks&&rb_order_cache.rankRegion&&DotProduct(travel,travel)<=512.f*512.f&&materialSignature==rb_order_cache.materialSignature)return;
+- rb_order_cache.materialSignature=materialSignature;VectorCopy(r_refdef.vieworg,rb_order_cache.rankEye);rb_order_cache.rankRegion=true;pad=0;
++ if(rb_order_cache.ranks&&rb_order_cache.rankRegion&&DotProduct(travel,travel)<=rb_order_cache.rankRadius*rb_order_cache.rankRadius&&materialSignature==rb_order_cache.materialSignature)return;
++ double rankStarted=Sys_DoubleTime();
++ rb_order_cache.materialSignature=materialSignature;VectorCopy(r_refdef.vieworg,rb_order_cache.rankEye);rb_order_cache.rankRegion=true;pad=0;rb_order_cache.rankRadius=512;
++ if(Cvar_VariableValue("ftebroom_global_order")){
++  double squared=0;for(int a=0;a<3;a++){rb_order_cache.rankEye[a]=(b->low[a]+b->high[a])*.5f;double extent=(b->high[a]-b->low[a])*.5;squared+=extent*extent;}rb_order_cache.rankRadius=sqrt(squared)+1024;vec3_t outside;VectorSubtract(r_refdef.vieworg,rb_order_cache.rankEye,outside);double distance=sqrt((double)DotProduct(outside,outside));if(distance+1024>rb_order_cache.rankRadius)rb_order_cache.rankRadius=distance+2048;
++ }
+  // A region-wide Euclidean bound protects all view directions and 512 units of
+  // camera travel. Each face pair needs only the nearer of its two far bounds,
+  // rather than the farthest depth anywhere in the document.
+- for(unsigned int i=0;i<total;i++){rb_order_bounds_t *b=&rb_order_cache.bounds[i];double squared=0;for(int a=0;a<3;a++){double lo=fabs((double)b->low[a]-r_refdef.vieworg[a]),hi=fabs((double)b->high[a]-r_refdef.vieworg[a]);double extent=fmax(lo,hi);squared+=extent*extent;}double bound=sqrt(squared)+512;b->depthPad=.01+bound*bound/16777216.0;if(pad<b->depthPad)pad=b->depthPad;}
++ for(unsigned int i=0;i<total;i++){rb_order_bounds_t *b=&rb_order_cache.bounds[i];double squared=0;for(int a=0;a<3;a++){double lo=fabs((double)b->low[a]-rb_order_cache.rankEye[a]),hi=fabs((double)b->high[a]-rb_order_cache.rankEye[a]);double extent=fmax(lo,hi);squared+=extent*extent;}double bound=sqrt(squared)+rb_order_cache.rankRadius;b->depthPad=.01+bound*bound/16777216.0;if(pad<b->depthPad)pad=b->depthPad;}
+  rb_order_cache.pad=0;rb_order_cache.used=0;memset(rb_order_cache.counts,255,total*sizeof(unsigned int));
+  if(!rb_order_cache.ranks)rb_order_cache.ranks=BZ_Malloc(total*sizeof(unsigned int));rb_order_cache.rankPad=ceilf(pad*4)/4+.25f;rb_order_cache.building=true;
+  if(!rb_order_cache.rankInactive)rb_order_cache.rankInactive=BZ_Malloc(total);
+- for(unsigned int i=0;i<total;i++){double norm=sqrt((double)DotProduct(faces[i].normal,faces[i].normal)),side=DotProduct(r_refdef.vieworg,faces[i].normal)-faces[i].distance;rb_order_cache.rankInactive[i]=faces[i].alpha==1&&side+512*norm<-.11;}
++ for(unsigned int i=0;i<total;i++){double norm=sqrt((double)DotProduct(faces[i].normal,faces[i].normal)),side=DotProduct(r_refdef.vieworg,faces[i].normal)-faces[i].distance;rb_order_cache.rankInactive[i]=!Cvar_VariableValue("ftebroom_global_order")&&faces[i].alpha==1&&side+512*norm<-.11;}
+  if(!rb_order_cache.sorted)rb_order_cache.sorted=BZ_Malloc(total*sizeof(unsigned int));if(!rb_order_cache.drawVisible)rb_order_cache.drawVisible=BZ_Malloc(total);unsigned int sortedCount=0;
+  rb_face_draw_t *runs=BZ_Malloc(total*sizeof(*runs)),*opaque=BZ_Malloc(total*sizeof(*opaque));unsigned int *order=BZ_Malloc(total*sizeof(*order));
+  for(unsigned int i=0;i<total;i++){rb_face_draw_t *r=&runs[i];memset(r,0,sizeof(*r));rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];r->source=i;r->slot=ref.slot;r->shader=m->shader;r->flags=m->pass;r->batchable=faces[i].alpha==1&&RB_BatchableMaterial(m->shader,m->pass);VectorCopy(rb_order_cache.bounds[i].low,r->low);VectorCopy(rb_order_cache.bounds[i].high,r->high);rb_order_cache.ranks[i]=i;}
+@@ -4247,7 +4300,7 @@
+  }
+  for(unsigned int i=0;i<total;i++)if(rb_order_cache.rankInactive[i])rb_order_cache.sorted[sortedCount++]=i;
+  for(unsigned int i=0;i<sortedCount;i++)rb_order_cache.ranks[rb_order_cache.sorted[i]]=i;
+- if(Cvar_VariableValue("ftebroom_native_profile"))Con_Printf("RB_ORDER_LEVELS depth=%u runs=%u->%u\n",rb_level_depth,rb_level_before,rb_level_after);rb_order_cache.building=false;BZ_Free(order);BZ_Free(opaque);BZ_Free(runs);
++ if(Cvar_VariableValue("ftebroom_native_profile"))Con_Printf("RB_ORDER_LEVELS depth=%u runs=%u->%u\n",rb_level_depth,rb_level_before,rb_level_after);rb_order_cache.building=false;BZ_Free(order);BZ_Free(opaque);BZ_Free(runs);if(Cvar_VariableValue("ftebroom_native_profile"))Con_Printf("RB_RANK_REBUILD %.3f ms faces=%u edges=%u eye=%.1f %.1f %.1f\n",(Sys_DoubleTime()-rankStarted)*1000,total,rb_order_last_edges,r_refdef.vieworg[0],r_refdef.vieworg[1],r_refdef.vieworg[2]);
+ }
+ static void RB_AppendOrderedRun(rb_mesh_cache_t *cache,rb_face_draw_t *output,unsigned int *outCount,index_t *indices,unsigned int *cursor,rb_face_draw_t *r){
+  rb_cached_mesh_t *m=&cache->meshes[r->slot];unsigned int offset=cursor[r->slot];cursor[r->slot]+=r->count;
+@@ -4302,6 +4355,46 @@
+  if(rb_face_draw_count>65536)return false;*drawn=count;return true;
+ }
+ 
++// The backend already draws these generated transparent helpers in a later
++// sort bucket. Stable deferral can join opaque chunks without changing either
++// opaque depth-tie order, transparent order, or an edited-layer barrier.
++static void RB_DeferRetainedTransparency(rb_mesh_cache_t *cache){
++ if(rb_face_draw_count<2)return;rb_face_draw_t *output=BZ_Malloc(rb_face_draw_count*sizeof(*output));unsigned int out=0;
++ for(unsigned int begin=0;begin<rb_face_draw_count;){
++  if(rb_face_draws[begin].slot==~0u||(!cache->meshes[rb_face_draws[begin].slot].multi&&!RB_DeferredTransparent(&rb_face_draws[begin]))){output[out++]=rb_face_draws[begin++];continue;}
++  unsigned int end=begin;while(end<rb_face_draw_count&&rb_face_draws[end].slot!=~0u&&(cache->meshes[rb_face_draws[end].slot].multi||RB_DeferredTransparent(&rb_face_draws[end])))end++;
++  for(int pass=0;pass<2;pass++)for(unsigned int i=begin;i<end;i++){
++   rb_face_draw_t *run=&rb_face_draws[i];if(RB_DeferredTransparent(run)!=pass)continue;
++   rb_face_draw_t *last=out?&output[out-1]:NULL;if(last&&last->slot==run->slot&&last->shader==run->shader&&last->flags==run->flags&&last->offset+last->count==run->offset)last->count+=run->count;else output[out++]=*run;
++  }
++  begin=end;
++ }
++ memcpy(rb_face_draws,output,out*sizeof(*output));rb_face_draw_count=out;BZ_Free(output);
++}
++
++// A retained command list submits the same source triangles in document order.
++// Generated opaque shaders evaluate the original face-plane test on the GPU;
++// frustum/depth rejection is performed by hardware, without rebuilding indices.
++static qboolean RB_RetainMaterialFaces(pubprogfuncs_t *vm,rb_mesh_cache_t *cache,editorqcface_t *faces,unsigned int total,const int *access,unsigned int accessCount,unsigned int epoch,rb_incremental_config_t edited,int *drawn){
++ if(!Cvar_VariableValue("ftebroom_gpu_face_cull"))return false;
++ if(!cache->retainedEligible){cache->retainedEligible=1;for(unsigned int i=0;i<total;i++)if(faces[i].alpha==1&&!cache->meshes[cache->refs[i].slot].multi){rb_cached_mesh_t *m=&cache->meshes[cache->refs[i].slot];shader_t *shader=m->shader;if(Cvar_VariableValue("ftebroom_native_profile"))Con_Printf("RB_GPU_RETAIN_FALLBACK face=%u shader=%s alpha=%g\n",i,shader?shader->name:"<null>",faces[i].alpha);cache->retainedEligible=-1;break;}}
++ if(cache->retainedEligible<0)return false;
++ if(cache->retained&&cache->retainedCount==accessCount&&cache->retainedEpoch==epoch&&!memcmp(access,cache->retainedAccess,accessCount*sizeof(int))){*drawn=cache->viewCount;return true;}
++ rb_face_draw_count=0;for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;int count=0;unsigned int deltaAt=0;
++ for(unsigned int i=0;i<total;i++){
++  editorqcface_t *f=&faces[i];unsigned int begin=deltaAt;while(deltaAt<edited.faceCount&&((editorqcface_t*)(vm->stringtable+edited.faces))[deltaAt].node<=f->node)deltaAt++;RB_IncrementalMarker(begin,deltaAt);if(!f->enabled||f->node<0||(unsigned int)f->node>=accessCount||!(access[f->node]&1)||(f->enabled==2&&!(access[f->node]&16)))continue;
++  rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];unsigned int indices=(f->count-2)*3,at=m->pending;
++  if(!RB_QCBuffer(vm,f->triangles,indices,sizeof(unsigned int))||at+indices>m->capacity)return false;unsigned int *source=(unsigned int*)(vm->stringtable+f->triangles);
++  for(unsigned int k=0;k<indices;k++){if(source[k]>=(unsigned int)f->count)return false;m->scratch[m->pending++]=ref.base+source[k];}
++  rb_face_draw_t *run=rb_face_draw_count?&rb_face_draws[rb_face_draw_count-1]:NULL;
++  if(run&&run->slot==ref.slot&&run->shader==m->shader&&run->flags==m->pass&&run->offset+run->count==at)run->count+=indices;
++  else {if(rb_face_draw_count==rb_face_draw_capacity){rb_face_draw_capacity=rb_face_draw_capacity?rb_face_draw_capacity*2:256;rb_face_draws=BZ_Realloc(rb_face_draws,rb_face_draw_capacity*sizeof(*rb_face_draws));}run=&rb_face_draws[rb_face_draw_count++];memset(run,0,sizeof(*run));run->slot=ref.slot;run->shader=m->shader;run->flags=m->pass;run->offset=at;run->count=indices;run->source=i;}
++  count++;
++ }
++ RB_IncrementalMarker(deltaAt,edited.faceCount);RB_DeferRetainedTransparency(cache);if(rb_face_draw_count>65536)return false;RB_CachedIndices(cache);
++ cache->retainedAccess=BZ_Realloc(cache->retainedAccess,accessCount*sizeof(int));memcpy(cache->retainedAccess,access,accessCount*sizeof(int));cache->retainedCount=accessCount;cache->retainedEpoch=epoch;cache->retained=true;cache->viewCount=count;*drawn=count;return true;
++}
++
+ // Retain face attributes without changing primitive order or shader state.
+ static void QCBUILTIN PF_ReyondBroom_DrawFacesCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+ {
+@@ -4309,14 +4402,14 @@
+  double tick83=profile83?Sys_DoubleTime():0,stages83[7]={0};
+  unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),accessOffset=G_INT(OFS_PARM2),accessCount=G_INT(OFS_PARM3),stride=G_INT(OFS_PARM4),revision=G_INT(OFS_PARM5);
+  rb_incremental_config_t edited=vm->callargc>6?RB_IncrementalConfig(vm,G_INT(OFS_PARM6)):(rb_incremental_config_t){0};
+- unsigned int deltaAt=0;
++ unsigned int deltaAt=0;int drawn=0;
+  rb_mesh_cache_t *cache=&rb_mesh_caches[2];int saved[24],savedArgc=vm->callargc;G_INT(OFS_RETURN)=-1;
+  if(qrenderer!=QR_OPENGL||stride!=sizeof(editorqcface_t)||total<30000||total>500000||!RB_QCBuffer(vm,offset,total,stride)||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int)))return;
+  editorqcface_t *faces=(editorqcface_t*)(vm->stringtable+offset);int *access=(int*)(vm->stringtable+accessOffset);
+  memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));RB_MissingBegin(total);
+- typedef struct {int name,id,flags;unsigned int generation;rb_soup_context_t context;} context_t;
+- static context_t names[8192];static unsigned int generation;
+- qboolean fresh=RB_MeshCacheFresh(vm,2,offset,total,revision),valid=true,changed=false;
++ typedef struct {int name,id,flags,tag,alphaTest;unsigned int generation;rb_soup_context_t context;} context_t;
++ static context_t names[8192];static unsigned int generation,materialEpoch;
++ qboolean fresh=RB_MeshCacheFresh(vm,2,offset,total,revision),valid=true,changed=materialEpoch!=GLBE_EditorMaterialsEpoch();materialEpoch=GLBE_EditorMaterialsEpoch();int multimaterials=0;
+  if(!fresh){
+   if(!++generation){memset(names,0,sizeof(names));generation=1;}
+   for(unsigned int i=0;i<total;i++){
+@@ -4331,9 +4424,11 @@
+  // Resolve each material once; individual faces keep their original order.
+  // Revalidate equivalence every frame so async texture loads remain visible.
+  for(unsigned int i=0;i<8192;i++)if(names[i].generation==generation){
+-  context_t *entry=&names[i];G_INT(OFS_PARM0)=entry->name;
+-  entry->context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3);entry->context.shader=RB_CanonicalMissing(entry->context.shader);
++  context_t *entry=&names[i];G_INT(OFS_PARM0)=entry->name;entry->context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3);entry->context.shader=RB_CanonicalMissing(entry->context.shader);
+   if(!entry->context.shader){valid=false;break;}
++  int tag=0,alphaTest=(entry->context.shader->passes[0].shaderbits&SBITS_ATEST_BITS)>>SBITS_ATEST_SHIFT;
++  entry->context.shader=GLBE_EditorMaterial(entry->context.shader,&tag);if(tag)multimaterials++;
++  if(entry->tag!=tag||(tag&&entry->alphaTest!=alphaTest))changed=true;entry->tag=tag;entry->alphaTest=alphaTest;
+   if(entry->id!=entry->context.shader->id||entry->flags!=(int)entry->context.flags)changed=true;
+   entry->id=entry->context.shader->id;entry->flags=entry->context.flags;
+  }
+@@ -4343,7 +4438,7 @@
+   for(unsigned int i=0;i<total;i++){
+    unsigned int slot=((unsigned int)faces[i].shader*2654435761u)&8191;
+    while(names[slot].generation==generation&&names[slot].name!=faces[i].shader)slot=(slot+1)&8191;
+-   sources[i]=(rb_cache_source_t){faces[i].vertices,faces[i].count,(faces[i].count-2)*3,names[slot].flags,names[slot].id,faces[i].shader};
++   sources[i]=(rb_cache_source_t){faces[i].vertices,faces[i].count,(faces[i].count-2)*3,names[slot].flags,names[slot].id,faces[i].shader,names[slot].tag,names[slot].alphaTest,offset+i*sizeof(editorqcface_t)};VectorCopy(faces[i].normal,sources[i].normal);sources[i].distance=faces[i].distance;
+   }
+   valid=RB_CacheGeometry(vm,2,offset,total,revision,sources,total);BZ_Free(sources);
+   if(!valid){memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));return;}
+@@ -4356,15 +4451,20 @@
+  }
+  if(r_refdef.dirty)V_ApplyRefdef();vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);float tx=tan(r_refdef.fov_x*M_PI/360),ty=tan(r_refdef.fov_y*M_PI/360);
+  for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
++ if(multimaterials&&RB_RetainMaterialFaces(vm,cache,faces,total,access,accessCount,rb_access_revision,edited,&drawn))goto submitRetainedFaces;
++ cache->retained=false;
+  int batchMode=Cvar_VariableValue("ftebroom_opaque_batches")!=0;
+- if(batchMode){RB_PrepareOrderCache(cache,faces,total);RB_PrepareOrderRanks(cache,faces,total);RB_PrepareFaceVisibility();
++ if(multimaterials)batchMode=2;
++ if(batchMode){RB_PrepareOrderCache(cache,faces,total);
++  if(batchMode==2){if(!rb_order_cache.sorted)rb_order_cache.sorted=BZ_Malloc(total*sizeof(unsigned int));if(!rb_order_cache.drawVisible)rb_order_cache.drawVisible=BZ_Malloc(total);if(!rb_order_cache.ranks){rb_order_cache.ranks=BZ_Malloc(total*sizeof(unsigned int));for(unsigned int i=0;i<total;i++)rb_order_cache.ranks[i]=rb_order_cache.sorted[i]=i;}}
++  else RB_PrepareOrderRanks(cache,faces,total);RB_PrepareFaceVisibility();
+   if(rb_order_cache.viewGeneration==rb_geom.generation)rb_order_cache.stableFrames++;else rb_order_cache.stableFrames=0;
+-  rb_order_cache.viewGeneration=rb_geom.generation;rb_order_cache.useRanks=rb_order_cache.stableFrames<3||Cvar_VariableValue("ftebroom_native_profile")==2;
++  rb_order_cache.viewGeneration=rb_geom.generation;rb_order_cache.useRanks=batchMode==2||rb_order_cache.stableFrames<3||Cvar_VariableValue("ftebroom_native_profile")==2;
+  }
+  if(profile83){stages83[1]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  int scheduleFlags=batchMode|(batchMode&&rb_order_cache.useRanks?2:0);
+  qboolean reuse=RB_CachedView(cache,accessOffset,accessCount,scheduleFlags);
+- int previous=-1,visible=false,drawn=reuse?cache->viewCount:0;
++ int previous=-1,visible=false;drawn=reuse?cache->viewCount:0;
+  if(!reuse&&batchMode&&rb_order_cache.useRanks&&!edited.faceCount&&RB_BuildRankedFaces(vm,cache,faces,total,access,accessCount,forward,right,up,tx,ty,&drawn)){
+   RB_CachedIndices(cache);cache->viewValid=rb_geom.valid;cache->viewGeneration=rb_geom.generation;cache->viewFlags=scheduleFlags;cache->viewCount=drawn;reuse=true;
+  }else if(!reuse)drawn=0;
+@@ -4406,12 +4506,13 @@
+  }
+  if(profile83){stages83[2]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  RB_IncrementalMarker(deltaAt,edited.faceCount);
+- if(valid&&batchMode)RB_BatchOpaqueRuns(cache);
++ if(valid&&batchMode==1)RB_BatchOpaqueRuns(cache);
+  if(profile83){stages83[3]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
+  if(rb_face_draw_count>65536)valid=false;
+  if(valid){RB_CachedIndices(cache);cache->viewValid=rb_geom.valid;cache->viewGeneration=rb_geom.generation;cache->viewFlags=scheduleFlags;cache->viewCount=drawn;}
+  }
+  if(profile83){stages83[4]=Sys_DoubleTime()-tick83;tick83=Sys_DoubleTime();}
++ submitRetainedFaces:
+  if(valid){
+   if(R2D_Flush)R2D_Flush();
+   for(unsigned int i=0;i<rb_face_draw_count;i++){
+--- a/engine/gl/gl_backend.c
++++ b/engine/gl/gl_backend.c
+@@ -1562,8 +1562,11 @@
+ 	}
+ }
+ 
++#include "gl_editor_materials.h"
++
+ void GLBE_Shutdown(void)
+ {
++ GLBE_ClearEditorMaterials();
+ 	size_t u;
+ 	GLBE_FBO_Destroy(&shaderstate.fbo_2dfbo);
+ 	GLBE_DestroyFBOs();
+@@ -3983,6 +3986,7 @@
+ 	}
+ 
+ 	GL_SelectProgram(permu->h.glsl.handle);
++ if(p->name&&!strcmp(p->name,"ftebroom_materials"))GLBE_BindEditorMaterials(permu->h.glsl.handle);
+ #ifndef FORCESTATE
+ 	if (shaderstate.lastuniform == shaderstate.currentprogram)
+ 		i = true;
+@@ -5185,11 +5189,22 @@
+ 	GLBE_DrawMesh_List(shader, 1, &mesh, NULL, NULL, beflags);
+ }
+ 
++// Uploads must not replace the element binding of a retained face/grid VAO.
++void GLBE_BeginEditorMeshUpload(void)
++{
++ GL_DeselectVAO();qglBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);shaderstate.currentebo=0;
++ shaderstate.currentvbo=-1;GL_SelectVBO(0);
++}
+ // Retained editor meshes keep their attribute bindings between frames.
+ void GLBE_InitEditorMesh(vbo_t *vbo)
+ {
+- if (!vbo->vao && qglGenVertexArrays && qglDeleteVertexArrays)
+-  GLBE_SetupVAO(vbo, 1u<<VATTR_LEG_ELEMENTS, (1u<<VATTR_VERTEX1)|(1u<<VATTR_COLOUR)|(1u<<VATTR_TEXCOORD));
++ unsigned int attributes=(1u<<VATTR_VERTEX1)|(1u<<VATTR_COLOUR)|(1u<<VATTR_TEXCOORD);
++ if(vbo->lmcoord[0].gl.vbo)attributes|=1u<<VATTR_LMCOORD;
++ if(vbo->normals.gl.vbo)attributes|=1u<<VATTR_NORMALS;
++#if MAXRLIGHTMAPS > 1
++ if(vbo->lmcoord[1].gl.vbo)attributes|=1u<<VATTR_LMCOORD2;
++#endif
++ if(!vbo->vao&&qglGenVertexArrays&&qglDeleteVertexArrays)GLBE_SetupVAO(vbo,1u<<VATTR_LEG_ELEMENTS,attributes);
+ }
+ // Mutable index storage can be orphaned without creating a dummy vertex buffer
+ // or deleting/recreating an EBO every time the editor camera changes.
+@@ -5199,7 +5214,7 @@
+  GL_DeselectVAO();
+  if(!streaming){GLBE_VBO_Destroy(buffer,*memory);*memory=NULL;qglGenBuffersARB(1,&buffer->gl.vbo);buffer->gl.addr=NULL;}
+  if(!buffer->gl.vbo)return false;
+- GL_SelectEBO(buffer->gl.vbo);
++ qglBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,buffer->gl.vbo);shaderstate.currentebo=buffer->gl.vbo;
+  qglBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,count*sizeof(index_t),indices,GL_STREAM_DRAW_ARB);
+  return true;
+ }
+@@ -6685,3 +6700,8 @@
+ 	vearray->gl.addr = NULL;
+ }
+ #endif
++
++
++
++
++
+--- a/engine/gl/gl_vidcommon.c
++++ b/engine/gl/gl_vidcommon.c
+@@ -2352,6 +2352,7 @@
+ 		}
+ 	}
+ 
++ if(prog&&prog->name&&!strcmp(prog->name,"ftebroom_materials"))GLSlang_GenerateInternal(&glsl,"#extension GL_ARB_bindless_texture : require\n#extension GL_NV_gpu_shader5 : require\n");
+ 	while(*precompilerconstants)
+ 		GLSlang_GenerateInternal(&glsl, *precompilerconstants++);
+ 
+@@ -3724,6 +3725,8 @@
+ 
+ //	Con_Printf("sh_config.progs supported: %i, required: %i, vers: %i - %i\n", sh_config.progs_supported, sh_config.progs_required, sh_config.minver, sh_config.maxver);
+ 
++ GLBE_InitEditorMaterials(getglfunction);
++
+ 	return true;
+ }
+ 
+--- a/engine/gl/glquake.h
++++ b/engine/gl/glquake.h
+@@ -1306,3 +1306,8 @@
+ */
+ 
+ #endif
++
++void GLBE_InitEditorMaterials(void *(*get)(char *));
++void GLBE_ClearEditorMaterials(void);
++
++void GLBE_EditorImageChanged(image_t *image);
+--- a/engine/gl/gl_shader.c
++++ b/engine/gl/gl_shader.c
+@@ -2172,6 +2172,57 @@
+ static struct sbuiltin_s sbuiltins[] =
+ {
+ #include "r_bishaders.h"
++#ifdef GLQUAKE
++{QR_OPENGL,430,"ftebroom_materials",
++"!!ver 430-450\n"
++"!!samps 1\n"
++"#ifdef VERTEX_SHADER\n"
++"attribute vec2 v_texcoord;\n"
++"attribute vec2 v_lmcoord;\n"
++"attribute vec3 v_normal;\n"
++"uniform vec3 e_eyepos;\n"
++"attribute vec4 v_colour;\n"
++"varying vec2 tc;\n"
++"varying vec2 material;\n"
++"varying vec4 vc;\n"
++"void main(){tc=v_texcoord;material=v_lmcoord;vc=v_colour;precise vec3 products=e_eyepos*v_normal;precise float side=((products.x+products.y)+products.z)-v_lmcoord.y;gl_Position=side < -0.01 ? vec4(2.0,2.0,2.0,1.0) : ftetransform();}\n"
++"#endif\n"
++"#ifdef FRAGMENT_SHADER\n"
++"layout(std430,binding=7) readonly buffer RB_MaterialHandles {uvec2 rb_handles[];};\n"
++"varying vec2 tc;\n"
++"varying vec2 material;\n"
++"varying vec4 vc;\n"
++"void main(){vec4 fc=texture2D(sampler2D(rb_handles[int(material.x+0.5)/4]),tc)*vc;int a=int(material.x+0.5)%4;if((a==1&&!(fc.a>0.0))||(a==2&&!(fc.a<0.5))||(a==3&&!(fc.a>=0.5)))discard;gl_FragColor=fc;}\n"
++"#endif\n"
++},
++{QR_OPENGL,400,"ftebroom_material_single",
++"!!ver 400-450\n"
++"!!samps sourcetex=0\n"
++"#ifdef VERTEX_SHADER\n"
++"attribute vec2 v_texcoord;\n"
++"attribute vec2 v_lmcoord;\n"
++"attribute vec3 v_normal;\n"
++"uniform vec3 e_eyepos;\n"
++"attribute vec4 v_colour;\n"
++"varying vec2 tc;\n"
++"varying vec2 material;\n"
++"varying vec4 vc;\n"
++"void main(){tc=v_texcoord;material=v_lmcoord;vc=v_colour;precise vec3 products=e_eyepos*v_normal;precise float side=((products.x+products.y)+products.z)-v_lmcoord.y;gl_Position=side < -0.01 ? vec4(2.0,2.0,2.0,1.0) : ftetransform();}\n"
++"#endif\n"
++"#ifdef FRAGMENT_SHADER\n"
++"varying vec2 tc;\n"
++"varying vec2 material;\n"
++"varying vec4 vc;\n"
++"void main(){\n"
++"#ifdef UNTEXTURED\n"
++"vec4 fc=vc;\n"
++"#else\n"
++"vec4 fc=texture2D(s_sourcetex,tc)*vc;\n"
++"#endif\n"
++"int a=int(material.x+0.5);if((a==1&&!(fc.a>0.0))||(a==2&&!(fc.a<0.5))||(a==3&&!(fc.a>=0.5)))discard;gl_FragColor=fc;}\n"
++"#endif\n"
++},
++#endif
+ 	{QR_NONE}
+ };
+ void Shader_UnloadProg(program_t *prog)
+--- a/engine/gl/gl_draw.c
++++ b/engine/gl/gl_draw.c
+@@ -761,6 +761,7 @@
+ }
+ qboolean GL_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
+ {
++ GLBE_EditorImageChanged(tex);
+ 	static int cubeface[] =
+ 	{
+ 		GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB,
+@@ -1196,6 +1197,7 @@
+ 
+ void GL_UpdateFiltering(image_t *imagelist, int filtermip[3], int filterpic[3], int mipcap[2], float lodbias, float anis)
+ {
++ GLBE_ClearEditorMaterials();
+ 	int targ;
+ 	image_t *img;
+ 
+--- /dev/null
++++ b/engine/gl/gl_editor_materials.h
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++// Exact private texture snapshots for the editor's generated opaque materials.
++// Original FTE images remain mutable; unsupported GPUs/materials use normal draws.
++#define RB_MATERIAL_LIMIT 512
++static struct {
++ void (APIENTRY *copy)(GLuint,GLenum,GLint,GLint,GLint,GLint,GLuint,GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei);
++ unsigned long long (APIENTRY *handle)(GLuint);
++ void (APIENTRY *resident)(unsigned long long);
++ void (APIENTRY *nonresident)(unsigned long long);
++ void (APIENTRY *uniforms)(GLint,GLsizei,const unsigned long long *);
++ void (APIENTRY *bindbase)(GLenum,GLuint,GLuint);GLuint table;
++ void (APIENTRY *getiv)(GLenum,GLenum,GLint *);
++ void (APIENTRY *getfv)(GLenum,GLenum,GLfloat *);
++ struct {texid_t source;GLuint number,copy;unsigned int flags;int width,height,format;} images[RB_MATERIAL_LIMIT];
++ unsigned long long handles[RB_MATERIAL_LIMIT];
++ unsigned int count,epoch,uploadedCount;GLuint uploadedProgram;size_t bytes;
++ struct {shader_t *source,*target;int untextured;} singles[RB_MATERIAL_LIMIT];unsigned int singleCount;
++ shader_t *shader;qboolean supported,dirty;
++} rb_materials;
++void GLBE_ClearEditorMaterials(void)
++{
++ if(rb_materials.count){
++  qglFinish();
++  for(unsigned int i=0;i<rb_materials.count;i++){
++   rb_materials.nonresident(rb_materials.handles[i]);
++   for(unsigned int t=0;t<countof(shaderstate.currenttextures);t++)if(shaderstate.currenttextures[t]==rb_materials.images[i].copy)GL_LazyBind(t,r_nulltex);
++   qglDeleteTextures(1,&rb_materials.images[i].copy);
++  }
++ }
++ if(rb_materials.table){qglDeleteBuffersARB(1,&rb_materials.table);rb_materials.table=0;}
++ memset(rb_materials.images,0,sizeof(rb_materials.images));memset(rb_materials.handles,0,sizeof(rb_materials.handles));
++ memset(rb_materials.singles,0,sizeof(rb_materials.singles));rb_materials.singleCount=0;rb_materials.count=rb_materials.uploadedCount=rb_materials.uploadedProgram=0;rb_materials.shader=NULL;rb_materials.bytes=0;rb_materials.dirty=false;rb_materials.epoch++;
++}
++void GLBE_InitEditorMaterials(void *(*get)(char *))
++{
++ memset(&rb_materials,0,sizeof(rb_materials));
++ if(!GL_CheckExtension("GL_ARB_bindless_texture")||!GL_CheckExtension("GL_NV_gpu_shader5")||gl_config.glversion<4.3)return;
++ rb_materials.bindbase=get("glBindBufferBase");rb_materials.copy=get("glCopyImageSubData");rb_materials.handle=get("glGetTextureHandleARB");rb_materials.resident=get("glMakeTextureHandleResidentARB");rb_materials.nonresident=get("glMakeTextureHandleNonResidentARB");rb_materials.uniforms=get("glUniformHandleui64vARB");rb_materials.getiv=get("glGetTexParameteriv");rb_materials.getfv=get("glGetTexParameterfv");
++ rb_materials.supported=rb_materials.bindbase&&rb_materials.copy&&rb_materials.handle&&rb_materials.resident&&rb_materials.nonresident&&rb_materials.uniforms&&rb_materials.getiv&&rb_materials.getfv&&qglTexStorage2D&&qglGetTexLevelParameteriv;
++}
++void GLBE_EditorImageChanged(image_t *image){
++ for(unsigned int i=0;i<rb_materials.count;i++)if(rb_materials.images[i].source==image){rb_materials.dirty=true;break;}
++}
++unsigned int GLBE_EditorMaterialsEpoch(void){if(rb_materials.dirty)GLBE_ClearEditorMaterials();return rb_materials.epoch;}
++shader_t *GLBE_EditorMaterialShader(void){return rb_materials.shader;}
++// Incomplete/unsupported images retain FTE's own sampler rather than guessing a
++// replacement colour. Only the plane test moves from CPU to the vertex shader.
++static shader_t *GLBE_EditorSingleMaterial(shader_t *source,int *tag)
++{
++ shaderpass_t *sourcePass=&source->passes[0];texid_t image=sourcePass->texgen==T_GEN_SINGLEMAP?sourcePass->anim_frames[0]:source->defaulttextures->base;int untextured=!gl_config_nofixedfunc&&(!image||!image->num);
++ unsigned int i;for(i=0;i<rb_materials.singleCount;i++)if(rb_materials.singles[i].source==source&&rb_materials.singles[i].untextured==untextured)break;
++ if(i==RB_MATERIAL_LIMIT)return source;
++ shader_t *shader=i<rb_materials.singleCount?rb_materials.singles[i].target:R_RegisterShader(va("ftebroom/gpu-single-%i-%i",source->id,untextured),SUF_NONE,untextured?"{\n cull none\n sort opaque\n program ftebroom_material_single#UNTEXTURED\n {\n map $diffuse\n rgbgen vertex\n alphagen vertex\n depthwrite\n }\n }\n":"{\n cull none\n sort opaque\n program ftebroom_material_single\n {\n map $diffuse\n rgbgen vertex\n alphagen vertex\n depthwrite\n }\n }\n");
++ if(!shader||(!shader->prog&&!shader->passes[0].prog))return source;
++ shaderpass_t *pass=&source->passes[0];shader->passes[0].texgen=pass->texgen;shader->passes[0].anim_numframes=pass->anim_numframes;shader->passes[0].anim_frames[0]=pass->anim_frames[0];shader->defaulttextures->base=source->defaulttextures->base;
++ if(i==rb_materials.singleCount){rb_materials.singles[i].source=source;rb_materials.singles[i].target=shader;rb_materials.singles[i].untextured=untextured;rb_materials.singleCount++;}*tag=-1;return shader;
++}
++shader_t *GLBE_EditorMaterial(shader_t *source,int *tag)
++{
++ *tag=0;
++
++ if(!rb_materials.supported||Cvar_VariableValue("ftebroom_bindless_materials")==0||!source||(strncmp(source->name,"ftebroom/opaque/",16)&&strcmp(source->name,"ftebroom/flatface"))||source->sort!=SHADER_SORT_OPAQUE||source->numpasses!=1||source->prog||source->numdeforms||source->numdefaulttextures>1)return source;
++ shaderpass_t *pass=&source->passes[0];unsigned int blend=pass->shaderbits&SBITS_BLEND_BITS;
++ if(pass->prog||pass->numtcmods||pass->tcgen!=TC_GEN_BASE||pass->rgbgen!=RGB_GEN_VERTEX_LIGHTING||(pass->alphagen!=ALPHA_GEN_VERTEX&&strcmp(source->name,"ftebroom/flatface"))||!(pass->shaderbits&SBITS_MISC_DEPTHWRITE)||(blend&&blend!=(SBITS_SRCBLEND_ONE|SBITS_DSTBLEND_ZERO)))return source;
++ texid_t image=pass->texgen==T_GEN_SINGLEMAP?pass->anim_frames[0]:pass->texgen==T_GEN_DIFFUSE?source->defaulttextures->base:NULL;
++ if(pass->anim_numframes>1||(image&&((image->status!=TEX_LOADED&&image->status!=TEX_FAILED)||(image->flags&IF_TEXTYPEMASK)!=IF_TEXTYPE_2D)))return source;
++ // Compatibility FTE disables incomplete fixed-function textures. Sampling a
++ // complete white image is the identical vertex-colour multiplier, and lets
++ // these surfaces share the ordered multi-material command list.
++ if(!gl_config_nofixedfunc&&(!image||!image->num))image=r_whiteimage;
++ if(!image||!image->num)return GLBE_EditorSingleMaterial(source,tag);
++ unsigned int id;for(id=0;id<rb_materials.count;id++)if(rb_materials.images[id].source==image&&rb_materials.images[id].number==(GLuint)image->num&&rb_materials.images[id].flags==image->flags&&rb_materials.images[id].width==image->width&&rb_materials.images[id].height==image->height&&rb_materials.images[id].format==(int)image->format)break;
++ if(id==rb_materials.count){
++  if(id==RB_MATERIAL_LIMIT)return GLBE_EditorSingleMaterial(source,tag);
++  GL_MTBind(0,GL_TEXTURE_2D,image);
++  GLint width=0,height=0,format=0,base=0,max=0;rb_materials.getiv(GL_TEXTURE_2D,0x813C,&base);rb_materials.getiv(GL_TEXTURE_2D,0x813D,&max);
++  if(base!=0||max<0)return GLBE_EditorSingleMaterial(source,tag);
++  qglGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_WIDTH,&width);qglGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_HEIGHT,&height);qglGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_INTERNAL_FORMAT,&format);
++  if(width<=0||height<=0||width>4096||height>4096)return GLBE_EditorSingleMaterial(source,tag);
++  unsigned int levels=1;for(int n=width>height?width:height;n>1;n>>=1)levels++;
++  if((unsigned int)max+1<levels)levels=max+1;
++  for(unsigned int l=0;l<levels;l++){GLint w=0,h=0,f=0;qglGetTexLevelParameteriv(GL_TEXTURE_2D,l,GL_TEXTURE_WIDTH,&w);qglGetTexLevelParameteriv(GL_TEXTURE_2D,l,GL_TEXTURE_HEIGHT,&h);qglGetTexLevelParameteriv(GL_TEXTURE_2D,l,GL_TEXTURE_INTERNAL_FORMAT,&f);if(w!=max(1,width>>l)||h!=max(1,height>>l)||f!=format)return GLBE_EditorSingleMaterial(source,tag);}
++  size_t bytes=(size_t)width*height*8*4/3;if(rb_materials.bytes+bytes>256u*1024*1024)return GLBE_EditorSingleMaterial(source,tag);
++  const GLenum integerParams[]={GL_TEXTURE_MIN_FILTER,GL_TEXTURE_MAG_FILTER,GL_TEXTURE_WRAP_S,GL_TEXTURE_WRAP_T,0x813C,0x813D,0x884C,0x884D,0x8E42,0x8E43,0x8E44,0x8E45};
++  const GLenum floatParams[]={0x813A,0x813B,0x8501};GLint integers[countof(integerParams)];GLfloat floats[countof(floatParams)],border[4],aniso=1;
++  for(unsigned int k=0;k<countof(integerParams);k++)rb_materials.getiv(GL_TEXTURE_2D,integerParams[k],&integers[k]);
++  for(unsigned int k=0;k<countof(floatParams);k++)rb_materials.getfv(GL_TEXTURE_2D,floatParams[k],&floats[k]);
++  rb_materials.getfv(GL_TEXTURE_2D,GL_TEXTURE_BORDER_COLOR,border);if(gl_config.ext_texture_filter_anisotropic)rb_materials.getfv(GL_TEXTURE_2D,0x84FE,&aniso);
++  image_t copy={0};copy.flags=IF_TEXTYPE_2D;GLuint number;qglGenTextures(1,&number);copy.num=number;GL_MTBind(0,GL_TEXTURE_2D,&copy);
++  while(qglGetError()!=GL_NO_ERROR){}
++  qglTexStorage2D(GL_TEXTURE_2D,levels,format,width,height);
++  for(unsigned int k=0;k<countof(integerParams);k++)qglTexParameteri(GL_TEXTURE_2D,integerParams[k],integers[k]);
++  for(unsigned int k=0;k<countof(floatParams);k++)qglTexParameterf(GL_TEXTURE_2D,floatParams[k],floats[k]);
++  qglTexParameterfv(GL_TEXTURE_2D,GL_TEXTURE_BORDER_COLOR,border);if(gl_config.ext_texture_filter_anisotropic)qglTexParameterf(GL_TEXTURE_2D,0x84FE,aniso);
++  for(unsigned int l=0;l<levels;l++)rb_materials.copy(image->num,GL_TEXTURE_2D,l,0,0,0,number,GL_TEXTURE_2D,l,0,0,0,max(1,width>>l),max(1,height>>l),1);
++  if(qglGetError()!=GL_NO_ERROR){GL_LazyBind(0,r_nulltex);qglDeleteTextures(1,&number);return GLBE_EditorSingleMaterial(source,tag);}
++  unsigned long long handle=rb_materials.handle(number);if(!handle){GL_LazyBind(0,r_nulltex);qglDeleteTextures(1,&number);return GLBE_EditorSingleMaterial(source,tag);}rb_materials.resident(handle);if(qglGetError()!=GL_NO_ERROR){GL_LazyBind(0,r_nulltex);qglDeleteTextures(1,&number);return GLBE_EditorSingleMaterial(source,tag);}
++  rb_materials.images[id].source=image;rb_materials.images[id].number=image->num;rb_materials.images[id].copy=number;rb_materials.images[id].flags=image->flags;rb_materials.images[id].width=image->width;rb_materials.images[id].height=image->height;rb_materials.images[id].format=image->format;rb_materials.handles[id]=handle;rb_materials.bytes+=bytes;rb_materials.count++;
++ }
++ if(!rb_materials.shader){
++  rb_materials.shader=R_RegisterShader("ftebroom/materials",SUF_NONE,"{\n cull none\n sort opaque\n program ftebroom_materials\n {\n map $whiteimage\n rgbgen vertex\n alphagen vertex\n depthwrite\n }\n }\n");
++  if(!rb_materials.shader||(!rb_materials.shader->prog&&!rb_materials.shader->passes[0].prog)){rb_materials.supported=false;return source;}
++ }
++ *tag=id+1;return rb_materials.shader;
++}
++static void GLBE_BindEditorMaterials(GLuint program)
++{
++ if(!rb_materials.count)return;
++ if(!rb_materials.table)qglGenBuffersARB(1,&rb_materials.table);
++ if(rb_materials.uploadedCount!=rb_materials.count){qglBindBufferARB(0x90D2,rb_materials.table);qglBufferDataARB(0x90D2,rb_materials.count*sizeof(rb_materials.handles[0]),rb_materials.handles,GL_STATIC_DRAW_ARB);rb_materials.uploadedCount=rb_materials.count;}
++ rb_materials.bindbase(0x90D2,7,rb_materials.table);(void)program;
++}

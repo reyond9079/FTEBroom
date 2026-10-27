@@ -1,5 +1,8 @@
 # Alpha 84: intermediate interior-map optimization
 
+Update: [alpha 85](performance-alpha85.md) diagnoses the 512-unit schedule
+rebuild stalls and supersedes these performance results.
+
 This is an intermediate release. The target of 60 FPS while flying through the
 large map, including its panoramic view, has **not** been reached.
 

@@ -10,7 +10,7 @@ p.add_argument('--compiler', default='cc')
 a = p.parse_args()
 s = (a.engine / 'client/pr_csqc.c').read_text()
 layout = s[s.index('typedef struct {int id,model,node,count,u,v,sky,brushEnd;'):].split('\n', 1)[0]
-code = s[s.index('// Persistent geometry;'):s.index('static void QCBUILTIN PF_ReyondBroom_DrawGridCached')]
+code = s[s.index('// Persistent geometry;'):s.index('// Grid/edge primitive order is unchanged.')]
 shim = r'''
 #include <stdlib.h>
 #include <stdio.h>
@@ -31,8 +31,8 @@ typedef float vec3_t[3],vecV_t[4],vec2_t[2],vec4_t[4];
 typedef struct {vec3_t xyz;vec2_t st;vec4_t rgba;} qcvertex_t;
 typedef struct {char *stringtable;unsigned int stringtablesize;int callargc;} pubprogfuncs_t;
 typedef struct {void *root,*data;size_t size;} vboarray_t;
-typedef struct {vboarray_t coord,texcoord,colours[1],indicies;void *vbomem,*ebomem;unsigned int vertcount;} vbo_t;
-typedef struct {vecV_t *xyz_array;vec2_t *st_array;vec4_t *colors4f_array[1];index_t *indexes;int numvertexes,numindexes;unsigned int vbofirstelement;} mesh_t;
+typedef struct {vboarray_t coord,texcoord,colours[1],indicies,lmcoord[2],normals;void *vbomem,*ebomem;unsigned int vertcount;} vbo_t;
+typedef struct {vecV_t *xyz_array;vec2_t *st_array,*lmst_array[2];vec3_t *normals_array;vec4_t *colors4f_array[1];index_t *indexes;int numvertexes,numindexes;unsigned int vbofirstelement;} mesh_t;
 typedef struct {mesh_t **mesh;vbo_t *vbo;void *buildmeshes;} batch_t;
 typedef struct {void *root;size_t position,size;} vbobctx_t;
 static struct {int valid,reusable;unsigned int generation,accessOffset,accessCount;} rb_geom;

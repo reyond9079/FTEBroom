@@ -200,6 +200,11 @@ int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,...
 int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,int revision,...) ftebroom_draw_faces_cached = #0:ftebroom_draw_faces_cached;
 int(vector *source,int count,fb_render_face_t *face,vector *params) ftebroom_build_face=#0:ftebroom_build_face;
 int fb_face_upload_epoch;
+// Large-map GPU visibility keeps source geometry and sampling unchanged.
+// Engines without the required capabilities retain the conservative CPU path.
+var float autocvar_ftebroom_bindless_materials=1;
+var float autocvar_ftebroom_gpu_face_cull=1,autocvar_ftebroom_gpu_grid_cull=1;
+var float autocvar_ftebroom_gpu_visibility=1,autocvar_ftebroom_global_order=1;
 var float autocvar_ftebroom_native_faces=1;
 var float autocvar_ftebroom_merge_missing_materials=1;
 fb_render_face_t *fb_render_faces;int fb_render_face_count,fb_render_face_capacity;

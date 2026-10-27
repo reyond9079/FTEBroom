@@ -38,10 +38,11 @@ struct globalvars_s {int data[64];};
 #define SBITS_DSTBLEND_ZERO 32
 #define SBITS_BLEND_BITS 49
 #define SBITS_ATEST_BITS 2
+#define SBITS_ATEST_SHIFT 0
 #define SBITS_MISC_DEPTHWRITE 4
 typedef struct {int shaderbits;} shaderpass_t;
 typedef struct {int id,sort,numpasses;char name[64];shaderpass_t passes[1];} shader_t;
-static int batchMode;
+static int batchMode;static unsigned int rb_access_revision;
 static float Cvar_VariableValue(const char *name){(void)name;return batchMode;}
 typedef struct {shader_t *shader;unsigned int flags;int twod;} rb_soup_context_t;
 static shader_t shaders[3]={{0},{1},{2}};static int currentShader=1;
@@ -170,6 +171,35 @@ int main(void){
  rb_cached_mesh_t mergeMeshes83[3];memset(mergeMeshes83,0,sizeof(mergeMeshes83));index_t mergeIndices83[4]={10,11,20,21};rb_mesh_cache_t mergeCache83={0};mergeCache83.meshes=mergeMeshes83;mergeCache83.count=3;mergeCache83.scratch=mergeIndices83;mergeCache83.indexCapacity=4;mergeMeshes83[0].scratch=mergeIndices83;mergeMeshes83[0].pending=2;mergeMeshes83[2].scratch=mergeIndices83+2;mergeMeshes83[2].pending=2;
  rb_face_draw_count=4;for(int i=0;i<4;i++){memset(&rb_face_draws[i],0,sizeof(rb_face_draws[i]));rb_face_draws[i].slot=i&1?2:0;rb_face_draws[i].offset=i/2;rb_face_draws[i].count=1;rb_face_draws[i].shader=i&1?&transparent83:&shaders[1];rb_face_draws[i].flags=BEF_NOSHADOWS;rb_face_draws[i].batchable=!(i&1);rb_face_draws[i].low[0]=i*100;rb_face_draws[i].high[0]=i*100+1;}
  RB_BatchOpaqueRuns(&mergeCache83);assert(rb_face_draw_count==2&&rb_face_draws[0].slot==0&&rb_face_draws[0].count==2&&rb_face_draws[1].slot==2&&rb_face_draws[1].count==2);assert(mergeIndices83[0]==10&&mergeIndices83[1]==11&&mergeIndices83[2]==20&&mergeIndices83[3]==21);
+
+
+ // Match backend bucket ordering, and keep every edited-layer barrier intact.
+ mergeMeshes83[0].multi=1;mergeMeshes83[2].multi=0;rb_face_draw_count=4;
+ for(int i=0;i<4;i++){memset(&rb_face_draws[i],0,sizeof(rb_face_draws[i]));rb_face_draws[i].slot=i&1?2:0;rb_face_draws[i].offset=i/2;rb_face_draws[i].count=1;rb_face_draws[i].shader=i&1?&transparent83:&shaders[1];rb_face_draws[i].flags=BEF_NOSHADOWS;}
+ RB_DeferRetainedTransparency(&mergeCache83);assert(rb_face_draw_count==2&&rb_face_draws[0].slot==0&&rb_face_draws[0].offset==0&&rb_face_draws[0].count==2&&rb_face_draws[1].slot==2&&rb_face_draws[1].count==2);
+ rb_face_draw_count=5;for(int i=0;i<5;i++){memset(&rb_face_draws[i],0,sizeof(rb_face_draws[i]));if(i==2){rb_face_draws[i].slot=~0u;rb_face_draws[i].count=1;continue;}int j=i<2?i:i-1;rb_face_draws[i].slot=j&1?2:0;rb_face_draws[i].offset=j/2;rb_face_draws[i].count=1;rb_face_draws[i].shader=j&1?&transparent83:&shaders[1];rb_face_draws[i].flags=BEF_NOSHADOWS;}
+ RB_DeferRetainedTransparency(&mergeCache83);assert(rb_face_draw_count==5&&rb_face_draws[2].slot==~0u&&rb_face_draws[0].slot==0&&rb_face_draws[1].slot==2&&rb_face_draws[3].slot==0&&rb_face_draws[4].slot==2);
+ // Retained GPU command lists preserve source order and survive camera travel.
+ rb_cache_source_t *gpuSources=calloc(count,sizeof(*gpuSources));for(int i=0;i<count;i++){gpuSources[i]=(rb_cache_source_t){faces[i].vertices,faces[i].count,(faces[i].count-2)*3,BEF_NOSHADOWS,1,1,1,0};VectorCopy(faces[i].normal,gpuSources[i].normal);gpuSources[i].distance=faces[i].distance;}
+ assert(RB_CacheGeometry(&vm,2,offset,count,20,gpuSources,count));free(gpuSources);
+ rb_mesh_cache_t *retained=&rb_mesh_caches[2];assert(retained->valid&&retained->total==count);for(unsigned int i=0;i<retained->count;i++){retained->meshes[i].shader=&shaders[1];assert(!retained->meshes[i].extras&&retained->meshes[i].vbo.normals.size>0&&retained->meshes[i].vbo.lmcoord[0].size>0);}
+ for(unsigned int i=0;i<retained->count;i++)retained->meshes[i].multi=1;
+ for(int i=0;i<count;i++){faces[i].enabled=1;faces[i].alpha=1;access[faces[i].node]=17;}
+ retained->retainedEligible=0;retained->retained=false;batchMode=1;rb_incremental_config_t noEdits={0};int gpuDrawn=0;
+ assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,70,noEdits,&gpuDrawn));assert(gpuDrawn==count);
+ unsigned int previousSource=0,totalIndices=0;for(unsigned int i=0;i<rb_face_draw_count;i++){assert(rb_face_draws[i].slot!=~0u&&rb_face_draws[i].source>=previousSource);previousSource=rb_face_draws[i].source;totalIndices+=rb_face_draws[i].count;}assert(totalIndices==count*6);
+ before=uploads;for(int i=0;i<25;i++){r_refdef.vieworg[0]+=1000;r_refdef.viewangles[1]+=20;assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,70,noEdits,&gpuDrawn));}assert(uploads==before);
+ // Permanent incremental edits may hide old source faces without changing access.
+ faces[0].enabled=0;assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,71,noEdits,&gpuDrawn));assert(gpuDrawn==count-1);
+ before=uploads;assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,71,noEdits,&gpuDrawn)&&uploads==before);
+ // Live delta draw markers stay interleaved at their original node positions.
+ edited[0].node=faces[1].node;edited[1].node=faces[count-1].node+1;rb_incremental_config_t gpuEdits={0,0,editOffset,2,0};
+ assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,72,gpuEdits,&gpuDrawn));int markers=0;
+ for(unsigned int i=0;i<rb_face_draw_count;i++)if(rb_face_draws[i].slot==~0u){markers+=rb_face_draws[i].count;assert(rb_face_draws[i].offset<2);}assert(markers==2);
+ before=uploads;assert(RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,72,gpuEdits,&gpuDrawn)&&uploads==before);
+ // A material without a GPU plane test must keep the complete legacy fallback.
+ faces[0].enabled=1;retained->meshes[retained->refs[0].slot].multi=0;retained->retainedEligible=0;
+ assert(!RB_RetainMaterialFaces(&vm,retained,faces,count,access,8,73,noEdits,&gpuDrawn));
  CSQC_ReyondBroomClearMeshes();assert(alive==0);free(cl_stris);free(vm.stringtable);puts("PASS: 30,000 retained faces, unchanged arguments, exact index count, warm reuse, access changes, invalid triangles, revision rebuild and complete release");
 }
 '''
