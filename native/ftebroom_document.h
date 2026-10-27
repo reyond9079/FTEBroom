@@ -22,6 +22,7 @@ static std::string saveTemporary, saveDestination;
 static std::filesystem::path documentFile, pendingDocumentFile, saveNativeTarget, fileBrowserFolder;
 static std::string pendingDocumentAlias;
 static int saveRevision;
+static std::chrono::steady_clock::time_point saveProfileStarted;
 static bool savingDocument, savingBackup, savingExport, confirmDocument;
 static bool savePakDetached;
 static std::string savePakBase,savePakMod;
@@ -201,6 +202,7 @@ static bool documentSave(
     || (!safeName(name.c_str()) && documentFile.empty() && destination.empty()))
     return false;
   documentError.clear();
+  saveProfileStarted=std::chrono::steady_clock::now();
   const auto serial = std::chrono::system_clock::now().time_since_epoch().count();
   saveTemporary =
     "_ftebroom_save_" + std::to_string(serial) + "_" + std::to_string(++saveSerial);
@@ -259,6 +261,7 @@ static void documentSaveFinished()
 {
   if (!savingDocument)
     return;
+  const auto saveEngineFinished=std::chrono::steady_clock::now();
   savingDocument = false;
   const auto source =
     documentPath(savingExport ? "data/export-map.map" : "maps/" + saveTemporary + ".map");
@@ -278,13 +281,13 @@ static void documentSaveFinished()
       throw std::runtime_error("The engine did not write the map.");
     std::filesystem::path archive;std::string member;
     bool packed=ftebroom::pak::split(target,archive,member);
-    if(packed){if(savingExport)throw std::runtime_error("Export compiler input to a folder, not a PAK.");auto bytes=ftebroom::quake1::map(q1Read(source),q1MapFormat==0,q1WadList());ftebroom::pak::replace(target,documentMetadata(bytes));}
+    if(packed){if(savingExport)throw std::runtime_error("Export compiler input to a folder, not a PAK.");auto bytes=ftebroom::quake1::map(q1Read(source),q1MapFormat==0,q1WadList(),true);ftebroom::pak::replace(target,documentMetadata(bytes));}
     else {
     std::filesystem::create_directories(target.parent_path());
     // Stage beside the destination so replacement remains atomic across drives.
     auto adjacent = target;
     adjacent += ".ftebroom-" + std::to_string(saveSerial) + ".tmp";
-    if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path()):q1WadList());
+    if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path()):q1WadList(),true);
       std::ofstream output(adjacent,std::ios::binary);output<<(savingExport?converted:documentMetadata(converted));output.close();if(!output)throw std::runtime_error("Cannot write Quake map.");}
     else {std::ofstream output(adjacent,std::ios::binary);auto bytes=q1Read(source);output<<(savingExport?bytes:documentMetadata(bytes));output.close();if(!output)throw std::runtime_error("Cannot write map.");}
 #ifdef _WIN32
@@ -331,6 +334,11 @@ static void documentSaveFinished()
         documentProceed();
       else
         documentNext.clear();
+    }
+    if(cvars->GetFloat("ftebroom_profile_saves")) {
+      const auto ended=std::chrono::steady_clock::now();
+      auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
+      core->Print(("RB_SAVE_PROFILE total_ms="+std::to_string(ms(saveProfileStarted,ended))+" engine_ms="+std::to_string(ms(saveProfileStarted,saveEngineFinished))+" finish_ms="+std::to_string(ms(saveEngineFinished,ended))+"\n").c_str());
     }
   }
   catch (const std::exception& error)

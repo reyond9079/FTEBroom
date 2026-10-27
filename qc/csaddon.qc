@@ -86,6 +86,7 @@ static void() perf_renderscene =
 };
 
 float fb_benchmark_start,fb_benchmark_frames;
+float fb_benchmark_last,fb_benchmark_max;int fb_benchmark_histogram[10001];
 float fb_profile_sum[9];
 string fb_view_cache_key[4];
 float fb_view_cache_time[4];
@@ -256,7 +257,7 @@ void() wrap_renderscene =
     fb_view_prepare();
     float profileTime=gettime(1);
     if(!fb_build_preview_active){
-        ftebroom_prepare();
+        fb_perf80_pointer();ftebroom_prepare();
         // Keep independent cache builds in separate VM calls on entity-heavy maps.
         // The runaway guard remains enabled; no geometry or overlays are omitted.
         static int warmGeometry=-1,warmStage;
@@ -335,10 +336,15 @@ void() wrap_renderscene =
     cvar_set("ca_brush_view",itos(activeType));
     cvar_set("ftebroom_ctx_view",itos(activeType==3?1:(activeType==2?2:(activeType==1?3:0))));
     if(cvar("ftebroom_benchmark")) {
-        if(!fb_benchmark_start) {fb_benchmark_start=gettime(0);fb_benchmark_frames=0;for(int p=0;p<9;p++)fb_profile_sum[p]=0;for(int v=0;v<4;v++){fb_visual_profile[v]=0;fb_frame_profile[v]=0;}}
+        if(!fb_benchmark_start) {fb_benchmark_start=gettime(0);fb_benchmark_last=fb_benchmark_start;fb_benchmark_max=0;memfill8((__variant*)fb_benchmark_histogram,0,sizeof(fb_benchmark_histogram));fb_benchmark_frames=0;for(int p=0;p<9;p++)fb_profile_sum[p]=0;for(int v=0;v<4;v++){fb_visual_profile[v]=0;fb_frame_profile[v]=0;}}
+        float benchNow=gettime(0),benchDelta=(benchNow-fb_benchmark_last)*1000;fb_benchmark_last=benchNow;
+        if(fb_benchmark_frames>0){fb_benchmark_histogram[(int)bound(0,floor(benchDelta*10),10000)]++;fb_benchmark_max=max(fb_benchmark_max,benchDelta);}
         fb_benchmark_frames++;
         if(gettime(0)-fb_benchmark_start>=8) {
             print(sprintf("FTEBROOM_BENCHMARK %g FPS (%g frames), console %v\n",fb_benchmark_frames/(gettime(0)-fb_benchmark_start),fb_benchmark_frames,vidsize));
+            int histTotal=0,median=-1,p95=-1,p99=-1;
+            for(int bin=0;bin<10001;bin++){histTotal+=fb_benchmark_histogram[bin];if(median<0 && histTotal>=(fb_benchmark_frames-1)*.5)median=bin;if(p95<0 && histTotal>=(fb_benchmark_frames-1)*.95)p95=bin;if(p99<0 && histTotal>=(fb_benchmark_frames-1)*.99)p99=bin;}
+            print(sprintf("RB_FRAME_TIMES stage=%s p50_ms=%g p95_ms=%g p99_ms=%g max_ms=%g samples=%g\n",cvar_string("ftebroom_benchmark_name"),median*.1,p95*.1,p99*.1,fb_benchmark_max,fb_benchmark_frames-1));
             for(int p=0;p<9;p++)print(sprintf("FTEBROOM_PROFILE %i %g ms/frame\n",p,fb_profile_sum[p]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_VISUAL_PROFILE %i %g ms/frame\n",v,fb_visual_profile[v]*1000/fb_benchmark_frames));
             for(int v=0;v<4;v++)print(sprintf("FTEBROOM_FRAME_PROFILE %i %g ms/frame\n",v,fb_frame_profile[v]*1000/fb_benchmark_frames));

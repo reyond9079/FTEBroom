@@ -1,6 +1,29 @@
 # Large-map editing, saving and material performance plan
 
-Status: investigation and proposed work. Only the Quake 1 material correctness fixes are implemented with this investigation. The optimization phases below are not implemented yet.
+Status: alpha.80 implements the first editing, retained geometry, material and save optimizations below. This remains an incremental performance program: complete per-brush GPU dirty ranges and asynchronous snapshot serialization are not implemented. Measurements and remaining pauses are recorded below; steady drag FPS must not be confused with commit latency.
+
+## Alpha.80 implementation and measurements
+
+Test machine: Windows, Core Ultra 7 155H, RTX 4060 Laptop. Test document: E1M1 FTE (2), 30,327 brushes, 26,288 entities, 189,772 faces before the test edit. The actual resource collection contains 35 loose WADs and 6,028 distinct WAD texture names. The Material panel remained open. Whole-map framing, grid, outlines, labels, bounds, 8x MSAA and 16x anisotropy were retained. Original MAP/WAD files were read only; saves used separate test destinations. These are measurements on this machine, not a hardware-independent guarantee.
+
+- At 1920x1080, alpha.79 idle/create/move/vertex averages were 37.2 / 4.2 / 3.9 / 4.0 FPS. Alpha.80 measured 72.5 / 70.3 / 69.2 / 70.3 FPS. Corresponding alpha.80 p95 frame times were 15.8 / 16.6 / 17.0 / 16.2 ms.
+- At 2560x1440, alpha.79 averages were 35.6 / 4.1 / 3.8 / 3.9 FPS. Alpha.80 measured 72.0 / 70.2 / 87.5 / 89.8 FPS; p95 16.8 / 17.2 / 15.4 / 13.7 ms. Camera framing is recomputed for the viewport; CPU timing and visible work vary between runs, so the higher-resolution move result is not a claim that more pixels improve performance.
+- A complete save took 13.89 s before, versus 3.70 s and 4.48 s in the final two resolution runs. Engine serialization still accounts for 2.63–2.71 s. The native conversion/write/index stage fell from 11.13 s to 1.08–1.78 s.
+- A separate continuous camera-flight run measured 70.2 FPS at 1920x1080 and 93.2 FPS at 2560x1440, with p95 frame times of 16.9 and 13.2 ms. This moving-camera scenario does not reuse the preceding frame's visibility indices.
+- Commit remains a limitation: the release benchmark includes a 2.72–2.89 s longest pause and averages only 17.8–18.6 FPS over that entire eight-second window. Thus 60 FPS during active dragging is achieved in these tests, but a consistent 16.7 ms frame budget across confirmation/rebuild is not achieved.
+
+Changes shipped in this iteration:
+
+- Keep static geometry and point overlays retained during brush previews, excluding replaced originals from both drawing and occlusion.
+- Share face vertex chunks across material runs while retaining primitive order. A heavily textured document no longer needs one retained mesh per material transition.
+- Reuse visibility indices only when the geometry, access mask, camera/projection, viewport and overlay settings are unchanged. Geometry is rendered normally every frame; this is not a cached viewport image. Camera movement invalidates the visibility result.
+- Cache entity inspector targets and eligible entity-link lists; use native broad-phase candidates for selection guide collisions.
+- Reuse parsed entity fields for world-brush-only transactions, falling back to full reconstruction for other transaction types. Prepare large-map face/grid attributes in native code using the existing formulas. Shared surface caches still rebuild after structural edits.
+- Cache the material browser's filtered/sorted list and use thumbnail LRU eviction instead of flushing all thumbnails. WAD dimensions can be searched without loading every thumbnail.
+- Retain decoded unchanged WADs within a 256 MiB cache and reuse versioned, byte-verified converted images keyed by source pixels, dimensions, name and palette. Resource changes retain archive priority and invalidate previews.
+- Preserve engine-emitted Valve 220 numeric text rather than parsing every number again; index structural lines using borrowed tokens. Atomic replacement and revision-associated save completion remain intact.
+
+Regression checks include exact UV output on 189,778 saved faces, identical 4,511,072-byte document-tree snapshots after fast/full reconstruction, full-size Create/Undo/Redo/Delete counts, and 48 reference/optimized guide-ray comparisons with 42 hits. Retained and fallback rendering produced pixel-identical large-map viewport captures with the actual WAD collection. Linux native and SDL2 passed small-map selection/group/link rendering and clean-exit checks. Native tests cover invalid buffers, chunk limits, 70,000 alternating material records, draw-order preservation, visibility invalidation, resource release and rotated-grid/face attribute equivalence. Further work remains in phases 3 and 5 below.
 
 ## Reference inspected
 

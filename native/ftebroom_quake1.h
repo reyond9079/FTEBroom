@@ -64,7 +64,21 @@ inline bool bsp(const std::string& bytes,bool q1) {
   auto models=word(bytes,header+(q1?14:7)*8+4);return models>0 && models%(q1?64:40)==0;
 }
 // Convert the engine's explicit UV axes to Quake's axial representation, only if lossless.
-inline std::string face(const std::string& line,bool classic) {
+inline std::string face(const std::string& line,bool classic,bool engineOutput=false) {
+  // The engine already validated its Valve 220 output. Preserve every numeric
+  // character, stripping only the three Q3 surface flags without parsing floats.
+  if(!classic && engineOutput) {
+    size_t at=0,end=0;int count=0;bool valve=false;
+    while(at<line.size() && count<31) {
+      while(at<line.size() && std::isspace((unsigned char)line[at]))++at;
+      if(at==line.size())break;
+      if(line[at]=='[')valve=true;
+      if(line[at]=='"'){++at;while(at<line.size() && line[at]!='"')++at;if(at<line.size())++at;}
+      else while(at<line.size() && !std::isspace((unsigned char)line[at]))++at;
+      end=at;++count;
+    }
+    if(count==31 && valve)return line.substr(0,end);
+  }
   std::istringstream input(line);char c;double p[3][3],uv[2][4],rotation,sx,sy;std::string tex;
   for(auto& point:p){if(!(input>>c)||c!='(')throw std::runtime_error("Invalid map plane.");for(auto& v:point)input>>v;input>>c;if(c!=')')throw std::runtime_error("Invalid map plane.");}
   input>>std::quoted(tex);auto prefix=line.substr(0,line.find('['));
@@ -90,13 +104,13 @@ inline std::string face(const std::string& line,bool classic) {
     throw std::runtime_error("This UV mapping needs Valve 220. Select Valve 220 in Game / resources before saving; no file was replaced.");
   out<<prefix<<offset[0]<<' '<<offset[1]<<' '<<std::atan2(sine,cosine)*180/3.141592653589793<<' '<<1/norm<<' '<<1/invY;return out.str();
 }
-inline std::string map(const std::string& source,bool classic,const std::string& wads) {
+inline std::string map(const std::string& source,bool classic,const std::string& wads,bool engineOutput=false) {
   std::istringstream input(source);std::ostringstream out;std::string line;bool world=false;
   while(std::getline(input,line)) {
     auto start=line.find_first_not_of(" \t\r");auto trimmed=start==std::string::npos?std::string():line.substr(start);
     if(trimmed.rfind("patchDef",0)==0)throw std::runtime_error("Quake 1 does not support patches. Remove or convert patches before saving/building.");
     if(trimmed.rfind("\"wad\"",0)==0 && !wads.empty())continue;
-    if(trimmed.rfind("(",0)==0)line=face(trimmed,classic);
+    if(trimmed.rfind("(",0)==0)line=face(trimmed,classic,engineOutput);
     out<<line<<'\n';
     if(!world && trimmed.find("\"worldspawn\"")!=std::string::npos){world=true;if(!wads.empty())out<<"\"wad\" "<<std::quoted(wads)<<'\n';}
   }return out.str();

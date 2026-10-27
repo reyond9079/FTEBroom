@@ -154,11 +154,51 @@ void fb_visual_flush()
 }
 // Trace editor brush planes, independent of game solidity and compiled BSP state.
 int fb_visual_spike_hit;
-vector fb_visual_spike_trace(vector start,vector end)
+hashtable fb_spike_nodes;int *fb_spike_models;int fb_spike_model_count;
+int *fb_spike_ids;int *fb_spike_candidates;int fb_spike_id_capacity,fb_spike_candidate_capacity,fb_spike_candidate_count;
+void fb_spike_candidates_prepare(vector start,vector end)
+{
+    static int geometry=-1;
+    if(geometry!=fb_grid_geometry_epoch){
+        geometry=fb_grid_geometry_epoch;if(fb_spike_nodes)hash_destroytab(fb_spike_nodes);
+        fb_spike_nodes=hash_createtab(max(64,fb_node_count*2),EV_INTEGER);
+        memfree(fb_spike_models);fb_spike_models=memalloc(max(1,fb_node_count)*sizeof(int));fb_spike_model_count=0;
+        hashtable models=hash_createtab(64,EV_INTEGER);
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH){
+            int model=fb_nodes[n].model;fb_spike_nodes[sprintf("%i:%i",model,fb_nodes[n].id)]=n+1i;
+            if(!(int)models[itos(model)]){models[itos(model)]=1i;fb_spike_models[fb_spike_model_count++]=model;}
+        }
+        hash_destroytab(models);
+    }
+    static vector planes[6];static float distances[6];
+    for(int axis=0;axis<3;axis++){
+        planes[axis*2]='0 0 0';planes[axis*2+1]='0 0 0';planes[axis*2][axis]=1;planes[axis*2+1][axis]=-1;
+        distances[axis*2]=max(start[axis],end[axis])+.01;distances[axis*2+1]=-min(start[axis],end[axis])+.01;
+    }
+    fb_spike_candidate_count=0;
+    for(int m=0;m<fb_spike_model_count;m++){
+        int total;
+        do{
+            if(!fb_spike_id_capacity){fb_spike_id_capacity=64;fb_spike_ids=memalloc(fb_spike_id_capacity*sizeof(int));}
+            total=brush_findinvolume(fb_spike_models[m],planes,distances,6,fb_spike_ids,__NULL__,fb_spike_id_capacity);
+            if(total<fb_spike_id_capacity)break;
+            fb_spike_id_capacity*=2;memfree(fb_spike_ids);fb_spike_ids=memalloc(fb_spike_id_capacity*sizeof(int));
+        }while(TRUE);
+        if(fb_spike_candidate_count+total>fb_spike_candidate_capacity){
+            fb_spike_candidate_capacity=max(fb_spike_candidate_count+total,max(64,fb_spike_candidate_capacity*2));
+            int *larger=memalloc(fb_spike_candidate_capacity*sizeof(int));memcpy(larger,fb_spike_candidates,fb_spike_candidate_count*sizeof(int));memfree(fb_spike_candidates);fb_spike_candidates=larger;
+        }
+        for(int i=0;i<total;i++){int n=(int)fb_spike_nodes[sprintf("%i:%i",fb_spike_models[m],fb_spike_ids[i])]-1i;if(n>=2)fb_spike_candidates[fb_spike_candidate_count++]=n;}
+    }
+}
+vector fb_visual_spike_trace(vector start,vector end,optional int reference)
 {
     float nearest=vlen(end-start);vector direction=normalize(end-start);fb_visual_spike_hit=FALSE;
     static vector bounds[2];
-    for(int node=0;node<fb_node_count;node++) {
+    int indexed=!reference && fb_node_count>=10000 && checkbuiltin(brush_findinvolume);
+    if(indexed)fb_spike_candidates_prepare(start,end);
+    for(int candidate=0;candidate<(indexed?fb_spike_candidate_count:fb_node_count);candidate++) {
+        int node=indexed?fb_spike_candidates[candidate]:candidate;
         fb_node_t item=fb_nodes[node];
         if(item.kind!=FB_NODE_BRUSH || brush_isselected(item.model,item.id) || !fb_render_allowed(node,FB_PICK_LOCKED))continue;
         if(brush_getfacepoints(item.model,item.id,0,bounds,2)!=2 || fb_pick_box(start,direction,bounds[0],bounds[1],nearest)<0)continue;

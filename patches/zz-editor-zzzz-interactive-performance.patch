@@ -1,0 +1,190 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -3372,8 +3372,14 @@
+  rb_cached_mesh_t *meshes;rb_cached_grid_ref_t *refs;
+  unsigned int count,total,revision,offset;pubprogfuncs_t *vm;char *base;
+  size_t bytes;qboolean valid;vboarray_t vertexBuffer,indexBuffer;void *vertexMemory,*indexMemory;index_t *indices,*scratch;unsigned int indexCapacity;
++ unsigned int viewGeneration;int viewFlags,viewCount;qboolean viewValid;
+ } rb_mesh_cache_t;
+ static rb_mesh_cache_t rb_mesh_caches[3];
++// Material runs share retained vertex chunks. A textured map can have more
++// than 65,536 material changes without requiring that many GPU/VAO objects.
++typedef struct {mesh_t mesh,*meshptr;unsigned int slot,offset,count;void *shader;int flags;} rb_face_draw_t;
++static rb_face_draw_t *rb_face_draws;
++static unsigned int rb_face_draw_count,rb_face_draw_capacity;
+ #ifdef GLQUAKE
+ void GLBE_InitEditorMesh(vbo_t *vbo);
+ void GLBE_DestroyEditorMesh(vbo_t *vbo);
+@@ -3392,10 +3398,19 @@
+  }
+  BZ_Free(cache->indices);BZ_Free(cache->scratch);BZ_Free(cache->meshes);BZ_Free(cache->refs);memset(cache,0,sizeof(*cache));
+ }
+-void CSQC_ReyondBroomClearMeshes(void){rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);}
++void CSQC_ReyondBroomClearMeshes(void){rb_occ.valid=rb_labels.valid=false;rb_geom.valid=rb_geom.reusable=false;for(unsigned int group=0;group<3;group++)RB_ClearMeshCache(group);BZ_Free(rb_face_draws);rb_face_draws=NULL;rb_face_draw_count=rb_face_draw_capacity=0;}
+ qboolean CSQC_ReyondBroomCachedBatch(void *opaque,unsigned int id)
+ {
+  unsigned int group=id>>16,slot=id&65535;batch_t *batch=opaque;
++ if(group==3){
++  if(!rb_mesh_caches[2].valid||slot>=rb_face_draw_count)return false;
++  rb_face_draw_t *draw=&rb_face_draws[slot];rb_cached_mesh_t *m=&rb_mesh_caches[2].meshes[draw->slot];
++  draw->mesh=m->mesh;draw->mesh.indexes+=draw->offset;draw->mesh.vbofirstelement+=draw->offset;draw->mesh.numindexes=draw->count;draw->meshptr=&draw->mesh;
++#ifdef GLQUAKE
++  if(qrenderer==QR_OPENGL)GLBE_InitEditorMesh(&m->vbo);
++#endif
++  batch->mesh=&draw->meshptr;batch->vbo=&m->vbo;batch->buildmeshes=NULL;return true;
++ }
+  if(group>=3||!rb_mesh_caches[group].valid||slot>=rb_mesh_caches[group].count)return false;
+  rb_cached_mesh_t *m=&rb_mesh_caches[group].meshes[slot];
+ #ifdef GLQUAKE
+@@ -3421,7 +3436,7 @@
+  RB_ClearMeshCache(group);cache->refs=BZ_Malloc((size_t)records*sizeof(*cache->refs));
+  for(unsigned int i=0;i<records;i++){
+   rb_cache_source_t *f=&sources[i];
+-  if(!vertices||vertices+f->vertices>MAX_INDICIES||indices+f->indices>MAX_INDICIES||pass!=f->pass||material!=f->material){slot++;vertices=indices=0;pass=f->pass;material=f->material;}
++  if(!vertices||vertices+f->vertices>MAX_INDICIES||indices+f->indices>MAX_INDICIES||(group!=2&&(pass!=f->pass||material!=f->material))){slot++;vertices=indices=0;pass=f->pass;material=f->material;}
+   if(slot>65536){RB_ClearMeshCache(group);return false;}
+   cache->refs[i]=(rb_cached_grid_ref_t){slot-1,vertices};vertices+=f->vertices;indices+=f->indices;
+  }
+@@ -3475,6 +3490,10 @@
+  BE_VBO_Begin(&context,sizeof(zeros));BE_VBO_Data(&context,zeros,sizeof(zeros),&dummy);BE_VBO_Finish(&context,cache->scratch,sizeof(index_t)*cache->indexCapacity,&cache->indexBuffer,&dummyMemory,&cache->indexMemory);BE_VBO_Destroy(&dummy,dummyMemory);
+  memcpy(cache->indices,cache->scratch,sizeof(index_t)*cache->indexCapacity);for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].vbo.indicies=cache->indexBuffer;
+ }
++static qboolean RB_CachedView(rb_mesh_cache_t *cache,unsigned int accessOffset,unsigned int accessCount,int flags)
++{
++ return cache->viewValid&&rb_geom.valid&&rb_geom.reusable&&cache->viewGeneration==rb_geom.generation&&cache->viewFlags==flags&&rb_geom.accessOffset==accessOffset&&rb_geom.accessCount==accessCount;
++}
+ 
+ static void QCBUILTIN PF_ReyondBroom_DrawGridCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+ {
+@@ -3488,7 +3507,10 @@
+  if(total>2000000||accessCount>1000000||!RB_QCBuffer(vm,offset,total,sizeof(*faces))||!RB_QCBuffer(vm,boundsOffset,accessCount*2,sizeof(vec3_t))||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int))||!RB_QCBuffer(vm,params.visible,total,sizeof(int)))return;
+  faces=(rb_grid_face_t*)(vm->stringtable+offset);bounds=(vec3_t*)(vm->stringtable+boundsOffset);access=(int*)(vm->stringtable+accessOffset);visible=(int*)(vm->stringtable+params.visible);
+  if(!RB_CacheGrid(vm,faces,offset,total,revision)){PF_ReyondBroom_DrawGrid(vm,pr_globals);return;}
++ qboolean reuse=RB_CachedView(&rb_grid_cache,accessOffset,accessCount,params.flags);
++ if(reuse)count=rb_grid_cache.viewCount;
+  if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ if(!reuse){
+  for(unsigned int i=0;i<total;i++) {
+   rb_grid_face_t *face=&faces[i];vec3_t delta;float depth,extent;
+   if(face->node!=previous){previous=face->node;allowed=face->node>=0&&(unsigned int)face->node<accessCount&&(access[face->node]&1);if(allowed){VectorSubtract(bounds[face->node*2],r_refdef.vieworg,delta);depth=DotProduct(delta,forward);extent=bounds[face->node*2+1][0];if(depth+extent<0||fabs(DotProduct(delta,right))>depth*tx+extent*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+extent*(1+ty))allowed=0;}}
+@@ -3508,7 +3530,9 @@
+    if(m->pending+indices>m->capacity)return;for(unsigned int j=0;j<indices;j++)m->scratch[m->pending++]=ref.base+(source[j]<(unsigned int)f->count?source[j]:0);
+   }
+  }
+- if(R2D_Flush)R2D_Flush();RB_CachedIndices(&rb_grid_cache);memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
++ RB_CachedIndices(&rb_grid_cache);rb_grid_cache.viewValid=rb_geom.valid;rb_grid_cache.viewGeneration=rb_geom.generation;rb_grid_cache.viewFlags=params.flags;rb_grid_cache.viewCount=count;
++ }
++ if(R2D_Flush)R2D_Flush();memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));
+  for(int pass=0;pass<2;pass++) {
+   if(!(params.flags&(pass?2:1)))continue;
+   G_INT(OFS_PARM0)=pass?params.edgeShader:params.gridShader;rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),3|(pass?DRAWFLAG_LINES:0));
+@@ -3593,6 +3617,47 @@
+ }
+ 
+ 
++// Bulk attribute preparation avoids interpreted per-coordinate work after edits.
++static void QCBUILTIN PF_ReyondBroom_BuildFace(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int sourceOffset=G_INT(OFS_PARM0),count=G_INT(OFS_PARM1),faceOffset=G_INT(OFS_PARM2),paramsOffset=G_INT(OFS_PARM3);G_INT(OFS_RETURN)=0;
++ if(count<3||count>64||!RB_QCBuffer(vm,sourceOffset,count,sizeof(vec3_t))||!RB_QCBuffer(vm,faceOffset,1,sizeof(editorqcface_t))||!RB_QCBuffer(vm,paramsOffset,5,sizeof(vec3_t)))return;
++ editorqcface_t *f=(editorqcface_t*)(vm->stringtable+faceOffset);vec3_t *points=(vec3_t*)(vm->stringtable+sourceOffset),*p=(vec3_t*)(vm->stringtable+paramsOffset);
++ if(!RB_QCBuffer(vm,f->points,count,sizeof(vec3_t))||!RB_QCBuffer(vm,f->uv,count,sizeof(vec3_t))||!RB_QCBuffer(vm,f->vertices,count,sizeof(qcvertex_t))||!RB_QCBuffer(vm,f->triangles,(count-2)*3,sizeof(int))||p[3][0]<=0||p[3][1]<=0)return;
++ vec3_t *stored=(vec3_t*)(vm->stringtable+f->points),*uv=(vec3_t*)(vm->stringtable+f->uv);qcvertex_t *vertices=(qcvertex_t*)(vm->stringtable+f->vertices);int *triangles=(int*)(vm->stringtable+f->triangles);
++ VectorClear(f->center);f->radius=0;
++ for(unsigned int i=0;i<count;i++){
++  VectorCopy(points[i],stored[i]);VectorAdd(f->center,points[i],f->center);
++  uv[i][0]=(DotProduct(points[i],p[0])+p[2][0])/p[3][0];uv[i][1]=(DotProduct(points[i],p[1])+p[2][1])/p[3][1];uv[i][2]=0;
++  VectorCopy(points[i],vertices[i].xyz);Vector2Copy(uv[i],vertices[i].st);VectorCopy(p[4],vertices[i].rgba);vertices[i].rgba[3]=p[3][2];
++  if(i>=2){triangles[(i-2)*3]=0;triangles[(i-2)*3+1]=i-1;triangles[(i-2)*3+2]=i;}
++ }
++ for(int a=0;a<3;a++)f->center[a]/=(float)count;
++ for(unsigned int i=0;i<count;i++){vec3_t delta;VectorSubtract(points[i],f->center,delta);float radius=VectorLength(delta);if(radius>f->radius)f->radius=radius;}
++ G_INT(OFS_RETURN)=1;
++}
++static void QCBUILTIN PF_ReyondBroom_BuildGrid(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
++{
++ unsigned int offset=G_INT(OFS_PARM0),total=G_INT(OFS_PARM1),paramsOffset=G_INT(OFS_PARM2);G_INT(OFS_RETURN)=0;
++ if(total>500000||!RB_QCBuffer(vm,offset,total,sizeof(rb_grid_face_t))||!RB_QCBuffer(vm,paramsOffset,6,sizeof(vec3_t)))return;
++ rb_grid_face_t *faces=(rb_grid_face_t*)(vm->stringtable+offset);vec3_t *p=(vec3_t*)(vm->stringtable+paramsOffset);
++ if(p[4][0]<=0)return;
++ for(unsigned int i=0;i<total;i++)if(faces[i].count<3||faces[i].count>256||!RB_QCBuffer(vm,faces[i].points,faces[i].count,sizeof(vec3_t))||!RB_QCBuffer(vm,faces[i].vertices,faces[i].count*2,sizeof(qcvertex_t)))return;
++ for(unsigned int i=0;i<total;i++){
++  rb_grid_face_t *f=&faces[i];vec3_t rotated,normal;float x=f->normal[0],y=f->normal[1];
++  rotated[0]=x*p[5][0]-y*p[5][1];rotated[1]=x*p[5][1]+y*p[5][0];rotated[2]=f->normal[2];
++  for(int a=0;a<3;a++)normal[a]=DotProduct(rotated,p[a+1]);
++  f->u=0;f->v=1;if(fabs(normal[0])>fabs(normal[1])&&fabs(normal[0])>fabs(normal[2])){f->u=1;f->v=2;}else if(fabs(normal[1])>fabs(normal[2])){f->u=0;f->v=2;}
++  vec3_t *points=(vec3_t*)(vm->stringtable+f->points);qcvertex_t *vertices=(qcvertex_t*)(vm->stringtable+f->vertices);
++  for(int j=0;j<f->count;j++){
++   for(int a=0;a<3;a++){vertices[j].xyz[a]=vertices[j+f->count].xyz[a]=points[j][a]+f->normal[a]*.02f;vertices[j+f->count].rgba[a]=1;}
++   vertices[j].rgba[0]=.65f;vertices[j].rgba[1]=.68f;vertices[j].rgba[2]=.72f;vertices[j].rgba[3]=p[4][1];vertices[j+f->count].rgba[3]=1;
++   vec3_t delta;VectorSubtract(points[j],p[0],delta);rotated[0]=delta[0]*p[5][0]-delta[1]*p[5][1];rotated[1]=delta[0]*p[5][1]+delta[1]*p[5][0];rotated[2]=delta[2];
++   vertices[j].st[0]=DotProduct(rotated,p[f->u+1])/p[4][0];vertices[j].st[1]=DotProduct(rotated,p[f->v+1])/p[4][0];
++  }
++ }
++ G_INT(OFS_RETURN)=1;
++}
+ // Retain face attributes without changing primitive order or shader state.
+ static void QCBUILTIN PF_ReyondBroom_DrawFacesCached(pubprogfuncs_t *vm,struct globalvars_s *pr_globals)
+ {
+@@ -3642,7 +3707,10 @@
+  }
+  if(r_refdef.dirty)V_ApplyRefdef();vec3_t forward,right,up;AngleVectors(r_refdef.viewangles,forward,right,up);float tx=tan(r_refdef.fov_x*M_PI/360),ty=tan(r_refdef.fov_y*M_PI/360);
+  for(unsigned int i=0;i<cache->count;i++)cache->meshes[i].pending=0;
+- int previous=-1,visible=false,drawn=0;
++ qboolean reuse=RB_CachedView(cache,accessOffset,accessCount,0);
++ int previous=-1,visible=false,drawn=reuse?cache->viewCount:0;
++ if(!reuse){
++ rb_face_draw_count=0;
+  for(unsigned int i=0;i<total;i++){
+   editorqcface_t *f=&faces[i];vec3_t delta;float depth,radius;
+   if(f->node!=previous){previous=f->node;visible=f->enabled&&f->node>=0&&(unsigned int)f->node<accessCount&&(access[f->node]&1);VectorSubtract(f->brushCenter,r_refdef.vieworg,delta);depth=DotProduct(delta,forward);radius=f->brushRadius;if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))visible=false;}
+@@ -3653,16 +3721,35 @@
+   if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;
+   rb_cached_grid_ref_t ref=cache->refs[i];rb_cached_mesh_t *m=&cache->meshes[ref.slot];
+   unsigned int count=(f->count-2)*3;if(!RB_QCBuffer(vm,f->triangles,count,sizeof(int))||m->pending+count>m->capacity){valid=false;break;}
++  unsigned int runOffset=m->pending;
+   unsigned int *indices=(unsigned int*)(vm->stringtable+f->triangles);
+   for(unsigned int j=0;j<count;j++){if(indices[j]>=(unsigned int)f->count){valid=false;break;}m->scratch[m->pending++]=ref.base+indices[j];}
+-  if(!valid)break;drawn++;
++  if(!valid)break;
++  unsigned int materialSlot=((unsigned int)f->shader*2654435761u)&8191;
++  while(names[materialSlot].generation==generation&&names[materialSlot].name!=f->shader)materialSlot=(materialSlot+1)&8191;
++  rb_soup_context_t material=names[materialSlot].context;
++  rb_face_draw_t *run=rb_face_draw_count?&rb_face_draws[rb_face_draw_count-1]:NULL;
++  if(run&&run->slot==ref.slot&&run->shader==material.shader&&run->flags==(int)material.flags&&run->offset+run->count==runOffset)run->count+=count;
++  else {
++   if(rb_face_draw_count==65536){valid=false;break;}
++   if(rb_face_draw_count==rb_face_draw_capacity){
++    unsigned int capacity=rb_face_draw_capacity?rb_face_draw_capacity*2:256;
++    rb_face_draw_t *replacement=BZ_Malloc(capacity*sizeof(*replacement));
++    if(rb_face_draw_count)memcpy(replacement,rb_face_draws,rb_face_draw_count*sizeof(*replacement));
++    BZ_Free(rb_face_draws);rb_face_draws=replacement;rb_face_draw_capacity=capacity;
++   }
++   run=&rb_face_draws[rb_face_draw_count++];memset(run,0,sizeof(*run));run->slot=ref.slot;run->offset=runOffset;run->count=count;run->shader=material.shader;run->flags=material.flags;
++  }
++  drawn++;
++ }
++ if(valid){RB_CachedIndices(cache);cache->viewValid=rb_geom.valid;cache->viewGeneration=rb_geom.generation;cache->viewFlags=0;cache->viewCount=drawn;}
+  }
+  if(valid){
+-  if(R2D_Flush)R2D_Flush();RB_CachedIndices(cache);
+-  for(unsigned int i=0;i<cache->count;i++){
+-   rb_cached_mesh_t *m=&cache->meshes[i];if(!m->pending)continue;
++  if(R2D_Flush)R2D_Flush();
++  for(unsigned int i=0;i<rb_face_draw_count;i++){
++   rb_face_draw_t *run=&rb_face_draws[i];rb_cached_mesh_t *m=&cache->meshes[run->slot];
+    if(cl_numstris==cl_maxstris){cl_maxstris+=8;cl_stris=BZ_Realloc(cl_stris,cl_maxstris*sizeof(*cl_stris));}
+-   scenetris_t *t=&cl_stris[cl_numstris++];t->shader=m->shader;t->flags=m->pass;t->firstvert=-1-(int)(131072+i);t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=m->pending;
++   scenetris_t *t=&cl_stris[cl_numstris++];t->shader=run->shader;t->flags=run->flags;t->firstvert=-1-(int)(196608+i);t->firstidx=0;t->numvert=m->mesh.numvertexes;t->numidx=run->count;
+   }
+  }
+  memcpy((int*)pr_globals+OFS_PARM0,saved,sizeof(saved));G_INT(OFS_RETURN)=valid?drawn:-1;
+@@ -7844,6 +7931,8 @@
+ 	{"R_EndPolygonRibbon",		PF_R_PolygonEndRibbon, 0},
+ 	{"addtrisoup_simple",		PF_R_AddTrisoup_Simple,	0},
+ 	{"ftebroom_draw_faces",PF_ReyondBroom_DrawFaces,0},
++	{"ftebroom_build_face",PF_ReyondBroom_BuildFace,0},
++	{"ftebroom_build_grid",PF_ReyondBroom_BuildGrid,0},
+ 	{"ftebroom_cull_points",PF_ReyondBroom_CullPoints,0},
+ 	{"ftebroom_line_visible",PF_ReyondBroom_LineVisible,0},
+ 	{"ftebroom_draw_labels",PF_ReyondBroom_DrawLabels,0},

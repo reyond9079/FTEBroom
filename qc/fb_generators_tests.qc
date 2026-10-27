@@ -3,6 +3,7 @@ float fb_benchmark_start,fb_benchmark_frames;
 #include "fb_bevel_extended_tests.qc"
 // SPDX-License-Identifier: GPL-3.0-or-later
 int fb_generators_test_history;
+#include "fb_performance_tests.qc"
 void fb_polygon_test_rectangle(vector center,float half,float height)
 {
     fb_polygon_count=4;fb_polygon_closed=TRUE;fb_polygon_normal='0 0 1';
@@ -16,6 +17,9 @@ void fb_fullbench_tick()
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
+    if(cvar("ftebroom_fullbench_qa")==7){
+        localcmd("ftebroom_test_generators frame76\nin 2 set ftebroom_benchmark_name idle\nin 2 set ftebroom_benchmark 1\nin 14 ftebroom_test_generators perf80 1\nin 16 set ftebroom_benchmark_name create\nin 16 set ftebroom_benchmark 1\nin 28 ftebroom_test_generators perf80 0\nin 31 ftebroom_test_generators perf80 2\nin 33 set ftebroom_benchmark_name move\nin 33 set ftebroom_benchmark 1\nin 45 ftebroom_test_generators perf80 0\nin 48 ftebroom_test_generators perf80 3\nin 50 set ftebroom_benchmark_name vertex\nin 50 set ftebroom_benchmark 1\nin 62 ftebroom_test_generators perf80 0\nin 65 set ftebroom_benchmark_name release\nin 65 set ftebroom_benchmark 1\nin 66 ftebroom_test_generators create78begin\nin 66.1 ftebroom_test_generators create78update\nin 66.2 ftebroom_test_generators create78finish\nin 130 quit force\n");return;
+    }
     if(cvar("ftebroom_fullbench_qa")==6){
         localcmd("ftebroom_test_generators frame76\nin 2 ftebroom_test_generators create78begin\nin 4 ftebroom_test_generators create78update\nin 6 ftebroom_test_generators create78finish\nin 10 ftebroom_test_generators create78check 30328\nin 12 ftebroom_test_generators create78undo\nin 16 ftebroom_test_generators create78check 30327\nin 18 ftebroom_test_generators create78redo\nin 22 ftebroom_test_generators create78check 30328\nin 24 ftebroom_test_generators create78delete\nin 28 ftebroom_test_generators create78check 30327\nin 30 quit force\n");return;
     }
@@ -39,6 +43,10 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="perf80"){fb_perf80_start(stoi(argv(2)));return TRUE;}
+    if(argv(1)=="document80"){fb_perf80_document();return TRUE;}
+    if(argv(1)=="spike80"){fb_perf80_spikes();return TRUE;}
+
     if(argv(1)=="create78undo"){brush_undo();return TRUE;}
     if(argv(1)=="create78redo"){brush_redo();return TRUE;}
     if(argv(1)=="create78delete"){fb_delete_selection();return TRUE;}

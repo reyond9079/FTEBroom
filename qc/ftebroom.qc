@@ -1,3 +1,5 @@
+int *fb_static_access;int fb_static_access_count,fb_static_preview_supported;
+void fb_static_preview_prepare();
 void fb_texture_align(string operation,int direction,int fraction);
 void fb_transfer_finish(int commit);
 int fb_transfer_begin(vector pixel,int rotate,int materialOnly);
@@ -345,6 +347,7 @@ int fb_occlusion_revision;int fb_generator_count,fb_render_access_count;int *fb_
 typedef struct {int stride,flags;string gridShader,edgeShader;int *visible;int revision;} fb_grid_native_params_t;
 int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid_compact=#0:ftebroom_draw_grid_compact;
 int(fb_grid_face_t *faces,int count,vector *bounds,int *access,int accessCount,fb_grid_native_params_t *params) ftebroom_draw_grid_cached=#0:ftebroom_draw_grid_cached;
+int(fb_grid_face_t *faces,int count,vector *params) ftebroom_build_grid=#0:ftebroom_build_grid;
 int fb_grid_upload_epoch;
 int(fb_grid_face_t *faces,int count,int *access,int accessCount,int stride,int mode,int revision) ftebroom_prepare_occlusion=#0:ftebroom_prepare_occlusion;
 var float autocvar_ftebroom_geometry_occlusion=1;
@@ -439,7 +442,14 @@ void fb_surfacegrid(int geometryOnly)
     static vector lastGridOrigin,lastGridX,lastGridY,lastGridZ;
     int gridChanged=lastGridOrigin!=autocvar_ftebroom_grid_origin||lastGridX!=autocvar_ftebroom_grid_basis_x||lastGridY!=autocvar_ftebroom_grid_basis_y||lastGridZ!=autocvar_ftebroom_grid_basis_z;
     lastGridOrigin=autocvar_ftebroom_grid_origin;lastGridX=autocvar_ftebroom_grid_basis_x;lastGridY=autocvar_ftebroom_grid_basis_y;lastGridZ=autocvar_ftebroom_grid_basis_z;
-    if(rebuild || gridChanged || grid!=lastGrid || alpha!=lastAlpha || lastRotation!=autocvar_ftebroom_grid_rotation){fb_grid_upload_epoch++;for(int i=0;i<fb_grid_face_count;i++) {
+    if(rebuild || gridChanged || grid!=lastGrid || alpha!=lastAlpha || lastRotation!=autocvar_ftebroom_grid_rotation){fb_grid_upload_epoch++;
+    int nativeBuilt=FALSE;
+    if(fb_grid_face_count>=30000 && checkbuiltin(ftebroom_build_grid)){
+        static vector buildParams[6];buildParams[0]=autocvar_ftebroom_grid_origin;buildParams[1]=autocvar_ftebroom_grid_basis_x;buildParams[2]=autocvar_ftebroom_grid_basis_y;buildParams[3]=autocvar_ftebroom_grid_basis_z;buildParams[4]=[grid,alpha,0];buildParams[5]=[1,0,0];
+        if(autocvar_ftebroom_grid_rotation){float radians=-autocvar_ftebroom_grid_rotation*M_PI/180;buildParams[5]=[cos(radians),sin(radians),0];}
+        nativeBuilt=ftebroom_build_grid(fb_grid_faces,fb_grid_face_count,buildParams);
+    }
+    if(!nativeBuilt)for(int i=0;i<fb_grid_face_count;i++) {
         fb_grid_face_t *face=&fb_grid_faces[i];
         vector gridNormal=fb_grid_direction_local(face.normal);face.u=0;face.v=1;
         if(fabs(gridNormal_x)>fabs(gridNormal_y)&&fabs(gridNormal_x)>fabs(gridNormal_z)){face.u=1;face.v=2;}
@@ -472,9 +482,9 @@ void fb_surfacegrid(int geometryOnly)
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int gridVisible=cvar("ftebroom_grid_visible"),edges=cvar("ftebroom_show_edges");
     shaderforname("ftebroom/brushedges","{\ncull none\n{\nmap $whiteimage\nblendfunc blend\nrgbgen vertex\nalphagen vertex\n}\n}");
-    if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid_compact) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
-        fb_render_allowed(0,FB_PICK_LOCKED);fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=8|(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;params.revision=fb_grid_upload_epoch;
-        int nativeCount;if(autocvar_ftebroom_cached_meshes && fb_grid_face_count>=30000 && checkbuiltin(ftebroom_draw_grid_cached))nativeCount=ftebroom_draw_grid_cached(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);else nativeCount=ftebroom_draw_grid_compact(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,fb_render_access,fb_render_access_count,&params);
+    if(autocvar_ftebroom_native_overlays && checkbuiltin(ftebroom_draw_grid_compact) && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP))){
+        fb_render_allowed(0,FB_PICK_LOCKED);int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;fb_grid_native_params_t params;params.stride=sizeof(fb_grid_face_t);params.flags=8|(gridVisible?1:0)|(edges?2:0)|(autocvar_ftebroom_sky_overlays?4:0);params.gridShader="ftebroom/surfacegrid";params.edgeShader="ftebroom/brushedges";params.visible=fb_grid_visible;params.revision=fb_grid_upload_epoch;
+        int nativeCount;if(autocvar_ftebroom_cached_meshes && fb_grid_face_count>=30000 && checkbuiltin(ftebroom_draw_grid_cached))nativeCount=ftebroom_draw_grid_cached(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,access,accessCount,&params);else nativeCount=ftebroom_draw_grid_compact(fb_grid_faces,fb_grid_face_count,fb_grid_brush_bounds,access,accessCount,&params);
         if(nativeCount>=0){fb_grid_visible_count=nativeCount;return;}
     }
     // Visibility is shared by the grid and edge passes.
@@ -507,10 +517,11 @@ void fb_surfacegrid(int geometryOnly)
 
 void fb_prepare_occlusion()
 {
+    fb_static_preview_prepare();
     if(!checkbuiltin(ftebroom_prepare_occlusion))return;
-    int enabled=autocvar_ftebroom_occlusion_culling && cvar("ftebroom_quake1") && !cvar("ca_brush_view") && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP && cvar("ftebroom_render_faces")!=2 && fb_grid_built_epoch==fb_grid_geometry_epoch;
+    int enabled=autocvar_ftebroom_occlusion_culling && cvar("ftebroom_quake1") && !cvar("ca_brush_view") && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP)) && cvar("ftebroom_render_faces")!=2 && fb_grid_built_epoch==fb_grid_geometry_epoch;
     int mode=enabled?2:0;fb_render_allowed(0,FB_PICK_LOCKED);
-    ftebroom_prepare_occlusion(fb_grid_faces,fb_grid_face_count,fb_render_access,fb_render_access_count,sizeof(fb_grid_face_t),mode,fb_occlusion_revision);
+    ftebroom_prepare_occlusion(fb_grid_faces,fb_grid_face_count,fb_static_preview_supported?fb_static_access:fb_render_access,fb_static_preview_supported?fb_static_access_count:fb_render_access_count,sizeof(fb_grid_face_t),mode,fb_occlusion_revision);
 }
 #include "ftebroom_edit.qc"
 

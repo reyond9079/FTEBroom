@@ -83,8 +83,8 @@ typedef struct {int from,to;} fb_entity_link_t;
 fb_entity_link_t *fb_entity_connections;int fb_entity_connection_count;int *fb_entity_reachable;int *fb_entity_link_selected;vector *fb_entity_centers;
 void fb_entity_links_prepare()
 {
-    static int revision=-1,geometry=-1,filters=-1;int current=fb_document_revision();
-    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;
+    static int revision=-1,geometry=-1,filters=-1,selection=-1,visibility=-1;int current=fb_document_revision();
+    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && selection==fb_selection_epoch && visibility==fb_visibility_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;visibility=fb_visibility_epoch;
     memfree(fb_entity_connections);fb_entity_connections=__NULL__;fb_entity_connection_count=0;
     memfree(fb_entity_reachable);fb_entity_reachable=memalloc(fb_node_count*sizeof(int));memfree(fb_entity_centers);fb_entity_centers=memalloc(fb_node_count*sizeof(vector));
     memfree(fb_entity_link_selected);fb_entity_link_selected=memalloc(fb_node_count*sizeof(int));
@@ -148,11 +148,22 @@ void fb_entity_links_draw()
     int mode=cvar("ftebroom_entity_links");if(!mode)return;
     if(mode<=2 && !selectedbrushcount && !fb_selected_entity_count)return;
     fb_entity_links_prepare();
-    for(int e=0;e<fb_entity_connection_count;e++) {
-        fb_entity_link_t edge=fb_entity_connections[e];
-        if(!fb_pick_allowed(edge.from,FB_PICK_LOCKED)||!fb_pick_allowed(edge.to,FB_PICK_LOCKED))continue;
-        if(mode==1 && !fb_entity_link_selected[edge.from] && !fb_entity_link_selected[edge.to])continue;
-        if(mode==2 && !fb_entity_reachable[edge.from])continue;
+    static int revision=-1,geometry=-1,filters=-1,visibility=-1,selection=-1,lastMode=-1;
+    static int *drawLinks;static int drawCount;
+    int currentRevision=fb_document_revision();
+    if(revision!=currentRevision || geometry!=fb_grid_geometry_epoch || filters!=fb_filter_epoch || visibility!=fb_visibility_epoch || selection!=fb_selection_epoch || lastMode!=mode){
+        revision=currentRevision;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;lastMode=mode;
+        memfree(drawLinks);drawLinks=memalloc(max(1,fb_entity_connection_count)*sizeof(int));drawCount=0;
+        for(int index=0;index<fb_entity_connection_count;index++){
+            fb_entity_link_t candidate=fb_entity_connections[index];
+            if(!fb_pick_allowed(candidate.from,FB_PICK_LOCKED)||!fb_pick_allowed(candidate.to,FB_PICK_LOCKED))continue;
+            if(mode==1 && !fb_entity_link_selected[candidate.from] && !fb_entity_link_selected[candidate.to])continue;
+            if(mode==2 && !fb_entity_reachable[candidate.from])continue;
+            drawLinks[drawCount++]=index;
+        }
+    }
+    for(int e=0;e<drawCount;e++) {
+        fb_entity_link_t edge=fb_entity_connections[drawLinks[e]];
         vector from=fb_entity_centers[edge.from],to=fb_entity_centers[edge.to],direction=normalize(to-from);
         if(vlen(to-from)<0.01)continue;
         vector side=normalize(crossproduct(direction,'0 0 1'));if(vlen(side)<0.1)side='1 0 0';

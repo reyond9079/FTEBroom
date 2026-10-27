@@ -2,6 +2,8 @@
 #include <chrono>
 #include <sstream>
 static std::map<std::string, qhandle_t> thumbnailCache;
+static std::map<std::string,int> thumbnailLastFrame;
+static unsigned materialDataRevision=0,materialUsageRevision=0;
 static std::map<std::string, ImVec2> materialDimensions;
 static bool materialAdvanced=false;
 static int materialWidths[2]={0,0},materialHeights[2]={0,0};
@@ -26,11 +28,11 @@ static void clearThumbnails()
 {
   for (auto& pair : thumbnailCache)
     draw->UnloadImage(pair.second);
-  thumbnailCache.clear();
+  thumbnailCache.clear();thumbnailLastFrame.clear();
 }
 static void resetMaterialBrowser()
 {
-  clearThumbnails();
+  ++materialDataRevision;clearThumbnails();
   materialFolders.clear();materialDimensions.clear();
   selectedMaterial.clear();
 }
@@ -43,8 +45,16 @@ static std::string materialFolder(const std::string& name)
 static qhandle_t thumbnail(const std::string& name)
 {
   auto cached = thumbnailCache.find(name);
-  if (cached != thumbnailCache.end())
-    return cached->second;
+  if (cached != thumbnailCache.end()) {
+    thumbnailLastFrame[name]=ImGui::GetFrameCount();return cached->second;
+  }
+  // Never release handles referenced by this or the preceding ImGui frame.
+  // Evict one old image, rather than flushing every visible thumbnail at once.
+  if(thumbnailCache.size()>=512){
+    auto victim=thumbnailCache.end();int oldest=ImGui::GetFrameCount()-1;
+    for(auto it=thumbnailCache.begin();it!=thumbnailCache.end();++it)if(thumbnailLastFrame[it->first]<oldest){oldest=thumbnailLastFrame[it->first];victim=it;}
+    if(victim!=thumbnailCache.end()){draw->UnloadImage(victim->second);thumbnailLastFrame.erase(victim->first);thumbnailCache.erase(victim);}
+  }
   auto found = materials.find(name);
   auto image = found != materials.end() && !found->second.preview.empty()
                  ? found->second.preview
@@ -52,8 +62,8 @@ static qhandle_t thumbnail(const std::string& name)
   // Browser previews use a dedicated 2D shader, never a material's vertex deformation.
   std::ostringstream quoted;quoted<<std::quoted(image);
   auto shader=std::string("{\n program default2d\n nomipmaps\n nopicmip\n {\n map ")+quoted.str()+"\n rgbgen vertex\n alphagen vertex\n blendfunc blend\n }\n}\n";
-  auto handle = draw->LoadImageShader(("ftebroom/thumbnail/"+name).c_str(),shader.c_str());
-  thumbnailCache[name] = handle;
+  auto handle = draw->LoadImageShader(("ftebroom/thumbnail/"+name+"#resources_"+std::to_string(materialDataRevision)).c_str(),shader.c_str());
+  thumbnailCache[name] = handle;thumbnailLastFrame[name]=ImGui::GetFrameCount();
   return handle;
 }
 static void chooseMaterial(const std::string& name)
@@ -263,6 +273,9 @@ static void readMaterialUsage()
   std::string text(static_cast<size_t>(length), '\0');
   files->Read(handle, text.data(), static_cast<int>(length));
   files->Close(handle);
+  static std::string previous;static unsigned revision=~0u;
+  if(previous==text && revision==materialDataRevision)return;
+  previous=text;revision=materialDataRevision;++materialUsageRevision;
   materialUsage.clear();
   std::istringstream rows(text);
   std::string row;
@@ -308,8 +321,7 @@ static void materialBrowser()
   importMaterialControls();
   graphicalUVEditor();
   readMaterialUsage();
-  if (thumbnailCache.size() > 512)
-    clearThumbnails();
+
   char current[1024] = {};
   cvars->GetString("ftebroom_current_material", current, sizeof current);
   ImGui::SeparatorText(cvars->GetFloat("ftebroom_face_count") ? "Selected surfaces" : "New brush material");
@@ -387,8 +399,11 @@ static void materialBrowser()
     if(ImGui::IsItemHovered()){ImGui::BeginTooltip();ImGui::TextUnformatted("The MAP stores texture names, not texture pixels. Reconnect these WADs with Add WAD(s):");for(const auto& path:q1MissingWads)ImGui::TextUnformatted(path.u8string().c_str());ImGui::EndTooltip();}
   }
   collectionsLoad();
-  for (auto& pair : materials)
-    materialFolders.emplace(materialFolder(pair.first), true);
+  static unsigned folderRevision=~0u;static size_t folderCount=0;
+  if(folderRevision!=materialDataRevision || folderCount!=materials.size()) {
+    folderRevision=materialDataRevision;folderCount=materials.size();
+    for(auto& pair:materials)materialFolders.emplace(materialFolder(pair.first),true);
+  }
   if (ImGui::BeginCombo("##collections", "Choose visible folders..."))
   {
     if (ImGui::Button("All"))
@@ -423,6 +438,10 @@ static void materialBrowser()
     if(!advanced||(!widths[0]&&!widths[1]&&!heights[0]&&!heights[1]))return true;
     auto found=materialDimensions.find(name);
     if(found==materialDimensions.end()){
+      auto wadSize=q1MaterialDimensions.find(materialCanonical(name));
+      if(gameProfile==2 && wadSize!=q1MaterialDimensions.end())found=materialDimensions.emplace(name,ImVec2(wadSize->second.first,wadSize->second.second)).first;
+    }
+    if(found==materialDimensions.end()){
       if(!dimensionBudget--){dimensionBudget=0;++dimensionPending;return false;}
       float w=0,h=0;if(draw->ImageSize(thumbnail(name),&w,&h)<=0||w<=0||h<=0){materialDimensions.emplace(name,ImVec2(-1,-1));return false;}
       found=materialDimensions.emplace(name,ImVec2(w,h)).first;
@@ -437,7 +456,14 @@ static void materialBrowser()
   static int size = 64;
   ImGui::SetNextItemWidth(160 * uiScale());
   ImGui::SliderInt("Thumbnail size", &size, 48, 128);
-  std::vector<const MaterialEntry*> visible;
+  static std::vector<const MaterialEntry*> visible;
+  static std::string cachedQuery;static std::map<std::string,bool> cachedFolders;static std::set<std::string> cachedRemoved;
+  static unsigned cachedRevision=~0u,cachedUsage=~0u;static size_t cachedCount=0;static bool pendingDimensions=false;
+  auto query=std::string(filter)+":"+std::to_string(usedOnly)+":"+std::to_string(byUsage)+":"+std::to_string(grouped)+":"+std::to_string(advanced);
+  for(auto values:{widths,heights})for(int i=0;i<2;i++)query+=":"+std::to_string(values[i]);
+  if(cachedRevision!=materialDataRevision || cachedCount!=materials.size() || cachedQuery!=query || cachedFolders!=materialFolders || cachedRemoved!=removedCollections || ((usedOnly||byUsage)&&cachedUsage!=materialUsageRevision) || pendingDimensions) {
+    cachedRevision=materialDataRevision;cachedCount=materials.size();cachedQuery=query;cachedFolders=materialFolders;cachedRemoved=removedCollections;cachedUsage=materialUsageRevision;
+  visible.clear();
   for (auto& pair : materials)
     if (
       !removedCollections.count(materialFolder(pair.first)) && materialFolders[materialFolder(pair.first)] && materialMatches(pair.first, filter)
@@ -454,6 +480,8 @@ static void materialBrowser()
              > materialUsage[materialCanonical(b->name)];
     return a->name < b->name;
   });
+    pendingDimensions=dimensionPending!=0;
+  }
   ImGui::Text("%zu / %zu materials", visible.size(), materials.size());
   if(dimensionPending)ImGui::TextDisabled("Reading image dimensions: %i pending",dimensionPending);
   ImGui::BeginChild(

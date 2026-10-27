@@ -112,6 +112,39 @@ int fb_render_visible(int model,int id)
     for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].model==model && fb_nodes[n].id==id)return fb_pick_allowed(n,FB_PICK_LOCKED);
     return FALSE;
 }
+// Keep the static map's native passes during a large-map gesture. The live
+// access table remains untouched for selection/UI and dynamic preview drawing.
+void fb_static_preview_prepare()
+{
+    fb_render_allowed(0,FB_PICK_LOCKED);
+    fb_static_preview_supported=fb_grid_face_count>=30000 && cvar("ftebroom_cached_meshes");
+    if(!fb_static_preview_supported)return;
+    static int capacity,indexGeometry=-1;static hashtable nodes;static string signature="",previousMask="";
+    string key=sprintf("%i %i %i %i %i %g",fb_grid_geometry_epoch,fb_filter_epoch,fb_visibility_epoch,fb_selection_epoch,fb_node_count,fb_active);
+    key=strcat(key,sprintf(" %i %i %i %i %i",fb_transform_preview,fb_transform_duplicate,fb_vertex_preview_valid,fb_generator_count,fb_generator_hide_original));
+    key=strcat(key,sprintf(" %i %v %g",fb_clip_count,fb_clip_normal,fb_clip_dist));
+    key=strcat(key," ",cvar_string("ftebroom_tool"));
+    if(key==signature)return;strunzone(signature);signature=strzone(key);
+    if(indexGeometry!=fb_grid_geometry_epoch){
+        indexGeometry=fb_grid_geometry_epoch;if(nodes)hash_destroytab(nodes);nodes=hash_createtab(max(64,fb_node_count),EV_INTEGER);
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind>=FB_NODE_BRUSH)nodes[sprintf("%i:%i",fb_nodes[n].model,fb_nodes[n].id)]=n+1i;
+    }
+    if(capacity<fb_render_access_count){capacity=fb_render_access_count;memfree(fb_static_access);fb_static_access=memalloc(capacity*sizeof(int));}
+    fb_static_access_count=fb_render_access_count;memcpy(fb_static_access,fb_render_access,fb_static_access_count*sizeof(int));
+    string mask="";
+    for(int pass=0;pass<2;pass++) {
+        int count=pass?fb_generator_original_count:selectedbrushcount;
+        if(pass && !fb_generator_count)continue;
+        for(int b=0;b<count;b++) {
+            int model,id;if(pass){model=fb_generator_original[b].model;id=fb_generator_original[b].id;}else{model=selectedbrushes[b].model;id=selectedbrushes[b].id;}
+            int n=(int)nodes[sprintf("%i:%i",model,id)]-1i;if(n<2 || n>=fb_static_access_count)continue;
+            if(!(fb_static_access[n]&1))continue;
+            if(!fb_preview_replaces(model,id))continue;
+            fb_static_access[n]&=~1i;mask=strcat(mask,itos(n),",");
+        }
+    }
+    if(mask!=previousMask){strunzone(previousMask);previousMask=strzone(mask);fb_occlusion_revision++;}
+}
 // FTE returns a registered shader without replacing its generator script.
 // A new Q1 resource generation must not reuse a previous missing/old image.
 string fb_surface_material_shader(string material,float alpha)
@@ -153,6 +186,7 @@ typedef struct {
 } fb_render_face_t;
 int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride) ftebroom_draw_faces = #0:ftebroom_draw_faces;
 int(fb_render_face_t *faces,int count,int *access,int accessCount,int stride,int revision) ftebroom_draw_faces_cached = #0:ftebroom_draw_faces_cached;
+int(vector *source,int count,fb_render_face_t *face,vector *params) ftebroom_build_face=#0:ftebroom_build_face;
 int fb_face_upload_epoch;
 var float autocvar_ftebroom_native_faces=1;
 var float autocvar_ftebroom_merge_missing_materials=1;
@@ -188,7 +222,10 @@ void fb_render_faces_prepare()
         }
     }
     if(required>fb_render_vertex_capacity) {
-        fb_render_vertex_capacity=max(required,max(1024,fb_render_vertex_capacity*2));
+        // Reserve modest edit space rather than doubling all textured-face
+        // buffers when the first brush is added to an already large document.
+        if(required>65536)fb_render_vertex_capacity=required+max(4096,ceil(required/16.0));
+        else fb_render_vertex_capacity=max(required,max(1024,fb_render_vertex_capacity*2));
         memfree(fb_render_points);memfree(fb_render_uv);
         memfree(fb_render_vertices);memfree(fb_render_triangles);
         fb_render_points=memalloc(fb_render_vertex_capacity*sizeof(vector));
@@ -237,6 +274,10 @@ void fb_render_faces_prepare()
             if(!shared){shared=memalloc(sizeof(fb_render_shader_t));shared.name=strzone(shader);shared.next=fb_render_shader_names;fb_render_shader_names=shared;fb_render_shader_pool[shader]=shared;}
             item.node=n;item.count=vertices;item.shader=shared.name;item.alpha=alpha;item.color=color;
             item.normal=face.planenormal;item.distance=face.planedist;item.center='0 0 0';item.radius=0;
+            if(fb_node_count>=10000 && checkbuiltin(ftebroom_build_face)){
+                static vector params[5];params[0]=face.sdir;params[1]=face.tdir;params[2]=[face.sbias,face.tbias,0];params[3]=[size_x,size_y,alpha];params[4]=color;
+                if(ftebroom_build_face(points,vertices,item,params))continue;
+            }
             for(int p=0;p<vertices;p++) {
                 item.points[p]=points[p];item.center+=points[p];
                 item.uv[p]=[(points[p]*face.sdir+face.sbias)/size_x,(points[p]*face.tdir+face.tbias)/size_y,0];
@@ -259,11 +300,12 @@ void fb_filter_draw()
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     int previous=-1,visible=FALSE;
     int nativePass=FALSE;
-    if(autocvar_ftebroom_native_faces && checkbuiltin(ftebroom_draw_faces) && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP){
+    if(autocvar_ftebroom_native_faces && checkbuiltin(ftebroom_draw_faces) && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP))){
         fb_render_allowed(0,FB_PICK_LOCKED);
+        int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;
         int drawn=-1;
-        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t),fb_face_upload_epoch);
-        if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,fb_render_access,fb_render_access_count,sizeof(fb_render_face_t));
+        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch);
+        if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t));
         nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
     }
     if(!nativePass)for(int i=0;i<fb_render_face_count;i++) {
@@ -326,3 +368,5 @@ void fb_filter_tag(string type,int enabled)
     }
     fb_tx_commit();strunzone(tag);
 }
+
+int fb_point_preview_cache_allowed(){return fb_static_preview_supported && !fb_selected_entity_count;}

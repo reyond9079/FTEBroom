@@ -36,9 +36,9 @@ for name in (
             raise RuntimeError("Rebuild the engine with zz-editor-brush-index.patch before packaging")
         if b'FTEBROOM_REGISTRY_PASS' not in (engine if engine.is_file() else bundle / name).read_bytes():
             raise RuntimeError("Rebuild the engine with model-registry-growth.patch before packaging")
-        for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible'):
+        for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid'):
             if symbol not in (engine if engine.is_file() else bundle / name).read_bytes():
-                raise RuntimeError("Rebuild the engine with the alpha75 native editor passes before packaging")
+                raise RuntimeError("Rebuild the engine with the alpha80 native editor passes before packaging")
         shutil.copy2(engine if engine.is_file() else bundle / name, root / "bin" / name)
     else:
         shutil.copy2(bundle / name, root / name)

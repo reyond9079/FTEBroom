@@ -345,9 +345,10 @@ void fb_point_render_prepare()
         if(item->model)fb_point_models[fb_point_model_count++]=id;
     }
 }
+int fb_point_preview_cache_allowed();
 void fb_pick_draw_entities(int labelsOnly)
 {
-    if(!autocvar_ftebroom_point_cache || fb_active || fb_transform_preview){fb_pick_draw_entities_uncached(labelsOnly);return;}
+    if(!autocvar_ftebroom_point_cache || ((fb_active || fb_transform_preview) && !(fb_point_preview_cache_allowed()))){fb_pick_draw_entities_uncached(labelsOnly);return;}
     int names=cvar("ftebroom_show_entity_names"),ortho=cvar("ca_brush_view"),models=cvar("ftebroom_show_models"),wire=cvar("ftebroom_show_entity_bounds");
     if(labelsOnly && (!names || fb_view_render_cache))return;
     fb_point_render_prepare();
