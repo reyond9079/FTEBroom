@@ -60,7 +60,7 @@ maps, WADs and mod files remain untouched.
   document update, without full large-map preparation. These are operation times,
   not a claim of instantaneous editing or a new FPS benchmark.
 - Select the group of 22,880 point entities and exercise all 24 collision guides
-  (approximately 4–8 ms for the guide batch in the tested runs). The complete
+  (approximately 11 ms for the corrected guide batch in the final large-map run). The complete
   selection overlay for a group this large remains expensive; it is not a 60 FPS
   guarantee. No CSQC runaway occurred in the final large-map runs.
 - Compare native guide intersections with the script reference on a small map.
