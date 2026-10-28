@@ -40,7 +40,7 @@ void fb_entity_publish()
         linkedRoot=fb_nodes[linkedRoot].parent;
     }
     cvar_set("ftebroom_linked_open",itos(linked));
-    string signature=strcat(itos(fb_grid_geometry_epoch),"/",itos(fb_grid_geometry_epoch));for(int i=0;i<fb_property_entity_count;i++)signature=strcat(signature," ",itos(fb_property_entities[i]));
+    string signature=sprintf("%i/%i/%i",fb_grid_geometry_epoch,fb_entity_selection_key(),fb_entity_render_epoch);
     if(signature==previous)return;strunzone(previous);previous=strzone(signature);
     filestream stream=fopen("ftebroom-entity-selection.txt",FILE_WRITE);if((float)stream<0)return;
     for(int i=0;i<fb_property_entity_count;i++) {

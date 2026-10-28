@@ -118,9 +118,10 @@ int fb_entity_selection_key()
     // Brush selection does not change point models, entity links or their colors.
     static int last=-1,key;static string previous;
     if(last==fb_selection_epoch)return key;last=fb_selection_epoch;
-    string selected="";
-    for(int i=0;i<fb_selected_entity_count;i++)selected=strcat(selected," e",itos(fb_selected_entities[i]));
-    for(int i=0;i<selectedbrushcount;i++)if(selectedbrushes[i].model!=1)selected=strcat(selected," b",itos(selectedbrushes[i].model),":",itos(selectedbrushes[i].id));
+    strbuf pieces=buf_create();
+    for(int i=0;i<fb_selected_entity_count;i++)bufstr_add(pieces,strcat(" e",itos(fb_selected_entities[i])),TRUE);
+    for(int i=0;i<selectedbrushcount;i++)if(selectedbrushes[i].model!=1)bufstr_add(pieces,sprintf(" b%i:%i",selectedbrushes[i].model,selectedbrushes[i].id),TRUE);
+    string selected=buf_implode(pieces,"");buf_del(pieces);
     if(previous!=selected){strunzone(previous);previous=strzone(selected);key++;}
     return key;
 }
@@ -140,47 +141,61 @@ void fb_incremental_materials(int first,int last,int redo)
 int fb_incremental_apply(int first,int last,int redo)
 {
     // Validate the entire transaction before changing any retained ownership.
-    if(!fb_container_cache || !fb_grid_first || !fb_render_first || !fb_filter_tags || !fb_render_access || !fb_grid_brush_bounds || fb_grid_built_epoch!=fb_grid_geometry_epoch || last-first>128 || fb_incremental_brush_count>2048)return FALSE;
-    static int ids[128];int count=0;
+    if(!fb_container_cache || !fb_grid_first || !fb_render_first || !fb_filter_tags || !fb_render_access || !fb_grid_brush_bounds || fb_grid_built_epoch!=fb_grid_geometry_epoch || last-first>4096 || fb_incremental_brush_count>2048)return FALSE;
+    static int ids[4096],models[4096],entities[4096];int count=0,entityCount=0,valid=TRUE;
+    hashtable seen=hash_createtab(max(64,(last-first)*2),EV_INTEGER);
     for(int r=first;r<last;r++){
-        history_t *h=&historyring[r&(historyring_length-1)];if(h->kind!=HIST_GEOMETRY)continue;
-        if(h->brushmodel!=1 || h->patchdata || !h->brushdata)return FALSE;
-        int duplicate=FALSE;for(int i=0;i<count;i++)if(ids[i]==h->id)duplicate=TRUE;
-        if(!duplicate)ids[count++]=h->id;
+        history_t *h=&historyring[r&(historyring_length-1)];
+        if(h->kind==HIST_SELECTION || h->kind==HIST_VISIBILITY || h->kind==HIST_PIVOT)continue;
+        if(h->kind==HIST_ENTITY || h->kind==HIST_TREE || h->kind==HIST_NODEFLAGS){
+            string entityKey=strcat("e",itos(h->entityindex));
+            if(!(int)seen[entityKey]){seen[entityKey]=1i;entities[entityCount++]=h->entityindex;}continue;
+        }
+        if(h->kind!=HIST_GEOMETRY || h->patchdata || !h->brushdata){valid=FALSE;break;}
+        string brushKey=sprintf("b%i:%i",h->brushmodel,h->id);
+        if(!(int)seen[brushKey]){seen[brushKey]=1i;ids[count]=h->id;models[count++]=h->brushmodel;}
     }
-    if(!count || fb_node_count+count>=fb_node_capacity || fb_incremental_brush_count+count>2048)return FALSE;
+    hash_destroytab(seen);if(!valid)return FALSE;
+    if((!count && !entityCount) || fb_node_count+count+entityCount>=fb_node_capacity || fb_incremental_brush_count+count>2048)return FALSE;
     for(int i=0;i<count;i++){
-        int faces=brush_get(1,ids[i],__NULL__,0,__NULL__);
-        if(faces>64 || patch_getcp(1,ids[i],__NULL__,0,__NULL__)>0)return FALSE;
+        int faces=brush_get(models[i],ids[i],__NULL__,0,__NULL__);
+        if(faces>64 || patch_getcp(models[i],ids[i],__NULL__,0,__NULL__)>0)return FALSE;
     }
     // Prime the index before adding/removing stable node slots.
-    fb_document_brush_node(1,ids[0]);
+    fb_document_brush_node(1,0);
+    if(entityCount)if(!fb_document_update_entities(entities,entityCount))return FALSE;
     if(!fb_incremental_free_nodes)fb_incremental_free_nodes=memalloc(fb_node_capacity*sizeof(int));
     for(int i=0;i<count;i++){
-        int id=ids[i],node=fb_document_brush_node(1,id),faces=brush_get(1,id,__NULL__,0,__NULL__);
+        int id=ids[i],model=models[i],node=fb_document_brush_node(model,id),faces=brush_get(model,id,__NULL__,0,__NULL__);
         if(node>=2){
             fb_incremental_hide_base(node);fb_incremental_remove(node);fb_wire_cache_forget(node);
             fb_grid_first[node]=fb_render_first[node]=0;
-            hash_delete(fb_document_brush_index,sprintf("1:%i",id));
+            hash_delete(fb_document_brush_index,sprintf("%i:%i",model,id));
         }
         if(faces<=0){
             if(node>=2){strunzone(fb_nodes[node].name);fb_nodes[node].name="";fb_nodes[node].kind=-1;fb_nodes[node].flags=FB_NODE_HIDDEN;fb_nodes[node].model=0;fb_nodes[node].id=0;fb_render_access[node]=fb_static_access[node]=0;fb_filter_tags[node]=0;fb_container_cache[node].valid=0;fb_incremental_free_nodes[fb_incremental_free_count++]=node;}
             continue;
         }
         if(node<2){
-            if(fb_incremental_free_count){node=fb_incremental_free_nodes[--fb_incremental_free_count];fb_nodes[node].kind=FB_NODE_BRUSH;fb_nodes[node].model=1;fb_nodes[node].id=id;fb_nodes[node].flags=0;fb_nodes[node].parent=fb_nodes[node].layer=1;fb_nodes[node].name=strzone("Brush");}
-            else node=fb_document_add(FB_NODE_BRUSH,1,id,1,"Brush");
+            if(fb_incremental_free_count){node=fb_incremental_free_nodes[--fb_incremental_free_count];fb_nodes[node].kind=FB_NODE_BRUSH;fb_nodes[node].model=model;fb_nodes[node].id=id;fb_nodes[node].flags=0;fb_nodes[node].parent=fb_nodes[node].layer=1;fb_nodes[node].name=strzone("Brush");}
+            else node=fb_document_add(FB_NODE_BRUSH,model,id,1,"Brush");
+            fb_nodes[node].parent=fb_document_model_parent(model);fb_nodes[node].layer=fb_nodes[fb_nodes[node].parent].layer;
         }
-        fb_document_brush_index[sprintf("1:%i",id)]=node+1i;
-        static brushface_t attributes[64];int contents;brush_get(1,id,attributes,64,&contents);int tags=0;
+        fb_document_brush_index[sprintf("%i:%i",model,id)]=node+1i;
+        static brushface_t attributes[64];int contents;brush_get(model,id,attributes,64,&contents);int tags=0;
         for(int f=0;f<faces;f++)tags|=fb_filter_face_tags(&attributes[f],contents);
+        for(int parent=fb_nodes[node].parent;parent>=2;parent=fb_nodes[parent].parent)if(fb_nodes[parent].kind==FB_NODE_ENTITY)
+            if(substring(fb_nodes[parent].fields["classname"],0,8)=="trigger_")tags|=FB_TAG_TRIGGER;
         fb_filter_tag_count=fb_render_access_count=fb_node_count;fb_filter_tags[node]=tags;
-        fb_render_access[node]=((tags&FB_TAG_TRIGGER)?0:4)|(fb_pick_allowed(node,FB_PICK_LOCKED)?1:0)|(fb_pick_allowed(node,0)?2:0)|((fb_filter_custom(node)||brush_isselected(1,id))?16:0);
+        fb_render_access[node]=((tags&FB_TAG_TRIGGER)?0:4)|(fb_pick_allowed(node,FB_PICK_LOCKED)?1:0)|(fb_pick_allowed(node,0)?2:0)|((fb_filter_custom(node)||brush_isselected(model,id))?16:0);
         fb_incremental_insert(fb_incremental_build(node));fb_visibility_node(node);
-        static vector bounds[2];fb_container_cache[node].valid=brush_getfacepoints(1,id,0,bounds,2)==2 && (fb_render_access[node]&1);
+        static vector bounds[2];fb_container_cache[node].valid=brush_getfacepoints(model,id,0,bounds,2)==2 && (fb_render_access[node]&1);
         fb_container_cache[node].mins=bounds[0];fb_container_cache[node].maxs=bounds[1];
     }
+    if(entityCount){fb_visibility_epoch++;fb_document_structure_epoch++;}
     if(fb_wire_cache_epoch==fb_grid_geometry_epoch)fb_wire_cache_count=fb_node_count;
+    int containersChanged=entityCount!=0;for(int i=0;i<count;i++)if(models[i]!=1)containersChanged=TRUE;
+    if(containersChanged){fb_container_edit_epoch++;fb_container_cache_prepare();}
     ftebroom_incremental_bounds(fb_container_cache,fb_node_count,sizeof(fb_container_bounds_t));
     fb_incremental_materials(first,last,redo);fb_incremental_flatten();fb_incremental_epoch++;fb_occlusion_revision++;
     cvar_set("ftebroom_node_count",itos(fb_node_count));

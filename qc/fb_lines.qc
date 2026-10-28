@@ -1,25 +1,42 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-typedef struct {int line,model,id,entity,mixed;} fb_line_t;
+typedef struct {int line,model,id,entity,mixed,next;} fb_line_t;
 fb_line_t *fb_lines;
 int fb_line_count;
+int fb_line_capacity;hashtable fb_line_lookup;var int fb_line_lookup_count=-1;
+void fb_lines_lookup_prepare()
+{
+    if(fb_line_lookup_count==fb_line_count)return;
+    if(fb_line_lookup)hash_destroytab(fb_line_lookup);fb_line_lookup=hash_createtab(max(64,fb_line_count*2),EV_INTEGER);
+    for(int i=0;i<fb_line_count;i++)if(fb_lines[i].model){
+        string key=sprintf("%i:%i",fb_lines[i].model,fb_lines[i].id);
+        fb_lines[i].next=(int)fb_line_lookup[key];fb_line_lookup[key]=i+1i;
+    }
+    fb_line_lookup_count=fb_line_count;
+}
 void fb_lines_copy(int model,int oldid,int newid)
 {
-    if(!newid || oldid==newid) return;
-    int count=fb_line_count;
-    for(int i=0;i<count;i++) if(fb_lines[i].model==model && fb_lines[i].id==oldid) {
-        fb_line_t *expanded=memalloc(sizeof(fb_line_t)*(fb_line_count+1));
-        memcpy(expanded,fb_lines,sizeof(fb_line_t)*fb_line_count);
-        expanded[fb_line_count]=fb_lines[i];expanded[fb_line_count++].id=newid;
-        memfree(fb_lines);fb_lines=expanded;
+    if(!newid || oldid==newid)return;fb_lines_lookup_prepare();
+    int first=(int)fb_line_lookup[sprintf("%i:%i",model,oldid)];string key=sprintf("%i:%i",model,newid);
+    for(int row=first;row;){
+        fb_line_t item=fb_lines[row-1];row=item.next;
+        if(fb_line_count>=fb_line_capacity){
+            fb_line_capacity=max(fb_line_count+1,max(64,fb_line_capacity*2));
+            fb_line_t *grown=memalloc(fb_line_capacity*sizeof(fb_line_t));memcpy(grown,fb_lines,fb_line_count*sizeof(fb_line_t));memfree(fb_lines);fb_lines=grown;
+        }
+        item.id=newid;item.next=(int)fb_line_lookup[key];fb_lines[fb_line_count]=item;fb_line_lookup[key]=++fb_line_count;
     }
+    fb_line_lookup_count=fb_line_count;
 }
 void fb_lines_remap(int model,int oldid,int newid)
 {
-    for(int i=0;i<fb_line_count;i++) if(fb_lines[i].model==model && fb_lines[i].id==oldid) {fb_lines[i].id=newid;fb_lines[i].mixed=FALSE;}
+    if(oldid==newid)return;fb_lines_lookup_prepare();
+    string oldKey=sprintf("%i:%i",model,oldid),newKey=sprintf("%i:%i",model,newid);
+    int first=(int)fb_line_lookup[oldKey];hash_delete(fb_line_lookup,oldKey);
+    for(int row=first;row;){int next=fb_lines[row-1].next;fb_lines[row-1].id=newid;fb_lines[row-1].mixed=FALSE;fb_lines[row-1].next=(int)fb_line_lookup[newKey];fb_line_lookup[newKey]=row;row=next;}
 }
 void fb_lines_index()
 {
-    fb_document_tick();memfree(fb_lines);fb_line_count=0;
+    fb_document_tick();memfree(fb_lines);fb_line_count=0;fb_line_lookup_count=-1;fb_line_capacity=fb_node_count;
     fb_lines=memalloc(sizeof(fb_line_t)*fb_node_count);
     filestream file=fopen("map-lines.txt",FILE_READ);
     if((float)file<0) return;

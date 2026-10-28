@@ -51,7 +51,7 @@ if (!$enginePath) {
 }
 Run 'mingw32-make' @('-C', "$fte/engine/qclib", '-j4', 'R_qcc', 'CC=gcc', 'BASE_CFLAGS=-DQCCONLY', 'BASE_LDFLAGS=-s -lz -Wl,--stack,16777216')
 Copy-Item "$fte/engine/qclib/fteqcc.bin" "$out/fteqcc.exe" -Force
-Run "$out/fteqcc.exe" @('-src', "$src/qc", '-srcfile', 'csaddon.src', '-max_globals', '262144')
+Run "$out/fteqcc.exe" @('-src', "$src/qc", '-srcfile', 'csaddon.src', '-max_globals', '262144', '-max_strings', '4194304')
 $bundle = Join-Path $out 'ReyondBroom-Windows-x64'
 New-Item -ItemType Directory -Force "$bundle/ftebroom", "$bundle/licenses" | Out-Null
 Run 'g++' @('-std=c++17', '-O2', '-shared', '-static', "-I$bullet/src", "-I$fte/plugins", "-I$imgui", "$src/native/ftebroom.cpp", "$imgui/imgui.cpp", "$imgui/imgui_draw.cpp", "$imgui/imgui_tables.cpp", "$imgui/imgui_widgets.cpp", "$deps/bullet-build/lib/libBulletDynamics.a", "$deps/bullet-build/lib/libBulletCollision.a", "$deps/bullet-build/lib/libLinearMath.a", '-lz', '-lole32', '-lwindowscodecs', '-lcomdlg32', '-lshell32', '-o', "$bundle/fteplug_ftebroom_x64.dll")

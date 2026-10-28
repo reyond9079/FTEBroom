@@ -225,6 +225,25 @@ vector fb_visual_spike_tips[24];
 int fb_visual_spike_hits[24];
 string fb_visual_spike_key;
 
+typedef struct {int model,id;} fb_spike_brush_t;
+int(fb_spike_brush_t *items,int count,vector *lines,int rays,int *hits,vector *tips) ftebroom_spike_batch=#0:ftebroom_spike_batch;
+int fb_visual_spike_batch(vector low,vector high)
+{
+    if(!checkbuiltin(ftebroom_spike_batch))return FALSE;
+    static fb_spike_brush_t *items;static int capacity;
+    if(capacity<fb_node_capacity){memfree(items);capacity=fb_node_capacity;items=memalloc(capacity*sizeof(fb_spike_brush_t));}
+    fb_render_allowed(0,FB_PICK_LOCKED);int count=0;
+    for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH && (fb_render_access[n]&1) && !brush_isselected(fb_nodes[n].model,fb_nodes[n].id)){
+        items[count].model=fb_nodes[n].model;items[count++].id=fb_nodes[n].id;
+    }
+    static vector rays[48];
+    for(int vertex=0;vertex<8;vertex++)for(int axis=0;axis<3;axis++){
+        int index=vertex*3+axis;
+        for(int a=0;a<3;a++)rays[index*2][a]=(vertex&(1i<<a))?high[a]:low[a];
+        rays[index*2+1]=rays[index*2];rays[index*2+1][axis]+=((vertex&(1i<<axis))?1:-1)*256;
+    }
+    return ftebroom_spike_batch(items,count,rays,24,fb_visual_spike_hits,fb_visual_spike_tips)==24;
+}
 void fb_visual_spike_dot(vector tip)
 {
     makevectors(getproperty(VF_ANGLES));vector right=v_right,up=v_up;
@@ -235,8 +254,11 @@ void fb_visual_spike_dot(vector tip)
     for(int i=0;i<12;i++){float angle=i*M_PI/6;R_PolygonVertex(tip+(right*cos(angle)+up*sin(angle))*radius,'0 0','1 0.08 0.08',1);}
     R_EndPolygon();
 }
+var float autocvar_ftebroom_native_selection_box=1;
+int(vector low,vector high,vector color,float alpha,int depth) ftebroom_selection_box=#0:ftebroom_selection_box;
 void fb_visual_box(vector low,vector high,vector color,float alpha,int spikes,optional int depth)
 {
+    if(!spikes && autocvar_ftebroom_native_selection_box && checkbuiltin(ftebroom_selection_box))if(ftebroom_selection_box(low,high,color,alpha,depth))return;
     static vector corners[8];
     for(int c=0;c<8;c++) for(int a=0;a<3;a++) {
         corners[c][a]=low[a];if(c & (1i<<a)) corners[c][a]=high[a];
@@ -244,7 +266,8 @@ void fb_visual_box(vector low,vector high,vector color,float alpha,int spikes,op
     string spikeKey=sprintf("%s %v %v %i %i %i",cvar_string("mapname"),low,high,fb_document_revision(),history,selectedbrushcount);
     spikeKey=strcat(spikeKey,sprintf(" %i %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch,fb_selection_epoch));
     int refresh=spikes&&(spikeKey!=fb_visual_spike_key);
-    if(refresh){strunzone(fb_visual_spike_key);fb_visual_spike_key=strzone(spikeKey);}
+    int batched=FALSE;
+    if(refresh){strunzone(fb_visual_spike_key);fb_visual_spike_key=strzone(spikeKey);batched=fb_visual_spike_batch(low,high);}
     for(int vertex=0;vertex<8;vertex++) for(int axis=0;axis<3;axis++) {
         int other=vertex^(1i<<axis);
         if(other>vertex) fb_visual_line(corners[vertex],corners[other],color,alpha,alpha,depth);
@@ -253,7 +276,7 @@ void fb_visual_box(vector low,vector high,vector color,float alpha,int spikes,op
             vector tip=corners[vertex];float direction=-1;if(vertex & (1i<<axis)) direction=1;
             tip[axis]+=direction*256;
             int index=vertex*3+axis;
-            if(refresh){fb_visual_spike_tips[index]=fb_visual_spike_trace(corners[vertex],tip);fb_visual_spike_hits[index]=fb_visual_spike_hit;}
+            if(refresh && !batched){fb_visual_spike_tips[index]=fb_visual_spike_trace(corners[vertex],tip);fb_visual_spike_hits[index]=fb_visual_spike_hit;}
             tip=fb_visual_spike_tips[index];
             fb_visual_line(corners[vertex],tip,color,0.65,fb_visual_spike_hits[index]?.65:0,FALSE);
             if(fb_visual_spike_hits[index])fb_visual_spike_dot(tip);
@@ -309,6 +332,8 @@ void fb_visual_candidates_prepare()
         if(selected||fb_visual_locked(node)||(enabled&&hover>=0&&fb_selection_descendant(node,hover)))fb_visual_candidates[fb_visual_candidate_count++]=node;
     }
 }
+int(fb_point_render_t *points,fb_point_geometry_t *geometry,int count,int *access,int accessCount,int *selected,int selectedCount,vector *colors) ftebroom_selection_points=#0:ftebroom_selection_points;
+int(vector *boxes,int count) ftebroom_selection_boxes=#0:ftebroom_selection_boxes;
 void fb_visual_draw()
 {
     float started=gettime(1),profile81Time=started;
@@ -321,9 +346,20 @@ void fb_visual_draw()
     vector forward=v_forward,right=v_right,up=v_up;
     float tx=tan(fov_x*M_PI/360),ty=tan(fov_y*M_PI/360);
     fb_visual_candidates_prepare();
+    int nativePointBoxes=FALSE;
+    if(fb_visual_candidate_count>256 && autocvar_ftebroom_point_cache && autocvar_ftebroom_native_selection_box && !fb_transform_preview && !autocvar_ftebroom_hover_highlight && checkbuiltin(ftebroom_selection_points)){
+        fb_point_render_prepare();static vector colors[2];colors[0]=autocvar_ftebroom_color_selected;colors[1]=autocvar_ftebroom_color_locked;
+        nativePointBoxes=ftebroom_selection_points(fb_point_render,fb_point_geometry,fb_point_render_count,fb_render_access,fb_render_access_count,fb_selected_entities,fb_selected_entity_count,colors)>=0;
+    }
+    static int reportedSelection=-1;
+    if(cvar("ftebroom_profile_commit") && fb_visual_candidate_count>256 && reportedSelection!=fb_selection_epoch){reportedSelection=fb_selection_epoch;print(sprintf("RB_SELECTION87 native=%i candidates=%i pointCache=%g hover=%g preview=%i builtin=%i\n",nativePointBoxes,fb_visual_candidate_count,autocvar_ftebroom_point_cache,autocvar_ftebroom_hover_highlight,fb_transform_preview,(int)checkbuiltin(ftebroom_selection_points)));}
+    static vector *boxes;static int boxCapacity;int boxCount=0;
+    int batchBoxes=autocvar_ftebroom_native_selection_box && checkbuiltin(ftebroom_selection_boxes);
+    if(batchBoxes && boxCapacity<fb_visual_candidate_count){memfree(boxes);boxCapacity=max(64,fb_visual_candidate_count);boxes=memalloc(boxCapacity*3*sizeof(vector));}
     for(int candidate=0;candidate<fb_visual_candidate_count;candidate++) {
         int node=fb_visual_candidates[candidate];
-        fb_node_t item=fb_nodes[node];if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
+        fb_node_t item=fb_nodes[node];if(nativePointBoxes && item.kind==FB_NODE_ENTITY)continue;
+        if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         int selected=0,locked=fb_visual_locked(node),hover=FALSE;
         if(item.kind==FB_NODE_ENTITY) selected=fb_entity_selected(item.id);
         else selected=brush_isselected(item.model,item.id);
@@ -344,7 +380,10 @@ void fb_visual_draw()
         if(locked) {color=autocvar_ftebroom_color_locked;fill=0.08;}
         if(item.kind==FB_NODE_ENTITY) {
             if(fb_transform_replaces(0,item.id)) continue;
-            if(fb_entity_bounds(item.id,bounds)) fb_visual_box(bounds[0],bounds[1],color,1,FALSE);
+            if(fb_entity_bounds(item.id,bounds)){
+                if(batchBoxes){boxes[boxCount*3]=bounds[0];boxes[boxCount*3+1]=bounds[1];boxes[boxCount*3+2]=color;boxCount++;}
+                else fb_visual_box(bounds[0],bounds[1],color,1,FALSE);
+            }
         } else if(item.kind==FB_NODE_BRUSH) {
             static brushface_t attributes[128];
             int faces=brush_get(item.model,item.id,attributes,128,__NULL__);
@@ -369,6 +408,7 @@ void fb_visual_draw()
             memfree(mesh);
         }
     }
+    if(boxCount)ftebroom_selection_boxes(boxes,boxCount);
     fb_visual_profile[0]+=gettime(1)-started;started=gettime(1);
     fb_visual_flush();
     fb_visual_profile[1]+=gettime(1)-started;started=gettime(1);

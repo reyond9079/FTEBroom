@@ -27,6 +27,9 @@ void fb_fullbench_tick()
         }
         return;
     }
+    if(cvar("ftebroom_fullbench_qa")==12){
+        if(!started && strstrofs(cvar_string("mapname"),"_ftebroom_open",0)>=0){started=TRUE;localcmd("in 3 ftebroom_test_generators spikes87\nin 7 quit force\n");}return;
+    }
     if(started || fb_node_count<50000 || !cvar("ftebroom_large_map_ready"))return;
     started=TRUE;print("RB_FULLBENCH_READY\n");
     string name=cvar_string("ftebroom_fullbench_name");if(name=="")name="full76";
@@ -60,6 +63,52 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="spikes87"){
+        fb_document_tick();fb_render_allowed(0,FB_PICK_LOCKED);
+        static vector spike87Bounds[2];int compared87=0,mismatch87=0;
+        for(int n=2;n<fb_node_count && compared87<8;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH && brush_getfacepoints(fb_nodes[n].model,fb_nodes[n].id,0,spike87Bounds,2)==2){
+            fb_visual_spike_batch(spike87Bounds[0],spike87Bounds[1]);
+            for(int vertex=0;vertex<8;vertex++)for(int axis=0;axis<3;axis++){
+                int index=vertex*3+axis;vector start='0 0 0',end;
+                for(int a=0;a<3;a++)start[a]=(vertex&(1i<<a))?spike87Bounds[1][a]:spike87Bounds[0][a];
+                end=start;end[axis]+=((vertex&(1i<<axis))?1:-1)*256;
+                vector tip=fb_visual_spike_trace(start,end,TRUE);
+                if(vlen(tip-fb_visual_spike_tips[index])>.01 || fb_visual_spike_hit!=fb_visual_spike_hits[index])mismatch87++;
+            }
+            compared87++;
+        }
+        fb_transform_expect(compared87>0 && mismatch87==0,"spikes87_native_matches_reference");
+        print(sprintf("RB_SPIKES87 brushes=%i mismatches=%i\n",compared87,mismatch87));return TRUE;
+    }
+    if(argv(1)=="group87"){
+        fb_tool_refresh();fb_document_tick();fb_selection_clear();
+        int group87=-1;int *sizes87=memalloc(fb_node_count*sizeof(int));
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH && fb_nodes[n].model!=1)sizes87[fb_nodes[n].parent]++;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP && sizes87[n]>0 && sizes87[n]<128 && (group87<0 || sizes87[n]>sizes87[group87]))group87=n;
+        memfree(sizes87);if(group87<0){fb_transform_expect(FALSE,"group87_fixture");return TRUE;}
+        fb_selection_set(group87,TRUE);int epoch87=fb_grid_geometry_epoch,brushes87=selectedbrushcount;
+        float start87=gettime(1);fb_duplicate_numeric('0 0 0');fb_document_tick();
+        fb_transform_expect(fb_grid_geometry_epoch==epoch87 && selectedbrushcount==brushes87,"group87_duplicate_retains_base");
+        print(sprintf("RB_GROUP87 duplicate_ms=%g brushes=%i\n",(gettime(1)-start87)*1000,brushes87));
+        start87=gettime(1);fb_move_numeric('16 0 0');fb_document_tick();
+        fb_transform_expect(fb_grid_geometry_epoch==epoch87,"group87_move_retains_base");
+        print(sprintf("RB_GROUP87 move_ms=%g\n",(gettime(1)-start87)*1000));
+        brush_undo();fb_document_tick();brush_undo();fb_document_tick();brush_redo();fb_document_tick();brush_redo();fb_document_tick();
+        fb_transform_expect(fb_grid_geometry_epoch==epoch87,"group87_undo_redo_retains_base");
+        return TRUE;
+    }
+    if(argv(1)=="select87"){
+        fb_tool_refresh();fb_document_tick();fb_selection_clear();
+        int select87=-1;int *pointSizes87=memalloc(fb_node_count*sizeof(int));
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_ENTITY)pointSizes87[fb_nodes[n].parent]++;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP && (select87<0 || pointSizes87[n]>pointSizes87[select87]))select87=n;
+        memfree(pointSizes87);
+        if(select87<0){fb_transform_expect(FALSE,"select87_fixture");return TRUE;}
+        fb_selection_set(fb_selection_target(select87),TRUE);
+        float selectTime87=gettime(1);int ok87=fb_visual_spike_batch('-5800 -6700 -1300','2800 6400 1300');
+        fb_transform_expect(ok87,"select87_native_guides_large_map");
+        print(sprintf("RB_SELECT87 entities=%i brushes=%i guides_ms=%g\n",fb_selected_entity_count,selectedbrushcount,(gettime(1)-selectTime87)*1000));return TRUE;
+    }
     if(argv(1)=="selection86check") {
         int expected86=stoi(argv(2)),check86Ok=fb_selected_entity_count==expected86;
         for(int i=0;i<fb_selected_entity_count;i++)if(!fb_entity_selected(fb_selected_entities[i]) || terrain_edit(TEREDIT_ENT_GET,fb_selected_entities[i])=="")check86Ok=FALSE;

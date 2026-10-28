@@ -2,18 +2,18 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 83: faster large-map navigation, reliable startup brush creation and mixed-case WAD textures.** [Measurements and validation](docs/performance-alpha83.md) · [Optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 87: retained group edits and safer large entity selections.** [Fixes and validation](docs/fixes-alpha87.md) · [Optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.83/ReyondBroom-0.5.0-alpha.83-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.83/ReyondBroom-0.5.0-alpha.83-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.87/ReyondBroom-0.5.0-alpha.87-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.87/ReyondBroom-0.5.0-alpha.87-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.83**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.83/ReyondBroom-0.5.0-alpha.83-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.87**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.87/ReyondBroom-0.5.0-alpha.87-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake III Arena and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 

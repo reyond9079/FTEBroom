@@ -10,7 +10,7 @@ static void updateStart(){
 #ifdef _WIN32
  if(updateProcess){DWORD code;GetExitCodeProcess(updateProcess,&code);if(code==STILL_ACTIVE)return;CloseHandle(updateProcess);updateProcess=nullptr;}
  try {auto root=settingsPath().parent_path();auto script=documentPath("update-ftebroom.ps1");if(!std::filesystem::is_regular_file(script))throw std::runtime_error("Updater script is missing.");
-  auto args=L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \""+script.wstring()+L"\" -Root \""+root.wstring()+L"\" -CurrentVersion 0.5.0-alpha.86 -ParentId "+std::to_wstring(GetCurrentProcessId());STARTUPINFOW si{};si.cb=sizeof si;PROCESS_INFORMATION pi{};
+  auto args=L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \""+script.wstring()+L"\" -Root \""+root.wstring()+L"\" -CurrentVersion 0.5.0-alpha.87 -ParentId "+std::to_wstring(GetCurrentProcessId());STARTUPINFOW si{};si.cb=sizeof si;PROCESS_INFORMATION pi{};
   if(!CreateProcessW(nullptr,args.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi))throw std::runtime_error("Cannot start update manager.");CloseHandle(pi.hThread);updateProcess=pi.hProcess;updateMessage="Checking GitHub releases...";
  }catch(const std::exception& e){updateMessage=e.what();}
 #else
@@ -19,7 +19,7 @@ static void updateStart(){
   auto root=settingsPath().parent_path();auto script=documentPath("update-ftebroom.py");
   if(!std::filesystem::is_regular_file(script))throw std::runtime_error("Updater script is missing.");
   std::filesystem::create_directories(root/"updates");
-  std::vector<std::string> args={"python3",script.u8string(),"--root",root.u8string(),"--current-version","0.5.0-alpha.86","--parent-id",std::to_string(getpid())};
+  std::vector<std::string> args={"python3",script.u8string(),"--root",root.u8string(),"--current-version","0.5.0-alpha.87","--parent-id",std::to_string(getpid())};
   std::vector<char*> argv;for(auto& arg:args)argv.push_back(arg.data());argv.push_back(nullptr);
   posix_spawn_file_actions_t actions;posix_spawn_file_actions_init(&actions);
   posix_spawn_file_actions_addopen(&actions,STDIN_FILENO,"/dev/null",O_RDONLY,0);
