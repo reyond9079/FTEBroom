@@ -10,6 +10,9 @@ int fb_export_testcommand()
         int before90=history,count90=selectedbrushcount;
         fb_export_expect(fb_export_selected_bsp(),"bsp90_export_selected");
         fb_export_expect(history==before90&&selectedbrushcount==count90&&selectedbrushes[0].id==id90,"bsp90_no_document_or_selection_changes");
+        fb_export_expect(vlen(stov(cvar_string("ftebroom_bsp_export_pivot"))-'160 320 480')<.001,"bsp93_centered_pivot");
+        static vector originalBounds[2];brush_getfacepoints(1,id90,0,originalBounds,2);
+        fb_export_expect(originalBounds[0]=='128 288 448'&&originalBounds[1]=='192 352 512',"bsp93_source_bounds_unchanged");
         brush_deselectall();fb_export_expect(!fb_export_selected_bsp(),"bsp90_empty_selection_rejected");brushface_select(1,id90,6);return TRUE;
     }
     fb_tool_deactivate();int marker=history;

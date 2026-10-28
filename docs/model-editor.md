@@ -76,3 +76,7 @@ are supported; composite skin directives require a different export path.
 8. Open a `v_` model; toggle player perspective and orbit mode.
 9. Export a copy, reopen it and check textures, dimensions, origin and animation
    where supported. Check the original file is unchanged.
+
+## BSP UV inspection
+
+BSP previews have a **BSP UV / texture...** button in the inspector and under View. Choose a material to see its texture with yellow UV boundaries; toggle the overlay, zoom or use Fit. This is read-only. See [centered BSP export and UV inspection](selection-bsp-sound-alpha93.md) for the complete workflow.

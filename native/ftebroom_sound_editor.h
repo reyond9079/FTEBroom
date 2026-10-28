@@ -9,6 +9,7 @@ static std::vector<int16_t> soundPCM;
 static std::array<ImVec2,1024> soundPeaks;
 static float soundVolume=1,soundSpeed=1,soundStart=0,soundEnd=0;
 static double soundPlayCursor=0,soundQueueClock=0;
+static int soundTool=0;
 static plugaudiofuncs_t* soundAPI;
 struct SoundJobResult {std::string bytes,error;bool save=false;};
 static std::future<SoundJobResult> soundJob;
@@ -35,6 +36,10 @@ static void soundConvert(const std::filesystem::path& exe,const std::vector<std:
 #endif
 }
 static void soundStop(){soundPlaying=false;if(soundAPI&&soundStreamQueued)soundAPI->RawAudio(1836,nullptr,44100,0,2,2,1);soundStreamQueued=false;}
+static double soundDuration(){return double(soundPCM.size()/2)/44100;}
+static double soundRangeStart(){return soundTool==1?soundStart:0;}
+static double soundRangeEnd(){return soundTool==1?soundEnd:soundDuration();}
+static void soundSeek(double seconds,bool play){soundStop();soundPlayCursor=std::clamp(seconds,0.0,soundDuration())*44100;soundQueueClock=ImGui::GetTime();soundPlaying=play&&soundAPI&&soundPlayCursor<soundDuration()*44100;}
 static void soundWave(){
   size_t frames=soundPCM.size()/2;
   for(size_t b=0;b<soundPeaks.size();b++){float lo=0,hi=0;size_t first=b*frames/soundPeaks.size(),end=(b+1)*frames/soundPeaks.size();for(size_t f=first;f<end;f++)for(int ch=0;ch<2;ch++){float v=soundPCM[f*2+ch]/32768.f;lo=std::min(lo,v);hi=std::max(hi,v);}soundPeaks[b]={lo,hi};}
@@ -77,7 +82,7 @@ static void soundLaunch(bool save){
 }
 static void soundOpen(const std::filesystem::path& path){
   if(soundBusy()){soundMessage="Wait for the current audio operation";return;}
-  try {modFileValidate(path);auto bytes=modFileBytes(path);soundStop();soundEditorPath=path;soundOriginal=std::move(bytes);soundPCM.clear();soundEditorOpen=true;soundVolume=soundSpeed=1;soundStart=soundEnd=0;soundTrim=false;soundLaunch(false);}catch(const std::exception& e){modFilesError=e.what();}
+  try {modFileValidate(path);auto bytes=modFileBytes(path);soundStop();soundEditorPath=path;soundOriginal=std::move(bytes);soundPCM.clear();soundEditorOpen=true;soundVolume=soundSpeed=1;soundStart=soundEnd=0;soundTrim=false;soundTool=0;soundPlayCursor=0;soundLaunch(false);}catch(const std::exception& e){modFilesError=e.what();}
 }
 static void soundFinish(){
   if(!soundBusy()||soundJob.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
@@ -95,7 +100,7 @@ static void soundFinish(){
     }
     soundOriginal=std::move(result.bytes);soundVolume=soundSpeed=1;soundTrim=false;modFilesRefresh=true;soundLaunch(false);
   }catch(const std::exception& e){soundMessage=e.what();}}
-  else {soundPCM.resize(result.bytes.size()/2);std::memcpy(soundPCM.data(),result.bytes.data(),soundPCM.size()*2);soundStart=0;soundEnd=float(soundPCM.size()/2)/44100;soundWave();soundMessage="";}
+  else {soundPCM.resize(result.bytes.size()/2);std::memcpy(soundPCM.data(),result.bytes.data(),soundPCM.size()*2);soundStart=0;soundEnd=float(soundPCM.size()/2)/44100;soundPlayCursor=0;soundWave();soundMessage="";}
 }
 static void soundPanel(){
   soundFinish();if(!soundEditorOpen){soundStop();return;}
@@ -104,22 +109,24 @@ static void soundPanel(){
   if(ImGui::Begin("Sound editor",&soundEditorOpen)) {
     ImGui::TextWrapped("%s",soundEditorPath.u8string().c_str());
     ImGui::BeginDisabled(soundBusy()||soundPCM.empty());
+    if(ImGui::RadioButton("Seek / playback",soundTool==0)){soundStop();soundTool=0;}
+    ImGui::SameLine();if(ImGui::RadioButton("Trim",soundTool==1)){soundStop();soundTool=1;soundTrim=true;}
     float duration=float(soundPCM.size()/2)/44100;auto p=ImGui::GetCursorScreenPos();ImVec2 sz={std::max(64.f,ImGui::GetContentRegionAvail().x),160*uiScale()};
     ImGui::InvisibleButton("Waveform",sz);auto d=ImGui::GetWindowDrawList();d->PushClipRect(p,{p.x+sz.x,p.y+sz.y},true);d->AddRectFilled(p,{p.x+sz.x,p.y+sz.y},IM_COL32(25,29,35,255));
-    if(duration>0){float left=p.x+sz.x*soundStart/duration,right=p.x+sz.x*soundEnd/duration;d->AddRectFilled({left,p.y},{right,p.y+sz.y},IM_COL32(55,80,110,180));
+    if(duration>0){float left=p.x+sz.x*soundStart/duration,right=p.x+sz.x*soundEnd/duration;if(soundTrim||soundTool==1)d->AddRectFilled({left,p.y},{right,p.y+sz.y},IM_COL32(55,80,110,180));
       for(size_t b=0;b<soundPeaks.size();b++){float x=p.x+sz.x*b/soundPeaks.size();d->AddLine({x,p.y+sz.y*(.5f-.45f*std::clamp(soundPeaks[b].y*soundVolume,-1.f,1.f))},{x,p.y+sz.y*(.5f-.45f*std::clamp(soundPeaks[b].x*soundVolume,-1.f,1.f))},IM_COL32(110,200,225,255));}
       static float anchor=0;if(ImGui::IsItemActivated())anchor=std::clamp((ImGui::GetIO().MousePos.x-p.x)/sz.x,0.f,1.f)*duration;
-      if(ImGui::IsItemActive()){float current=std::clamp((ImGui::GetIO().MousePos.x-p.x)/sz.x,0.f,1.f)*duration;soundStart=std::min(anchor,current);soundEnd=std::max(anchor,current);soundStop();}
-      if(soundPlaying){float x=p.x+sz.x*float(soundPlayCursor/44100)/duration;d->AddLine({x,p.y},{x,p.y+sz.y},IM_COL32(255,210,75,255),2);}}
+      if(ImGui::IsItemActive()&&(ImGui::IsItemActivated()||ImGui::GetIO().MouseDelta.x!=0)){float current=std::clamp((ImGui::GetIO().MousePos.x-p.x)/sz.x,0.f,1.f)*duration;if(soundTool==1){soundStart=std::min(anchor,current);soundEnd=std::max(anchor,current);soundTrim=true;soundStop();}else soundSeek(current,true);}
+      {float x=p.x+sz.x*float(soundPlayCursor/44100)/duration;d->AddLine({x,p.y},{x,p.y+sz.y},IM_COL32(255,210,75,255),2);}}
     d->PopClipRect();
     bool changed=ImGui::SliderFloat("Volume",&soundVolume,0,2,"%.2fx");changed|=ImGui::SliderFloat("Speed",&soundSpeed,.25f,4,"%.2fx");
-    changed|=ImGui::DragFloatRange2("Selection",&soundStart,&soundEnd,.01f,0,std::max(.01f,duration),"Start %.3f s","End %.3f s");if(changed)soundStop();
-    ImGui::Checkbox("Trim to selection",&soundTrim);ImGui::Text("%.3f s / %.3f s",std::max(0.f,soundEnd-soundStart)/soundSpeed,duration);
-    ImGui::BeginDisabled(soundEnd<=soundStart||!soundAPI);if(ImGui::Button("Play")){soundStop();soundPlayCursor=soundStart*44100;soundQueueClock=ImGui::GetTime();soundPlaying=true;}ImGui::EndDisabled();ImGui::SameLine();if(ImGui::Button("Stop"))soundStop();
+    if(soundTool==1)changed|=ImGui::DragFloatRange2("Selection",&soundStart,&soundEnd,.01f,0,std::max(.01f,duration),"Start %.3f s","End %.3f s");if(changed)soundStop();
+    if(soundTool==1)ImGui::Checkbox("Apply trim when saving",&soundTrim);ImGui::Text("%.3f s / %.3f s",std::max(0.f,soundEnd-soundStart)/soundSpeed,duration);
+    ImGui::BeginDisabled(soundRangeEnd()<=soundRangeStart()||!soundAPI);if(ImGui::Button(soundPlaying?"Pause":"Play")){if(soundPlaying)soundStop();else{double cursor=soundPlayCursor/44100;if(cursor<soundRangeStart()||cursor>=soundRangeEnd())cursor=soundRangeStart();soundSeek(cursor,true);}}ImGui::EndDisabled();ImGui::SameLine();if(ImGui::Button("Stop")){soundStop();soundPlayCursor=soundRangeStart()*44100;}
     ImGui::SameLine();ImGui::BeginDisabled(soundTrim&&soundEnd<=soundStart);if(ImGui::Button("Save with backup"))soundLaunch(true);ImGui::EndDisabled();ImGui::EndDisabled();
     if(!soundMessage.empty())ImGui::TextWrapped("%s",soundMessage.c_str());
     ImGui::TextWrapped("Save replaces the original file. A backup is retained. Speed also changes pitch.");
   }ImGui::End();
   if(!soundEditorOpen)soundStop();
-  if(soundPlaying&&soundAPI){double now=ImGui::GetTime();while(soundQueueClock<now+.06&&soundPlaying){std::array<int16_t,2048> samples;int frames=0;while(frames<1024&&soundPlayCursor<std::min(double(soundEnd)*44100,double(soundPCM.size()/2))){size_t pos=size_t(soundPlayCursor);for(int ch=0;ch<2;ch++)samples[frames*2+ch]=int16_t(std::clamp(soundPCM[pos*2+ch]*soundVolume,-32768.f,32767.f));frames++;soundPlayCursor+=soundSpeed;}if(frames){soundAPI->RawAudio(1836,samples.data(),44100,frames,2,2,1);soundStreamQueued=true;}soundQueueClock+=double(frames)/44100;if(frames<1024)soundPlaying=false;}}
+  if(soundPlaying&&soundAPI){double now=ImGui::GetTime();while(soundQueueClock<now+.06&&soundPlaying){std::array<int16_t,2048> samples;int frames=0;while(frames<1024&&soundPlayCursor<std::min(soundRangeEnd()*44100,double(soundPCM.size()/2))){size_t pos=size_t(soundPlayCursor);for(int ch=0;ch<2;ch++)samples[frames*2+ch]=int16_t(std::clamp(soundPCM[pos*2+ch]*soundVolume,-32768.f,32767.f));frames++;soundPlayCursor+=soundSpeed;}if(frames){soundAPI->RawAudio(1836,samples.data(),44100,frames,2,2,1);soundStreamQueued=true;}soundQueueClock+=double(frames)/44100;if(frames<1024)soundPlaying=false;}}
 }

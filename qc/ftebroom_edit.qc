@@ -16,6 +16,11 @@ vector fb_uv_values(brushface_t *face)
 }
 void fb_material_state()
 {
+    static int stateGeometry=-1,stateRevision=-1,stateSelection=-1;static string stateDefaults;
+    string defaults=sprintf("%s %.9g %.9g %.9g %.9g %.9g",cvar_string("ca_newbrushtexture"),cvar("ftebroom_new_scale_x"),cvar("ftebroom_new_scale_y"),cvar("ftebroom_new_angle"),cvar("ftebroom_new_offset_x"),cvar("ftebroom_new_offset_y"));
+    int revision=fb_document_revision();
+    if(stateGeometry==fb_grid_geometry_epoch&&stateRevision==revision&&stateSelection==fb_selection_epoch&&defaults==stateDefaults)return;
+    stateGeometry=fb_grid_geometry_epoch;stateRevision=revision;stateSelection=fb_selection_epoch;strunzone(stateDefaults);stateDefaults=strzone(defaults);
     static brushface_t faces[128];
     int count=0,contents,firstContents=0,firstFlags=0,firstValue=0,mixedFields=0;
     string material="";vector values='1 1 0',bias='0 0 0';int mixed=FALSE;

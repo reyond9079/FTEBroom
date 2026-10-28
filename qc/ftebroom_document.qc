@@ -260,7 +260,9 @@ int fb_document_update_entities(int *entities,int count)
         string data=terrain_edit(TEREDIT_ENT_GET,entities[e]);if(data=="")continue;
         string classname="",model="",type="";int tokens=fb_entity_tokenize(data);
         for(int k=0;k<tokens;k+=2){if(argv(k)=="classname")classname=argv(k+1);if(argv(k)=="model")model=argv(k+1);if(argv(k)=="_tb_type")type=argv(k+1);}
-        if(classname!=fb_nodes[node].fields["classname"] || model!=fb_nodes[node].fields["model"] || type!=fb_nodes[node].fields["_tb_type"]){hash_destroytab(nodes);return FALSE;}
+        string previousModel=fb_nodes[node].fields["model"];
+        int brushOwner=substring(model,0,1)=="*"||substring(previousModel,0,1)=="*";
+        if(type!=fb_nodes[node].fields["_tb_type"] || brushOwner&&(classname!=fb_nodes[node].fields["classname"]||model!=previousModel)){hash_destroytab(nodes);return FALSE;}
     }
     for(int e=0;e<count;e++){
         int id=entities[e],node=(int)nodes[itos(id)]-1i;

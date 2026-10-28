@@ -9,6 +9,30 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="uv93open"){
+    modelEditorShow(gameProfile==2?"models/selected92.bsp":"qa5/selected90.bsp");bspUVShow();expect(bspUVOpen&&bspUVJob.valid(),"uv93_background_read_started");
+  }
+  if(std::string(mode)=="uv93check"){
+    expect(bspUVOpen&&!bspUVJob.valid()&&!bspUVMaterials.empty(),"uv93_materials_loaded");expect(bspUVTexture&&bspUVLines,"uv93_texture_and_overlay_ready");
+  }
+  static std::string sound93PreviousMod;static bool sound93PreviousLibre;
+  if(std::string(mode)=="sound93open"){
+    sound93PreviousMod=q1Mod;sound93PreviousLibre=q1UseLibre;q1UseLibre=false;std::snprintf(q1Mod,sizeof q1Mod,"%s",root);
+    auto path=std::filesystem::u8path(root)/"seek93.wav";std::string wav(44+44100*2*3,0);auto put=[&](size_t at,unsigned v,int n){for(int i=0;i<n;i++)wav[at+i]=char(v>>(i*8));};
+    wav.replace(0,4,"RIFF");put(4,wav.size()-8,4);wav.replace(8,8,"WAVEfmt ");put(16,16,4);put(20,1,2);put(22,1,2);put(24,44100,4);put(28,88200,4);put(32,2,2);put(34,16,2);wav.replace(36,4,"data");put(40,wav.size()-44,4);
+    for(int i=0;i<44100*3;i++)put(44+i*2,unsigned(int(8000*std::sin(i*440*6.2831853/44100))),2);soundWrite(path,wav);soundOpen(path);
+    expect(soundEditorOpen&&soundTool==0&&soundBusy(),"sound93_default_seek_tool");
+  }
+  if(std::string(mode)=="sound93seek"){
+    expect(!soundBusy()&&std::abs(soundDuration()-3)<.001,"sound93_decode_duration");auto start=soundStart,end=soundEnd;soundSeek(1.5,true);
+    expect(std::abs(soundPlayCursor/44100-1.5)<.001&&soundPlaying&&soundStart==start&&soundEnd==end&&!soundTrim,"sound93_seek_plays_without_trim");soundStop();
+    soundTool=1;soundTrim=true;soundStart=.5;soundEnd=2;expect(soundRangeStart()==.5&&soundRangeEnd()==2,"sound93_trim_tool_range");
+    soundTool=0;expect(soundRangeStart()==0&&soundRangeEnd()==3,"sound93_seek_ignores_trim_range");soundTool=1;soundVolume=.75;soundSpeed=1.25;soundLaunch(true);
+  }
+  if(std::string(mode)=="sound93check"){
+    expect(!soundBusy()&&std::abs(soundDuration()-1.2)<.005,"sound93_trim_volume_speed_save");bool backup=false;for(auto& entry:std::filesystem::directory_iterator(std::filesystem::u8path(root)))if(entry.path().filename().u8string().rfind("seek93.wav.ftebroom-",0)==0&&entry.path().extension()==".bak")backup=true;
+    expect(backup,"sound93_original_backup_retained");std::snprintf(q1Mod,sizeof q1Mod,"%s",sound93PreviousMod.c_str());q1UseLibre=sound93PreviousLibre;
+  }
   if(std::string(mode)=="bsp92viewer"){
     auto path=gameProfile==2?"models/selected92.bsp":"qa5/selected90.bsp";expect(modelViewableFile(path)&&!modelFile(path),"bsp92_view_without_converter_route");
     modelEditorShow(path);expect(modelViewerOpen&&modelEditorActive&&modelViewerIsBsp(),"bsp92_model_editor_open");

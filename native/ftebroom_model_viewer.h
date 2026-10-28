@@ -2,6 +2,7 @@
 static void modelConverterShow(const std::string& source);
 static bool modelEditorActive=false;
 static void modelEditorInspector();
+static void bspUVPanel();
 static void modelEditorMenus();
 static bool modelEditorOverlay(ImVec2 position,ImVec2 size);
 static void modelEditorShow(const std::string& path);
@@ -42,7 +43,7 @@ static void modelViewerLoad(const std::string& path) {
 }
 static void modelViewerPanel() {
   if(modelEditorActive)modelEditorCameraStep();
-  cvars->SetFloat("ftebroom_modelviewer_open",0);cvars->SetFloat("ftebroom_modeleditor_active",modelEditorActive&&modelViewerOpen);if(!modelViewerOpen)return;
+  cvars->SetFloat("ftebroom_modelviewer_open",0);cvars->SetFloat("ftebroom_modeleditor_active",modelEditorActive&&modelViewerOpen);if(!modelViewerOpen){bspUVPanel();return;}
   ImGui::SetNextWindowSize(modelEditorActive?ImVec2(1100*uiScale(),760*uiScale()):ImVec2(760,650),ImGuiCond_FirstUseEver);
   bool keepOpen=modelViewerOpen;
   if(ImGui::Begin(modelEditorActive?"Model editor":"Model viewer",&keepOpen,modelEditorActive?ImGuiWindowFlags_MenuBar:0)) {
@@ -124,4 +125,5 @@ static void modelViewerPanel() {
     if(modelEditorActive){ImGui::EndChild();ImGui::EndTable();ImGui::PopStyleColor();ImGui::PopStyleVar();}
   }ImGui::End();
   if(modelEditorActive)modelEditorCloseCheck(keepOpen);else modelViewerOpen=keepOpen;
+  bspUVPanel();
 }

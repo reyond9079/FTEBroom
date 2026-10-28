@@ -33,7 +33,7 @@ static void bspModelPublish(ftebroom::bspAtlas::Result result){
     // Copy to a sibling before renaming, so cross-volume destinations work too.
     auto pending=bspModelTarget;pending+=".reyond-export.tmp";if(std::filesystem::exists(pending))throw std::runtime_error("Export temporary file already exists.");
     try{soundWrite(pending,result.bsp);std::filesystem::rename(pending,bspModelTarget);}catch(...){std::error_code ec;std::filesystem::remove(pending,ec);throw;}
-    bspModelMessage="Exported "+bspModelTarget.u8string()+". Collision and original world coordinates are retained.";
+    bspModelMessage="Exported "+bspModelTarget.u8string()+". Collision is retained; the selection center is compiled at 0, 0, 0.";
     if(ownAssets){bspModelMessage+=" Atlas images and transparent UV outlines are in "+assets.u8string()+". Paint atlasN.tga with uvN.tga as an overlay; see PAINTING.txt.";if(bspModelProfile==2)bspModelMessage+=" Quake BSP embeds its palette texture; editing a TGA does not rewrite the embedded texture.";}
   }catch(...){if(ownAssets){std::error_code ec;std::filesystem::remove_all(assets,ec);}throw;}
 }
@@ -101,7 +101,7 @@ static void bspModelPanel(){
   bspModelTick();if(!bspModelWindow)return;
   ImGui::SetNextWindowSize({650*uiScale(),360*uiScale()},ImGuiCond_FirstUseEver);
   if(ImGui::Begin("Export selected brushes as BSP model",&bspModelWindow,ImGuiWindowFlags_NoCollapse)){
-    ImGui::TextWrapped("Select whole brushes first. Only their geometry is exported; point entities and unselected objects are ignored. Select brushes without patches. Coordinates and collision are preserved. Open geometry is allowed.");
+    ImGui::TextWrapped("Select whole brushes first. Only their geometry is exported; point entities and unselected objects are ignored. Select brushes without patches. The selection center becomes 0, 0, 0; collision and texture alignment are preserved. Open geometry is allowed.");
     ImGui::BeginDisabled(bspModelBusy);ImGui::InputText("Destination BSP",bspModelDestination,sizeof bspModelDestination);
     if(ImGui::Button("Choose folder...")){bspModelFolder=std::filesystem::u8path(bspModelDestination).parent_path();bspModelChooseFolder=true;}
     if(bspModelChooseFolder)ImGui::OpenPopup("BSP model folder");

@@ -190,7 +190,7 @@ string fb_surface_preview_shader(string source,float alpha)
     int masked=cvar("ftebroom_quake1") && substring(material,0,1)=="{";if(fb_shader_masked)if((int)fb_shader_masked[material])masked=TRUE;
     string blend="";if(fb_shader_blend)blend=fb_shader_blend[material];
     string depth="depthwrite\n";if(alpha<1 || blend!="")depth=strcat("blendfunc ",blend!=""?blend:"blend","\n");
-    string program="";if(masked){string test="ge128";if(fb_shader_alpha_test)if(fb_shader_alpha_test[material]!="")test=fb_shader_alpha_test[material];program=strcat("program ftebroom_mask#",test=="lt128"?"LT128":test=="gt0"?"GT0":"GE128","\n");}
+    string program="";if(masked){string test="ge128";if(fb_shader_alpha_test)if(fb_shader_alpha_test[material]!="")test=fb_shader_alpha_test[material];if(alpha<1)program=strcat("program ftebroom_mask#",test=="lt128"?"LT128":test=="gt0"?"GT0":"GE128","\n");else depth=strcat("alphafunc ",test,"\n",depth);}
     shaderforname(shader,strcat("{\ncull none\n",program,(alpha<1 || blend!="")?"sort blend\n":"sort opaque\n","{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\nalphagen vertex\n",depth,"}\n}"));
     return shader;
 }

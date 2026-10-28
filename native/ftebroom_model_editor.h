@@ -146,6 +146,7 @@ static void modelEditorMenus(){
   if(ImGui::BeginMenuBar()){
     if(ImGui::BeginMenu("File")){if(ImGui::MenuItem("Export model as...",nullptr,false,!modelViewerIsBsp()))modelEditExport();ImGui::EndMenu();}
     if(ImGui::BeginMenu("View")){
+      if(modelViewerIsBsp()&&ImGui::MenuItem("BSP UV / texture..."))bspUVShow();
       ImGui::MenuItem("View from player perspective",nullptr,&modelEditPlayer);ImGui::MenuItem("View bones",nullptr,&modelViewerBones,!modelViewerIsBsp());
       ImGui::MenuItem("Floor grid",nullptr,&modelEditFloor);
       ImGui::MenuItem("Origin axes",nullptr,&modelEditOriginAxes);
@@ -164,6 +165,7 @@ static void modelEditTree(int index,int depth=0){
 }
 static void modelEditorInspector(){
   if(modelViewerIsBsp()){
+    if(ImGui::Button("BSP UV / texture..."))bspUVShow();
     ImGui::SeparatorText("BSP preview");ImGui::TextWrapped("Read-only textured geometry. Use the map editor to change brushes and recompile.");
     auto low=modelEditRead("ftebroom_modeleditor_low"),high=modelEditRead("ftebroom_modeleditor_high");
     ImGui::Text("Minimum: %.3f, %.3f, %.3f",low[0],low[1],low[2]);ImGui::Text("Maximum: %.3f, %.3f, %.3f",high[0],high[1],high[2]);

@@ -1,0 +1,68 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -1642,7 +1642,10 @@
+ 	{
+ 		int sv = cl_numstrisvert - nv;
+ 		cl_numstrisvert -= nv;
++        // A capacity flush ends the old batch, not the caller's polygon stream.
++        shader_t *polygonShader=csqc_poly_shader;
+ 		CSQC_PolyFlush();
++        csqc_poly_shader=polygonShader;
+ 
+ 		csqc_poly_origvert = cl_numstrisvert;
+ 		csqc_poly_origidx = cl_numstrisidx;
+@@ -1730,7 +1733,10 @@
+ 	{
+ 		int sv = cl_numstrisvert - nv;
+ 		cl_numstrisvert -= nv;
++        // A capacity flush ends the old batch, not the caller's polygon stream.
++        shader_t *polygonShader=csqc_poly_shader;
+ 		CSQC_PolyFlush();
++        csqc_poly_shader=polygonShader;
+ 
+ 		csqc_poly_origvert = cl_numstrisvert;
+ 		csqc_poly_origidx = cl_numstrisidx;
+@@ -1950,6 +1956,24 @@
+  if(!vcount||!icount)return;
+  if(vcount>MAX_INDICIES || icount>MAX_INDICIES || !RB_QCBuffer(vm,voffset,vcount,sizeof(qcvertex_t)) || !RB_QCBuffer(vm,ioffset,icount,sizeof(unsigned int))){PR_BIError(vm,"ReyondBroom: invalid indexed overlay\n");return;}
+  RB_AddSoup(c,(qcvertex_t*)(vm->stringtable+voffset),vcount,(unsigned int*)(vm->stringtable+ioffset),icount);
++}
++// Retained mesh ranges use the same brush-sphere test as the QC reference.
++typedef struct {vec3_t center;float radius;unsigned int triangleFirst,triangleCount,lineFirst,lineCount;} rb_selection_range_t;
++static void QCBUILTIN PF_ReyondBroom_IndexedOverlay(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
++ unsigned int flags=G_INT(OFS_PARM1),voffset=G_INT(OFS_PARM2),vcount=G_INT(OFS_PARM3),ioffset=G_INT(OFS_PARM4),icount=G_INT(OFS_PARM5),roffset=G_INT(OFS_PARM6),rcount=G_INT(OFS_PARM7);
++ if(vcount>4096||icount>12288||rcount>1366||!RB_QCBuffer(vm,voffset,vcount,sizeof(qcvertex_t))||!RB_QCBuffer(vm,ioffset,icount,sizeof(unsigned int))||!RB_QCBuffer(vm,roffset,rcount,sizeof(rb_selection_range_t))){PR_BIError(vm,"ReyondBroom: invalid selection mesh\n");return;}
++ rb_soup_context_t context=RB_SoupContext(PR_GetStringOfs(vm,OFS_PARM0),flags);
++ rb_selection_range_t *ranges=(rb_selection_range_t*)(vm->stringtable+roffset);unsigned int *indices=(unsigned int*)(vm->stringtable+ioffset),visible[12288],count=0;
++ vec3_t forward,right,up;float tx,ty;qboolean ortho=Cvar_VariableValue("ca_brush_view")!=0;
++ if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);
++ for(unsigned int i=0;i<rcount;i++){
++  rb_selection_range_t *range=&ranges[i];vec3_t delta;VectorSubtract(range->center,r_refdef.vieworg,delta);float z=DotProduct(delta,forward),radius=range->radius;
++  if(!ortho&&(z+radius<0||fabs(DotProduct(delta,right))>z*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>z*ty+radius*(1+ty)))continue;
++  unsigned int first=(flags&DRAWFLAG_LINES)?range->lineFirst:range->triangleFirst,n=(flags&DRAWFLAG_LINES)?range->lineCount:range->triangleCount;
++  if(first>icount||n>icount-first||n>12288-count){PR_BIError(vm,"ReyondBroom: invalid selection range\n");return;}
++  memcpy(visible+count,indices+first,n*sizeof(unsigned int));count+=n;
++ }
++ if(count)RB_AddSoup(&context,(qcvertex_t*)(vm->stringtable+voffset),vcount,visible,count);
+ }
+ // Identical selection-box lines without per-edge QC builtin calls.
+ static void RB_SelectionBox(rb_soup_context_t *context,const float *low,const float *high,const float *color,float alpha){
+@@ -8715,6 +8739,7 @@
+ 	{"ftebroom_spike_batch", PF_ReyondBroom_SpikeBatch, 0},
+ 	{"ftebroom_selection_box", PF_ReyondBroom_SelectionBox, 0},
+ 	{"ftebroom_selection_boxes", PF_ReyondBroom_SelectionBoxes, 0},
++	{"ftebroom_indexed_overlay", PF_ReyondBroom_IndexedOverlay, 0},
+ 	{"ftebroom_preview_boxes", PF_ReyondBroom_PreviewBoxes, 0},
+ 	{"ftebroom_selection_points", PF_ReyondBroom_SelectionPoints, 0},
+ 	{"ftebroom_point_colors", PF_ReyondBroom_PointColors, 0},
+--- a/engine/gl/gl_editor_materials.h
++++ b/engine/gl/gl_editor_materials.h
+@@ -61,7 +61,7 @@
+ 
+  if(!rb_materials.supported||Cvar_VariableValue("ftebroom_bindless_materials")==0||!source||(strncmp(source->name,"ftebroom/opaque/",16)&&strcmp(source->name,"ftebroom/flatface"))||source->sort!=SHADER_SORT_OPAQUE||source->numpasses!=1||source->prog||source->numdeforms||source->numdefaulttextures>1)return source;
+  shaderpass_t *pass=&source->passes[0];unsigned int blend=pass->shaderbits&SBITS_BLEND_BITS;
+- if((pass->shaderbits&SBITS_ATEST_BITS)||pass->prog||pass->numtcmods||pass->tcgen!=TC_GEN_BASE||pass->rgbgen!=RGB_GEN_VERTEX_LIGHTING||(pass->alphagen!=ALPHA_GEN_VERTEX&&strcmp(source->name,"ftebroom/flatface"))||!(pass->shaderbits&SBITS_MISC_DEPTHWRITE)||(blend&&blend!=(SBITS_SRCBLEND_ONE|SBITS_DSTBLEND_ZERO)))return source;
++ if(pass->prog||pass->numtcmods||pass->tcgen!=TC_GEN_BASE||pass->rgbgen!=RGB_GEN_VERTEX_LIGHTING||(pass->alphagen!=ALPHA_GEN_VERTEX&&strcmp(source->name,"ftebroom/flatface"))||!(pass->shaderbits&SBITS_MISC_DEPTHWRITE)||(blend&&blend!=(SBITS_SRCBLEND_ONE|SBITS_DSTBLEND_ZERO)))return source;
+  texid_t image=pass->texgen==T_GEN_SINGLEMAP?pass->anim_frames[0]:pass->texgen==T_GEN_DIFFUSE?source->defaulttextures->base:NULL;
+  if(pass->anim_numframes>1||(image&&((image->status!=TEX_LOADED&&image->status!=TEX_FAILED)||(image->flags&IF_TEXTYPEMASK)!=IF_TEXTYPE_2D)))return source;
+  // Compatibility FTE disables incomplete fixed-function textures. Sampling a

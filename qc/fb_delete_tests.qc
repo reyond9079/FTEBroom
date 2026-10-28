@@ -38,6 +38,22 @@ int fb_delete92_testcommand()
         for(int i=0;i<fb_delete92_count;i++)if(brush_get(fb_delete92_ids[i*2],fb_delete92_ids[i*2+1],__NULL__,0,__NULL__)>0)okRedo=FALSE;
         fb_transform_expect(okRedo,"delete92_redo_removed_retained_cache");return TRUE;
     }
+    if(argv(1)=="visual93reference"){fb_visual_test_reference=stoi(argv(2));return TRUE;}
+    if(argv(1)=="drop93prepare"){
+        fb_document_tick();cvar_set("ftebroom_test_drop_epoch",itos(fb_grid_geometry_epoch));cvar_set("ftebroom_test_drop_start",ftos(gettime(1)));return TRUE;
+    }
+    if(argv(1)=="drop93check"){
+        fb_document_tick();int node=fb_organize_node(fb_selected_entity());
+        int retained=fb_grid_geometry_epoch==stoi(cvar_string("ftebroom_test_drop_epoch"));
+        fb_transform_expect(retained,"drop93_retains_world_geometry");
+        int validModel=FALSE;if(node>=2)validModel=fb_nodes[node].fields["model"]!="";
+        fb_transform_expect(validModel,"drop93_model_property_updated");
+        print(sprintf("RB_DROP93 retained=%i epoch=%i nodes=%i\n",retained,fb_grid_geometry_epoch,fb_node_count));return TRUE;
+    }
+    if(argv(1)=="drop93history"){
+        int epoch=fb_grid_geometry_epoch;brush_undo();fb_document_tick();brush_redo();fb_document_tick();
+        fb_transform_expect(fb_grid_geometry_epoch==epoch,"drop93_undo_redo_retains_geometry");return TRUE;
+    }
     if(argv(1)=="viewer92info"){
         print(sprintf("RB_VIEWER92 count=%g open=%g path=%s low=%s high=%s preview=%g\n",cvar("ftebroom_modelviewer_count"),cvar("ftebroom_modelviewer_open"),cvar_string("ftebroom_modelviewer_path"),cvar_string("ftebroom_modeleditor_low"),cvar_string("ftebroom_modeleditor_high"),cvar("ftebroom_mod_preview")));return TRUE;
     }

@@ -69,6 +69,7 @@ static void lmpShow(const std::filesystem::path& path);
 #include "ftebroom_sound_editor.h"
 #include "ftebroom_image_viewer.h"
 #include "ftebroom_model_converter.h"
+#include "ftebroom_bsp_uv_panel.h"
 #include "ftebroom_model_editor.h"
 static std::filesystem::path modFileCopy(const std::filesystem::path& source,const std::filesystem::path& folder) {
   modFileValidate(folder);

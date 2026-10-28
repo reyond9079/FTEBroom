@@ -122,7 +122,8 @@ void fb_visual_line(vector a,vector b,vector color,float alpha,float endAlpha,in
     string shader="ftebroom/selectionoverlay";if(depth) shader="ftebroom/selectiondepth";
     R_BeginPolygon(shader);R_PolygonVertex(a,'0 0',color,alpha);R_PolygonVertex(b,'0 0',color,endAlpha);R_EndPolygon();
 }
-typedef struct {int first,count;vector color;float fill;} fb_visual_surface_t;
+typedef struct {int first,count;vector color;float fill;vector center;float radius;} fb_visual_surface_t;
+vector fb_visual_polygon_center;float fb_visual_polygon_radius;
 fb_visual_surface_t *fb_visual_surfaces;int fb_visual_surface_count,fb_visual_surface_capacity;
 vector *fb_visual_vertices;int fb_visual_vertex_count,fb_visual_vertex_capacity;
 void fb_visual_polygon(vector *points,int count,vector color,float fill)
@@ -141,6 +142,7 @@ void fb_visual_polygon(vector *points,int count,vector color,float fill)
         memfree(fb_visual_vertices);fb_visual_vertices=vertices;fb_visual_vertex_capacity=vertexCapacity;
     }
     fb_visual_surface_t *surface=&fb_visual_surfaces[fb_visual_surface_count++];
+    surface->center=fb_visual_polygon_center;surface->radius=fb_visual_polygon_radius;
     surface->first=fb_visual_vertex_count;surface->count=count;surface->color=color;surface->fill=fill;
     memcpy(&fb_visual_vertices[fb_visual_vertex_count],points,count*sizeof(vector));fb_visual_vertex_count+=count;
 }
@@ -161,6 +163,74 @@ void fb_visual_flush()
                 float alpha=1;if(!ortho && pass==1)alpha=0.25;
                 R_PolygonVertex(fb_visual_vertices[surface.first+p],'0 0',surface.color,alpha);
                 R_PolygonVertex(fb_visual_vertices[surface.first+next],'0 0',surface.color,alpha);R_EndPolygon();
+            }
+        }
+    }
+}
+// Retain immutable selection meshes across camera frames. Each chunk stays
+// below the engine's 16-bit polygon index limit, including expanded line pairs.
+typedef struct {vector center;float radius;int triangleFirst,triangleCount,lineFirst,lineCount;} fb_visual_range_t;
+typedef struct fb_visual_chunk_s {
+    trisoup_simple_vert_t *fill;
+    trisoup_simple_vert_t *faint;
+    trisoup_simple_vert_t *solid;
+    int *triangles;
+    int *lines;
+    int vertices,triangleCount,lineCount;
+    struct fb_visual_chunk_s *next;
+    fb_visual_range_t *ranges;int rangeCount;
+} fb_visual_chunk_t;
+fb_visual_chunk_t *fb_visual_chunks;
+int fb_visual_test_reference;
+void fb_visual_cache_clear()
+{
+    while(fb_visual_chunks){
+        fb_visual_chunk_t *chunk=fb_visual_chunks;fb_visual_chunks=chunk->next;
+        memfree(chunk->fill);memfree(chunk->faint);memfree(chunk->solid);
+        memfree(chunk->triangles);memfree(chunk->lines);memfree(chunk->ranges);memfree(chunk);
+    }
+}
+void fb_visual_cache_build(int ortho)
+{
+    fb_visual_cache_clear();fb_visual_chunk_t *tail=__NULL__;
+    for(int f=0;f<fb_visual_surface_count;f++){
+        fb_visual_surface_t surface=fb_visual_surfaces[f];
+        int newChunk=!tail;if(tail)if(tail->vertices+surface.count>4096)newChunk=TRUE;
+        if(newChunk){
+            fb_visual_chunk_t *chunk=memalloc(sizeof(fb_visual_chunk_t));fb_visual_chunk_t empty={0};*chunk=empty;
+            chunk->fill=memalloc(4096*sizeof(trisoup_simple_vert_t));
+            chunk->faint=memalloc(4096*sizeof(trisoup_simple_vert_t));
+            chunk->solid=memalloc(4096*sizeof(trisoup_simple_vert_t));
+            chunk->triangles=memalloc(12288*sizeof(int));chunk->lines=memalloc(8192*sizeof(int));chunk->ranges=memalloc(1366*sizeof(fb_visual_range_t));
+            if(tail)tail->next=chunk;else fb_visual_chunks=chunk;tail=chunk;
+        }
+        fb_visual_range_t *range=&tail->ranges[tail->rangeCount++];range->center=surface.center;range->radius=surface.radius;range->triangleFirst=tail->triangleCount;range->lineFirst=tail->lineCount;
+        int first=tail->vertices;
+        for(int p=0;p<surface.count;p++){
+            int v=first+p;
+            for(int a=0;a<3;a++){tail->fill[v].xyz[a]=fb_visual_vertices[surface.first+p][a];tail->fill[v].rgba[a]=surface.color[a];}
+            tail->fill[v].st[0]=tail->fill[v].st[1]=0;tail->fill[v].rgba[3]=surface.fill;
+            tail->solid[v]=tail->faint[v]=tail->fill[v];tail->solid[v].rgba[3]=1;tail->faint[v].rgba[3]=ortho?1:.25;
+            int next=p+1;if(next==surface.count)next=0;
+            tail->lines[tail->lineCount++]=v;tail->lines[tail->lineCount++]=first+next;
+            if(p>=2){tail->triangles[tail->triangleCount++]=first;tail->triangles[tail->triangleCount++]=v-1;tail->triangles[tail->triangleCount++]=v;}
+        }
+        range->triangleCount=tail->triangleCount-range->triangleFirst;range->lineCount=tail->lineCount-range->lineFirst;
+        tail->vertices+=surface.count;
+    }
+}
+void(string shader,int flags,trisoup_simple_vert_t *vertices,int vertexCount,int *indices,int indexCount,fb_visual_range_t *ranges,int rangeCount) ftebroom_indexed_overlay=#0:ftebroom_indexed_overlay;
+void fb_visual_cache_draw(int ortho)
+{
+    for(int pass=0;pass<3;pass++){
+        if(ortho && pass!=1)continue;
+        for(fb_visual_chunk_t *chunk=fb_visual_chunks;chunk;chunk=chunk->next){
+            if(checkbuiltin(ftebroom_indexed_overlay)){
+                if(!pass)ftebroom_indexed_overlay("ftebroom/selectionfill",3,chunk->fill,chunk->vertices,chunk->triangles,chunk->triangleCount,chunk->ranges,chunk->rangeCount);
+                else ftebroom_indexed_overlay(pass==1?"ftebroom/selectionoverlay":"ftebroom/selectiondepth",3|DRAWFLAG_LINES,pass==1?chunk->faint:chunk->solid,chunk->vertices,chunk->lines,chunk->lineCount,chunk->ranges,chunk->rangeCount);
+            }else{
+            if(!pass)addtrisoup_simple("ftebroom/selectionfill",3,chunk->fill,chunk->triangles,chunk->triangleCount);
+            else addtrisoup_simple(pass==1?"ftebroom/selectionoverlay":"ftebroom/selectiondepth",3|DRAWFLAG_LINES,pass==1?chunk->faint:chunk->solid,chunk->lines,chunk->lineCount);
             }
         }
     }
@@ -335,8 +405,9 @@ void fb_visual_candidates_prepare()
 {
     static int geometry=-1,filters=-1,visibility=-1,selection=-1,revision=-1,hover=-2,enabled=-1;
     int current=fb_document_revision(),highlight=autocvar_ftebroom_hover_highlight!=0;
-    if(geometry==fb_grid_geometry_epoch&&filters==fb_filter_epoch&&visibility==fb_visibility_epoch&&selection==fb_selection_epoch&&revision==current&&hover==fb_visual_hover&&enabled==highlight)return;
-    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=fb_visual_hover;enabled=highlight;fb_visual_candidate_epoch++;
+    int hoverNode=highlight?fb_visual_hover:-1;
+    if(geometry==fb_grid_geometry_epoch&&filters==fb_filter_epoch&&visibility==fb_visibility_epoch&&selection==fb_selection_epoch&&revision==current&&hover==hoverNode&&enabled==highlight)return;
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=hoverNode;enabled=highlight;fb_visual_candidate_epoch++;
     if(fb_node_count>fb_visual_candidate_capacity){fb_visual_candidate_capacity=fb_node_capacity;memfree(fb_visual_candidates);fb_visual_candidates=memalloc(max(1,fb_node_capacity)*sizeof(int));}
     fb_visual_candidate_count=0;
     if(fb_visual_candidates_incremental())return;
@@ -393,22 +464,33 @@ void fb_visual_draw()
             originalCandidates[originalCount++]=node;
         }
     }
+    int ortho=cvar("ca_brush_view");
+    int cacheable=!fb_visual_test_reference && checkbuiltin(ftebroom_indexed_overlay) && fb_visual_candidate_count>256 && !fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && !fb_clip_count && !autocvar_ftebroom_hover_highlight;
+    static string cacheKey;
+    string currentKey=sprintf("%i %i %i %i %g %v %v",fb_visual_candidate_epoch,fb_grid_geometry_epoch,fb_incremental_epoch,ortho,autocvar_ftebroom_sky_overlays,autocvar_ftebroom_color_selected,autocvar_ftebroom_color_locked);
+    int reuse=cacheable && currentKey==cacheKey;
+    if(!cacheable){strunzone(cacheKey);cacheKey="";fb_visual_cache_clear();}
     int candidates=nativePointBoxes?geometryCount:(movingPoints?originalCount:fb_visual_candidate_count);
+    if(reuse && nativePointBoxes)candidates=0;
     for(int candidate=0;candidate<candidates;candidate++) {
         int node=nativePointBoxes?geometryCandidates[candidate]:(movingPoints?originalCandidates[candidate]:fb_visual_candidates[candidate]);
         fb_node_t item=fb_nodes[node];
+        if(reuse && item.kind!=FB_NODE_ENTITY)continue;
         if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         int selected=0,locked=fb_visual_locked(node),hover=FALSE;
         if(item.kind==FB_NODE_ENTITY) selected=fb_entity_selected(item.id);
         else selected=brush_isselected(item.model,item.id);
         if(fb_visual_hover>=0 && autocvar_ftebroom_hover_highlight) hover=fb_selection_descendant(node,fb_visual_hover);
         if(!selected && !locked && !hover) continue;
-        if(!cvar("ca_brush_view") && item.kind>=FB_NODE_BRUSH) {
+        if(item.kind>=FB_NODE_BRUSH) {
+            fb_visual_polygon_center='0 0 0';fb_visual_polygon_radius=1000000000;
             if(brush_getfacepoints(item.model,item.id,0,bounds,2)==2) {
                 vector center=(bounds[0]+bounds[1])*0.5,delta=center-eye;
-                float radius=vlen(bounds[1]-center),z=delta*forward;
-                if(z+radius<0)continue;
-                if(fabs(delta*right)>z*tx+radius*(1+tx) || fabs(delta*up)>z*ty+radius*(1+ty))continue;
+                float radius=vlen(bounds[1]-center),z=delta*forward;fb_visual_polygon_center=center;fb_visual_polygon_radius=radius;
+                if(!cacheable && !ortho){
+                    if(z+radius<0)continue;
+                    if(fabs(delta*right)>z*tx+radius*(1+tx) || fabs(delta*up)>z*ty+radius*(1+ty))continue;
+                }
             }
         }
         if(item.kind>=FB_NODE_BRUSH) if(fb_preview_replaces(item.model,item.id)) continue;
@@ -448,7 +530,10 @@ void fb_visual_draw()
     }
     if(boxCount)ftebroom_selection_boxes(boxes,boxCount);
     fb_visual_profile[0]+=gettime(1)-started;started=gettime(1);
-    fb_visual_flush();
+    if(cacheable){
+        if(!reuse){fb_visual_cache_build(ortho);strunzone(cacheKey);cacheKey=strzone(currentKey);}
+        fb_visual_cache_draw(ortho);
+    }else fb_visual_flush();
     fb_visual_profile[1]+=gettime(1)-started;started=gettime(1);
     fb_container_draw(FALSE);fb_entity_links_draw();
     fb_visual_profile[2]+=gettime(1)-started;started=gettime(1);
