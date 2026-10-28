@@ -2,13 +2,14 @@
 typedef struct {vector mins,maxs;int valid;vector color;trisoup_simple_vert_t vertices[8];} fb_container_bounds_t;
 fb_container_bounds_t *fb_container_cache;
 int fb_container_edit_epoch;
+var int fb_container_revision=-1,fb_container_geometry=-1,fb_container_filters=-1,fb_container_entityRevision=-1,fb_container_edits=-1;
 void fb_container_cache_prepare()
 {
     float profile81Time=gettime(1);
-    static int revision=-1,geometry=-1,filters=-1,entityRevision=-1,edits=-1;
+
     int current=fb_grid_geometry_epoch;
-    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && entityRevision==fb_entity_render_epoch && edits==fb_container_edit_epoch)return;
-    revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;entityRevision=fb_entity_render_epoch;edits=fb_container_edit_epoch;
+    if(fb_container_revision==current && fb_container_geometry==fb_grid_geometry_epoch && fb_container_filters==fb_filter_epoch && fb_container_entityRevision==fb_entity_render_epoch && fb_container_edits==fb_container_edit_epoch)return;
+    fb_container_revision=current;fb_container_geometry=fb_grid_geometry_epoch;fb_container_filters=fb_filter_epoch;fb_container_entityRevision=fb_entity_render_epoch;fb_container_edits=fb_container_edit_epoch;
     memfree(fb_container_cache);fb_container_cache=memalloc(fb_node_capacity*sizeof(fb_container_bounds_t));
     static vector bounds[2];
     // Aggregate each leaf once through its ancestors. This replaces one full
@@ -86,15 +87,27 @@ void fb_container_draw(int labels)
 }
 typedef struct {int from,to;} fb_entity_link_t;
 fb_entity_link_t *fb_entity_connections;int fb_entity_connection_count;int *fb_entity_reachable;int *fb_entity_link_selected;vector *fb_entity_centers;
+var int fb_links_entities=-1;
+int fb_links_move_epoch;
+void fb_entity_links_moved(){fb_links_move_epoch++;}
 void fb_entity_links_prepare()
 {
     float profile81Time=gettime(1);
-    static int revision=-1,geometry=-1,filters=-1,selection=-1,visibility=-1;int current=fb_grid_geometry_epoch;
-    if(revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && selection==fb_entity_selection_key() && visibility==fb_visibility_epoch)return;revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_entity_selection_key();visibility=fb_visibility_epoch;
+    static int revision=-1,geometry=-1,filters=-1,selection=-1,moved=-1;int current=fb_grid_geometry_epoch;
+    int graphValid=revision==current && geometry==fb_grid_geometry_epoch && filters==fb_filter_epoch && fb_links_entities==fb_entity_render_epoch;
+    if(graphValid && selection==fb_entity_selection_key() && moved==fb_links_move_epoch)return;
+    moved=fb_links_move_epoch;
+    revision=current;geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_entity_selection_key();fb_links_entities=fb_entity_render_epoch;
+    static vector bounds[2];
+    if(graphValid){
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_ENTITY){
+            fb_entity_link_selected[n]=fb_entity_reachable[n]=fb_selection_selected(n);
+            if(fb_container_bounds(n,bounds))fb_entity_centers[n]=(bounds[0]+bounds[1])*.5;
+        }
+    }else{
     memfree(fb_entity_connections);fb_entity_connections=__NULL__;fb_entity_connection_count=0;
     memfree(fb_entity_reachable);fb_entity_reachable=memalloc(fb_node_count*sizeof(int));memfree(fb_entity_centers);fb_entity_centers=memalloc(fb_node_count*sizeof(vector));
     memfree(fb_entity_link_selected);fb_entity_link_selected=memalloc(fb_node_count*sizeof(int));
-    static vector bounds[2];
     // Index target names once. Matching targets retain document order,
     // including duplicate names, without a full document scan per source.
     hashtable heads=hash_createtab(max(64,fb_node_count),EV_INTEGER);
@@ -121,6 +134,7 @@ void fb_entity_links_prepare()
         }
     }
     memfree(next);hash_destroytab(heads);
+    }
     for(int step=0;step<fb_node_count;step++) {
         int changed=FALSE;
         for(int e=0;e<fb_entity_connection_count;e++) {fb_entity_link_t edge=fb_entity_connections[e];if(fb_entity_reachable[edge.from] || fb_entity_reachable[edge.to]) {

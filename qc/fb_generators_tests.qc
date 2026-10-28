@@ -83,14 +83,69 @@ int fb_generators_testcommand()
         fb_transform_expect(checkbuiltin(ftebroom_preview_boxes),"preview89_native_batch_available");return TRUE;
     }
     if(argv(1)=="cancel89"){fb_transform_clear();print("RB_PREVIEW89 cancelled\n");return TRUE;}
-    if(argv(1)=="move89"){
+    if(argv(1)=="load91begin"){cvar_set("ftebroom_fullbench_name",sprintf("%.9g",gettime(1)));print("RB_LOAD91_BEGIN\n");return TRUE;}
+    if(argv(1)=="load91end"){print(sprintf("RB_LOAD91_READY ms=%g nodes=%i faces=%i\n",(gettime(1)-stof(cvar_string("ftebroom_fullbench_name")))*1000,fb_node_count,fb_render_face_count));return TRUE;}
+    if(argv(1)=="brushes91select"){
+        fb_tool_refresh();fb_document_tick();fb_selection_clear();
+        for(int n=2;n<fb_node_count && selectedbrushcount<1024;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH && fb_nodes[n].model==1)brush_select(1,fb_nodes[n].id);
+        cvar_set("ftebroom_auto_integer_snap","0");cvar_set("ftebroom_texture_lock","1");
+        print(sprintf("RB_BRUSH91 selected=%i\n",selectedbrushcount));return TRUE;
+    }
+    if(argv(1)=="brushes91move"){
+        int count91=selectedbrushcount,epoch91=fb_grid_geometry_epoch;
+        int *ids91=memalloc(count91*sizeof(int));vector *perfBounds91=memalloc(count91*2*sizeof(vector));
+        for(int i=0;i<count91;i++){ids91[i]=selectedbrushes[i].id;brush_getfacepoints(1,ids91[i],0,perfBounds91+i*2,2);}
+        float start91=gettime(1);fb_move_numeric('16 -32 8');fb_document_tick();
+        print(sprintf("RB_BRUSH91 move_document_ms=%g brushes=%i retained=%i\n",(gettime(1)-start91)*1000,count91,fb_grid_geometry_epoch==epoch91));
+        int ok91=count91>0 && fb_grid_geometry_epoch==epoch91;static vector actual91[2];
+        for(int i=0;i<count91;i++)if(brush_getfacepoints(1,ids91[i],0,actual91,2)!=2 || vlen(actual91[0]-perfBounds91[i*2]-'16 -32 8')>.001)ok91=FALSE;
+        fb_transform_expect(ok91,"batch91_large_brush_bounds_ids");
+        for(int i=0;i<fb_render_face_count;i++)if(fabs(fb_render_faces[i].distance-fb_render_faces[i].normal*fb_render_faces[i].points[0])>.1)ok91=FALSE;
+        fb_transform_expect(ok91,"batch91_cached_face_planes");
+        brush_undo();fb_document_tick();ok91=fb_grid_geometry_epoch==epoch91;
+        for(int i=0;i<count91;i++)if(brush_getfacepoints(1,ids91[i],0,actual91,2)!=2 || actual91[0]!=perfBounds91[i*2] || actual91[1]!=perfBounds91[i*2+1])ok91=FALSE;
+        fb_transform_expect(ok91,"batch91_large_brush_undo_exact");brush_redo();fb_document_tick();
+        memfree(ids91);memfree(perfBounds91);return TRUE;
+    }
+    if(argv(1)=="batch91brush"){
+        float oldSnap=cvar("ftebroom_auto_integer_snap"),oldLock=cvar("ftebroom_texture_lock");
+        cvar_set("ftebroom_auto_integer_snap","0");cvar_set("ftebroom_texture_lock","1");
+        int ids[3];for(int i=0;i<3;i++)ids[i]=fb_createbox([i*64,0,64],'32 32 32');
+        fb_selection_clear();for(int i=0;i<3;i++)brush_select(1,ids[i]);
+        brushface_t original[6],changed[6];brush_get(1,ids[0],original,6,__NULL__);
+        int marker91=history;fb_move_numeric('.125 -.25 .5');fb_document_tick();
+        history_t *record=&historyring[(history-1)&(historyring_length-1)];
+        int fast=FALSE;if(record->kind==HIST_MOVE_BATCH)fast=record->batch.brushCount==3;
+        fb_transform_expect(fast,"batch91_native_brush_path");
+        int valid91=fast;static vector bounds91[2];
+        for(int i=0;i<3;i++)if(brush_getfacepoints(1,ids[i],0,bounds91,2)!=2 || vlen(bounds91[0]-[i*64-16,-16,48]-'.125 -.25 .5')>.00001)valid91=FALSE;
+        fb_transform_expect(valid91,"batch91_stable_ids_fractional_bounds");
+        brush_get(1,ids[0],changed,6,__NULL__);valid91=TRUE;
+        for(int f=0;f<6;f++)if(fabs(changed[f].sbias-original[f].sbias+original[f].sdir*'.125 -.25 .5')>.00001 || fabs(changed[f].tbias-original[f].tbias+original[f].tdir*'.125 -.25 .5')>.00001)valid91=FALSE;
+        fb_transform_expect(valid91,"batch91_texture_lock");
+        for(int i=0;i<16;i++){brush_undo();brush_redo();}
+        brush_undo();brush_get(1,ids[0],changed,6,__NULL__);valid91=history==marker91;
+        for(int f=0;f<6;f++)if(changed[f].planedist!=original[f].planedist || changed[f].sbias!=original[f].sbias || changed[f].tbias!=original[f].tbias)valid91=FALSE;
+        fb_transform_expect(valid91,"batch91_repeated_undo_exact");brush_redo();
+        if(fast){
+            int saved=record->batch.ids[1],cursor=history;record->batch.ids[1]=-1;
+            brush_undo();fb_transform_expect(history==cursor,"batch91_invalid_history_cancelled");record->batch.ids[1]=saved;
+        }
+        brush_get(1,ids[0],changed,6,__NULL__);changed[0].sbias+=4;
+        fb_tx_begin("UV test");brush_history_edit(1,ids[0],changed,6,1);fb_tx_commit();brush_undo();brush_undo();
+        fb_transform_expect(history==marker91,"batch91_remapped_geometry_undo");brush_redo();
+        cvar_set("ftebroom_auto_integer_snap",ftos(oldSnap));cvar_set("ftebroom_texture_lock",ftos(oldLock));return TRUE;
+    }
+    if(argv(1)=="move89" || argv(1)=="move91"){
+        int release91=argv(1)=="move91";
         memfree(fb_move89_origins);memfree(fb_move89_ids);fb_move89_count=fb_selected_entity_count;
         fb_move89_origins=memalloc(max(1,fb_move89_count)*sizeof(vector));fb_move89_ids=memalloc(max(1,fb_move89_count)*sizeof(int));
         for(int i=0;i<fb_move89_count;i++){fb_move89_ids[i]=fb_selected_entities[i];fb_move89_origins[i]=fb_entity_origin(fb_selected_entities[i]);}
         fb_move89_history=history;fb_move89_epoch=fb_grid_geometry_epoch;
-        float started89=gettime(1);fb_move_numeric('16 0 0');fb_document_tick();
+        if(release91)fb_transform_capture();
+        float started89=gettime(1);if(release91){fb_transform_commit('16 0 0');fb_transform_clear();}else fb_move_numeric('16 0 0');fb_document_tick();
         fb_transform_expect(fb_grid_geometry_epoch==fb_move89_epoch,"move89_retains_brush_geometry");
-        print(sprintf("RB_MOVE89 commit_ms=%g entities=%i\n",(gettime(1)-started89)*1000,fb_selected_entity_count));return TRUE;
+        print(sprintf("RB_MOVE89 commit_ms=%g entities=%i release_only=%i records=%i\n",(gettime(1)-started89)*1000,fb_selected_entity_count,release91,history-fb_move89_history));return TRUE;
     }
     if(argv(1)=="undo89" || argv(1)=="redo89" || argv(1)=="check89"){
         int redo89=argv(1)=="redo89",undo89=argv(1)=="undo89";if(undo89)brush_undo();else if(redo89)brush_redo();

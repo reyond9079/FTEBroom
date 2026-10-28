@@ -14,8 +14,14 @@ int fb_tx_depth;
 float fb_tx_lasttime;
 string fb_tx_name;
 int history_revision_serial,history_base_revision;
-enum : int { HIST_GEOMETRY, HIST_SELECTION, HIST_ENTITY, HIST_NODEFLAGS, HIST_TREE, HIST_VISIBILITY, HIST_PIVOT, HIST_TERRAIN };
+enum : int { HIST_GEOMETRY, HIST_SELECTION, HIST_ENTITY, HIST_NODEFLAGS, HIST_TREE, HIST_VISIBILITY, HIST_PIVOT, HIST_TERRAIN, HIST_MOVE_BATCH };
+typedef struct {int id,node,hadOrigin;vector before,after;string beforefields,afterfields,beforeOrigin;} fb_batch_point_t;
+typedef struct {int pointCount,brushCount,bytes;fb_batch_point_t *points;int *ids;int *packet;vector delta;int textureLock;} fb_batch_move_t;
+void fb_batch_release(fb_batch_move_t *batch);
+int fb_batch_apply(fb_batch_move_t *batch,int redo);
+int fb_batch_validate(fb_batch_move_t *batch);
 typedef struct {
+    fb_batch_move_t *batch;
     float timestamp;
     int revision,kind,selectionop,selectioncount,aftercount;
     selbrush_t *selection,*afterselection;
@@ -37,6 +43,7 @@ int historyring_length,history_min,history,history_max;
 float history_transaction;
 void history_release(history_t *h)
 {
+    if(h->batch)fb_batch_release(h->batch);
     if(h->kind==HIST_TERRAIN)terrain_edit(203,(float)h->terrainhandle);
     if(h->brushdata) for(int f=0;f<h->brushinfo.numfaces;f++) strunzone(h->brushdata[f].shadername);
     if(h->patchdata) strunzone(h->patchinfo.shadername);
@@ -55,6 +62,7 @@ void history_reserve()
 }
 void history_remap_record(history_t *h,int model,int oldid,int newid)
 {
+    if(h->batch)for(int i=0;i<h->batch->brushCount;i++)if(h->batch->ids[i*2]==model&&h->batch->ids[i*2+1]==oldid)h->batch->ids[i*2+1]=newid;
     for(int j=0;j<h->selectioncount;j++) if(h->selection[j].model==model) if(h->selection[j].id==oldid) h->selection[j].id=newid;
     for(int j=0;j<h->aftercount;j++) if(h->afterselection[j].model==model) if(h->afterselection[j].id==oldid) h->afterselection[j].id=newid;
     if(h->brushmodel==model) if(h->id==oldid) h->id=newid;
@@ -89,6 +97,7 @@ void history_restore_list(selbrush_t *items,int count,int ent)
 }
 void history_apply(history_t *h,int redo)
 {
+    if(h->kind==HIST_MOVE_BATCH){fb_batch_apply(h->batch,redo);return;}
     if(h->kind==HIST_TERRAIN){terrain_edit(202,(float)h->terrainhandle,(float)redo);return;}
     if(h->kind==HIST_PIVOT){fb_rotate_restore_center(stov(redo?h->afterfields:h->beforefields));return;}
     if(h->kind==HIST_VISIBILITY) {fb_visibility_set(h->brushmodel,h->id,stoi(redo?h->afterfields:h->beforefields));return;}
@@ -118,6 +127,7 @@ void brush_undo()
     fb_terrain_finish();fb_tool_refresh();fb_tx_lasttime=-100;
     if(history<=history_min) return;
     float stamp=historyring[(history-1)&(historyring_length-1)].timestamp;
+    for(int r=history-1;r>=history_min && historyring[r&(historyring_length-1)].timestamp==stamp;r--)if(historyring[r&(historyring_length-1)].kind==HIST_MOVE_BATCH)if(!fb_batch_validate(historyring[r&(historyring_length-1)].batch)){print("Move history no longer matches the current geometry; Undo cancelled.\n");return;}
     do {history--;history_apply(&historyring[history&(historyring_length-1)],FALSE);}
     while(history>history_min && historyring[(history-1)&(historyring_length-1)].timestamp==stamp);
     fb_history_labels();
@@ -127,6 +137,7 @@ void brush_redo()
     fb_terrain_finish();fb_tool_refresh();fb_tx_lasttime=-100;
     if(history>=history_max) return;
     float stamp=historyring[history&(historyring_length-1)].timestamp;
+    for(int r=history;r<history_max && historyring[r&(historyring_length-1)].timestamp==stamp;r++)if(historyring[r&(historyring_length-1)].kind==HIST_MOVE_BATCH)if(!fb_batch_validate(historyring[r&(historyring_length-1)].batch)){print("Move history no longer matches the current geometry; Redo cancelled.\n");return;}
     int selection=-1;
     do {
         history_t *h=&historyring[history&(historyring_length-1)];

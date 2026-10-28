@@ -96,6 +96,7 @@ typedef struct
 	trisoup_simple_vert_t *bboxverts;
     trisoup_simple_vert_t *solidverts;
     vector rendercolour;
+    int pooledverts;
 
 	//full data
 	hashtable fields;
@@ -112,11 +113,23 @@ int fb_entity_box_triangles[]={0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,1
 
 static entedit_t *editents;
 static int numents;
-void fb_entity_prepare_vertices(int index)
+trisoup_simple_vert_t *fb_entity_vertex_pool;
+void fb_entity_release_vertices(entedit_t *item)
 {
-    entedit_t *item=&editents[index];if(item->bboxverts)return;
-    item->bboxverts=memalloc(sizeof(trisoup_simple_vert_t)*32);
-    item->solidverts=item->bboxverts+8;
+    if(!item->pooledverts)memfree(item->bboxverts);
+    item->bboxverts=item->solidverts=__NULL__;item->pooledverts=FALSE;
+}
+void fb_entity_vertex_pool_clear()
+{
+    for(int i=0;i<numents;i++)if(editents[i].pooledverts)fb_entity_release_vertices(&editents[i]);
+    memfree(fb_entity_vertex_pool);fb_entity_vertex_pool=__NULL__;
+}
+void fb_entity_vertex_pool_begin(int count)
+{
+    fb_entity_vertex_pool_clear();fb_entity_vertex_pool=memalloc(max(1,count)*32*sizeof(trisoup_simple_vert_t));
+}
+void fb_entity_init_vertices(entedit_t *item)
+{
     item->rendercolour='-1 -1 -1';
     for(int i=0;i<8;i++) {
         item->bboxverts[i].st=(vec2){0,0};
@@ -125,6 +138,18 @@ void fb_entity_prepare_vertices(int index)
         item->bboxverts[i].xyz[1]=item->org[1]+((i&2i)?item->maxs[1]:item->mins[1]);
         item->bboxverts[i].xyz[2]=item->org[2]+((i&4i)?item->maxs[2]:item->mins[2]);
     }
+}
+void fb_entity_prepare_vertices(int index)
+{
+    entedit_t *item=&editents[index];if(item->bboxverts)return;
+    item->bboxverts=memalloc(sizeof(trisoup_simple_vert_t)*32);item->solidverts=item->bboxverts+8;
+    fb_entity_init_vertices(item);
+}
+void fb_entity_vertex_pool_bind(int index,int slot)
+{
+    entedit_t *item=&editents[index];fb_entity_release_vertices(item);
+    item->bboxverts=fb_entity_vertex_pool+slot*32;item->solidverts=item->bboxverts+8;item->pooledverts=TRUE;
+    fb_entity_init_vertices(item);
 }
 trisoup_simple_vert_t *fb_entity_vertices(int index,int solid)
 {
@@ -446,9 +471,9 @@ void(entedit_t *nent) editor_ents_updated =
 	}
 	else
 		nent->isbsp = substring(nent->fields["model"],0,1)=="*";
-	for(int definition=0;definition<fb_entity_definition_count;definition++) {
-		fb_entity_definition_t *def=&fb_entity_definitions[definition];
-		if(def->classname!=nent->fields["classname"])continue;
+    int definition=-1;if(fb_entity_definition_index)definition=(int)fb_entity_definition_index[nent->fields["classname"]]-1i;
+    if(definition>=0 && definition<fb_entity_definition_count){
+        fb_entity_definition_t *def=&fb_entity_definitions[definition];
 		nent->mins=def->mins;nent->maxs=def->maxs;nent->colourmod=def->color;
 		if(!nent->isbsp) {
             nent->modelskin=stof(fb_definition_parameter(def->modelskin,nent->fields,nent->fields["skin"]));
@@ -463,7 +488,6 @@ void(entedit_t *nent) editor_ents_updated =
 			if(nent->fields["model"]!="")model=nent->fields["model"];
 			nent->modelindex=0;if(model!="")nent->modelindex=modelindexforname(model);
 		}
-		break;
 	}
 
     // Definitions without a model must not erase the standard Quake player marker.
@@ -478,7 +502,7 @@ void(entedit_t *nent) editor_ents_updated =
 		nent->ang = '0 0 0';	//bsp entities should not be displayed rotated, because that just messes everything up.
 
     // Existing box pointers remain stable across entity-cache growth.
-    memfree(nent->bboxverts);nent->bboxverts=nent->solidverts=__NULL__;
+    fb_entity_release_vertices(nent);
     nent->rendercolour='-1 -1 -1';
 
 		/*void(string shadername, vector min, vector max, vector col) editor_ents_drawbbox =
@@ -532,7 +556,8 @@ void() editor_ents_reload =
 	int f, fcount;
 
 	if(!tempent) tempent=spawn();
-	for(int old=0;old<numents;old++){if(editents[old].fields)hash_destroytab(editents[old].fields);memfree(editents[old].bboxverts);}
+	fb_entity_vertex_pool_clear();
+	for(int old=0;old<numents;old++){if(editents[old].fields)hash_destroytab(editents[old].fields);fb_entity_release_vertices(&editents[old]);}
 	memfree((__variant*)editents);
 	numents = terrain_edit(TEREDIT_ENT_COUNT);
 	editents_capacity=numents;
@@ -573,7 +598,7 @@ void editor_ents_update_one(int idx,string data)
     numents=max(numents,count);
     entedit_t *ent=&editents[idx];
     if(ent->fields)hash_destroytab(ent->fields);
-    memfree(ent->bboxverts);
+    fb_entity_release_vertices(ent);
     memfill8((__variant*)ent,0,sizeof(entedit_t));
     if(data=="" || data==__NULL__){fb_entity_render_epoch++;return;}
     ent->fields=hash_createtab(12,EV_STRING);
@@ -868,3 +893,22 @@ void(vector mousepos) editor_ents_overlay =
 		pos_y += 8;
 	}
 };
+
+// Origin-only edits retain resolved definitions, models and all other fields.
+int fb_entity_move_ready(int id){return id>=0 && id<numents && editents[id].fields;}
+void fb_entity_move_cached(int id,vector position,string origin,int exists)
+{
+    if(!fb_entity_move_ready(id))return;
+    if(exists)editents[id].fields["origin"]=origin;else hash_delete(editents[id].fields,"origin");
+    editents[id].org=position;
+    if(editents[id].bboxverts)for(int v=0;v<32;v++){
+        int corner=v;if(v>=8)corner=fb_entity_box_corners[v-8];
+        for(int a=0;a<3;a++)editents[id].bboxverts[v].xyz[a]=position[a]+((corner&(1i<<a))?editents[id].maxs[a]:editents[id].mins[a]);
+    }
+}
+
+void fb_entity_move_copy_origin(int id,hashtable target)
+{
+    string value=hash_get(editents[id].fields,"origin",__NULL__);
+    if isnull(value)hash_delete(target,"origin");else target["origin"]=value;
+}

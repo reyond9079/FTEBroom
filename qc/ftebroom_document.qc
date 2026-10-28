@@ -1,3 +1,4 @@
+int fb_batch_document(int first,int last,int redo);
 void fb_lines_remap(int model,int oldid,int newid);
 void fb_visibility_remap(int model,int oldid,int newid);
 void fb_visibility_reset();
@@ -302,11 +303,11 @@ int fb_document_model_parent(int model)
     }
     int parent=(int)parents[itos(model)];return parent>=2?parent:1;
 }
+var float fb_document_assets_epoch=-1;
 void fb_document_tick()
 {
-    static float assetsEpoch=-1;
     float currentAssets=cvar("ftebroom_entity_assets_epoch");
-    if(assetsEpoch!=currentAssets){assetsEpoch=currentAssets;fb_entity_definitions_load();editor_ents_reload();fb_grid_geometry_epoch++;}
+    if(fb_document_assets_epoch!=currentAssets){fb_document_assets_epoch=currentAssets;fb_entity_definitions_load();editor_ents_reload();fb_grid_geometry_epoch++;}
     int revision=fb_document_revision();
     cvar_set("ftebroom_revision",itos(revision));
     if(revision!=fb_saved_revision || cvar("ftebroom_terrain_dirty")) cvar_set("ftebroom_dirty","1");
@@ -333,7 +334,7 @@ void fb_document_tick()
         fb_seen_revision=revision;structureRevision=structure;
         // Selection history must not rebuild every brush surface and grid cache.
         if(reload){
-            if(incremental && fb_incremental_enabled() && fb_incremental_apply(first,last,redo))fb_incremental_revision=revision;
+            if(fb_batch_document(first,last,redo) || (incremental && fb_incremental_enabled() && fb_incremental_apply(first,last,redo)))fb_incremental_revision=revision;
             else if(worldOnly)fb_document_rebuild_world_geometry();else fb_document_rebuild();
         }
     }
@@ -346,7 +347,7 @@ void fb_document_loaded()
     fb_repeat_clear();
     fb_visibility_reset();
     fb_open_group=0;fb_restore_entity_selection(-1);
-    fb_entity_definitions_load();editor_ents_reload();
+    fb_entity_definitions_load();editor_ents_reload();fb_document_assets_epoch=cvar("ftebroom_entity_assets_epoch");
     fb_pick_clear_handles();
     fb_saved_revision=fb_document_revision();fb_seen_revision=-1;
     fb_history_labels();

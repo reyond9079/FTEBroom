@@ -1,3 +1,4 @@
+int fb_batch_move(vector delta);
 int fb_affine_preview_active;
 int fb_extrude_active;
 void fb_extrude_preview_faces(int index,brushface_t *faces);
@@ -126,6 +127,7 @@ void fb_repeat_move(vector delta,int duplicate);
 void fb_transform_commit(vector delta)
 {
     if(!fb_transform_valid(delta) || (!fb_transform_duplicate && vlen(delta)==0)) return;
+    if(!fb_transform_duplicate)if(fb_batch_move(delta)){fb_repeat_move(delta,FALSE);fb_clone_clear();return;}
     fb_tx_begin(fb_transform_duplicate?"Duplicate and Move":"Move");
     if(fb_transform_duplicate) {
         if(!fb_clone_groups()) {fb_tx_cancel();fb_clone_clear();return;}

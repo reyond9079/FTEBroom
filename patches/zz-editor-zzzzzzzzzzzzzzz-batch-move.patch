@@ -1,0 +1,189 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -197,9 +197,24 @@
+  unsigned int c;
+  for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm)editorbrushindices[c].count=(size_t)-1;
+ }
++// Allocation capacity is side data: no terrain/plugin structure ABI changes.
++typedef struct {heightmap_t *owner;size_t capacity,age;} rbbrushstorage_t;
++static rbbrushstorage_t rbbrushstorage[256];static size_t rbbrushstorageage;
++static void Terr_BrushReserve(heightmap_t *hm,size_t wanted)
++{
++    unsigned int oldest=0;rbbrushstorage_t *slot=NULL;
++    for(unsigned int i=0;i<countof(rbbrushstorage);i++){
++        if(rbbrushstorage[i].owner==hm){slot=&rbbrushstorage[i];break;}
++        if(!rbbrushstorage[i].owner || rbbrushstorage[i].age<rbbrushstorage[oldest].age)oldest=i;
++    }
++    if(!slot){slot=&rbbrushstorage[oldest];slot->owner=hm;slot->capacity=hm->numbrushes;}
++    slot->age=++rbbrushstorageage;
++    if(wanted>slot->capacity){slot->capacity=max(wanted,max(64,slot->capacity+slot->capacity/2));hm->wbrushes=BZ_Realloc(hm->wbrushes,slot->capacity*sizeof(*hm->wbrushes));}
++}
+ static void Terr_BrushIndex_Clear(heightmap_t *hm)
+ {
+  World_ReyondBroomInvalidateLabels();
++ for(unsigned int i=0;i<countof(rbbrushstorage);i++)if(rbbrushstorage[i].owner==hm)memset(&rbbrushstorage[i],0,sizeof(rbbrushstorage[i]));
+  Terr_TraceClear(hm);
+  unsigned int c;
+  for(c=0;c<8;c++)if(editorbrushindices[c].owner==hm){BZ_Free(editorbrushindices[c].slots);memset(&editorbrushindices[c],0,sizeof(editorbrushindices[c]));}
+@@ -6593,7 +6608,7 @@
+ 			return NULL;
+ 	}
+ 
+-	hm->wbrushes = BZ_Realloc(hm->wbrushes, sizeof(*hm->wbrushes) * (hm->numbrushes+1));
++	Terr_BrushReserve(hm, hm->numbrushes+1);
+ 	out = &hm->wbrushes[hm->numbrushes];
+ 	out->selected = false;
+ 	out->contents = brush->contents;
+@@ -6746,8 +6761,12 @@
+ 		return NULL;
+ 	}
+ 
+-	if (brush->id)
+-		out->id = brush->id;
++	if (brush->id) {
++        out->id = brush->id;
++        // Reserve imported low IDs too; generated IDs cannot collide before wrap.
++        if ((brush->id & 0x00ffffffu) > hm->brushidseq)
++            hm->brushidseq = brush->id & 0x00ffffffu;
++    }
+ 	else
+ 	{
+ 		unsigned int i;
+@@ -6760,11 +6779,12 @@
+ 				out->id |= (cl.playerview[0].playernum+1)<<24;
+ #endif
+ 
+-			for (i = 0; i < hm->numbrushes; i++)
+-			{
+-				if (hm->wbrushes[i].id == out->id)
+-					break;
+-			}
++            i = hm->numbrushes;
++            // Monotonic low IDs are unique independently of their owner prefix.
++            // Keep the original collision search only for the 24-bit wrap case.
++            if (hm->brushidseq >= 0x01000000u || !(out->id & 0x00ffffffu))
++                for (i = 0; i < hm->numbrushes; i++)
++                    if (hm->wbrushes[i].id == out->id) break;
+ 		} while (i != hm->numbrushes);
+ 	}
+ //	Con_Printf("brush %u (%i faces)\n", out->id, oface);
+@@ -7588,7 +7608,7 @@
+         model_t *model=world->Get_CModel(world,(float)items[i*2]);heightmap_t *hm=model?model->terrain:NULL;
+         if(!hm)continue;unsigned int index=Terr_BrushIndex_Find(hm,items[i*2+1]);
+         if(index>=hm->numbrushes)continue;brushes_t *brush=&hm->wbrushes[index];
+-        if(brush->id!=(unsigned int)items[i*2+1]||brush->patch||brush->selected||brush->numplanes<4)continue;
++        if(brush->id!=(unsigned int)items[i*2+1]||brush->patch||brush->numplanes<4)continue;
+         brushes[used++]=brush;
+     }
+     for(unsigned int ray=0;ray<rays;ray++){
+@@ -7597,8 +7617,8 @@
+         for(unsigned int i=0;i<used;i++){
+             brushes_t *brush=brushes[i];float enter=0,leave=nearest;qboolean valid=true;
+             for(int axis=0;axis<3;axis++){
+-                if(fabs(direction[axis])<0.000001){if(lines[ray*2][axis]<brush->mins[axis]-.001||lines[ray*2][axis]>brush->maxs[axis]+.001){valid=false;break;}}
+-                else {float x=(brush->mins[axis]-lines[ray*2][axis])/direction[axis],y=(brush->maxs[axis]-lines[ray*2][axis])/direction[axis];enter=max(enter,min(x,y));leave=min(leave,max(x,y));if(enter>leave+.001){valid=false;break;}}
++                if(fabs(direction[axis])<0.000001){if(lines[ray*2][axis]<brush->mins[axis]||lines[ray*2][axis]>brush->maxs[axis]){valid=false;break;}}
++                else {float x=(brush->mins[axis]-lines[ray*2][axis])/direction[axis],y=(brush->maxs[axis]-lines[ray*2][axis])/direction[axis];enter=max(enter,min(x,y));leave=min(leave,max(x,y));if(enter>leave){valid=false;break;}}
+             }
+             if(!valid)continue;enter=0;leave=nearest;
+             for(unsigned int f=0;f<brush->numplanes;f++){
+@@ -7611,6 +7631,65 @@
+         VectorMA(lines[ray*2],nearest,direction,tips[ray]);
+     }
+     BZ_Free(brushes);G_INT(OFS_RETURN)=rays;
++}
++
++// Immutable numeric snapshots for offline, translation-only brush transactions.
++// Packet storage belongs to QC history and contains no native pointers.
++typedef struct {unsigned int magic,bytes,count;} rbmovehead_t;
++typedef struct {unsigned int faces;vec3_t mins,maxs;} rbmovebrush_t;
++typedef struct {vec4_t plane;float bias[2];unsigned int points;} rbmoveface_t;
++static void *RB_MoveBuffer(pubprogfuncs_t *vm,size_t offset,size_t bytes)
++{
++    if(!offset||offset>(size_t)vm->stringtablesize||bytes>(size_t)vm->stringtablesize-offset)return NULL;
++    return vm->stringtable+offset;
++}
++void QCBUILTIN PF_ReyondBroom_BrushMove(pubprogfuncs_t *prinst,struct globalvars_s *pr_globals)
++{
++    world_t *world=prinst->parms->user;unsigned int operation=G_INT(OFS_PARM0),count=G_INT(OFS_PARM2),capacity=G_INT(OFS_PARM4);
++    int *ids;unsigned char *packet=NULL,*cursor,*end;size_t bytes=sizeof(rbmovehead_t);vec3_t delta;VectorCopy(G_VECTOR(OFS_PARM5),delta);
++    int lock=G_INT(OFS_PARM6);G_INT(OFS_RETURN)=0;
++    if(!Cvar_VariableValue("ftebroom_offline_brush_edit")||Terr_BrushNetworkEnabled()||!count||count>1000000||capacity>384u*1024u*1024u)return;
++    for(int a=0;a<3;a++)if(!isfinite(delta[a]))return;
++    ids=RB_MoveBuffer(prinst,G_INT(OFS_PARM1),sizeof(int)*2*count);if(!ids)return;
++    // Resolve the whole batch and check packet sizes before changing any brush.
++    brushes_t **brushes=BZ_Malloc(max(1,count)*sizeof(*brushes));heightmap_t **owners=BZ_Malloc(max(1,count)*sizeof(*owners));model_t **models=BZ_Malloc(max(1,count)*sizeof(*models));
++    for(unsigned int i=0;i<count;i++){
++        model_t *model=world->Get_CModel(world,(float)ids[i*2]);heightmap_t *hm=model?model->terrain:NULL;
++        if(!hm||hm->relightcontext||hm->brushmaxlms||hm->brushlmremaps)goto done;
++        unsigned int index=Terr_BrushIndex_Find(hm,ids[i*2+1]);if(index>=hm->numbrushes)goto done;
++        brushes_t *b=&hm->wbrushes[index];if(b->patch||b->numplanes<4||b->numplanes>64)goto done;
++        brushes[i]=b;owners[i]=hm;models[i]=model;bytes+=sizeof(rbmovebrush_t);
++        for(unsigned int f=0;f<b->numplanes;f++){if(b->faces[f].numpoints<3||b->faces[f].numpoints>64)goto done;bytes+=sizeof(rbmoveface_t)+sizeof(vec3_t)*b->faces[f].numpoints;}
++        if(bytes>384u*1024u*1024u)goto done;
++    }
++    if(!operation){G_INT(OFS_RETURN)=bytes;goto done;}
++    if(capacity!=bytes)goto done;packet=RB_MoveBuffer(prinst,G_INT(OFS_PARM3),capacity);if(!packet)goto done;
++    cursor=packet+sizeof(rbmovehead_t);end=packet+capacity;
++    if(operation==1){rbmovehead_t header={0x52424d31,capacity,count};memcpy(packet,&header,sizeof(header));
++        for(unsigned int i=0;i<count;i++){brushes_t *b=brushes[i];rbmovebrush_t entry;entry.faces=b->numplanes;VectorCopy(b->mins,entry.mins);VectorCopy(b->maxs,entry.maxs);memcpy(cursor,&entry,sizeof(entry));cursor+=sizeof(entry);
++            for(unsigned int f=0;f<b->numplanes;f++){rbmoveface_t face;Vector4Copy(b->planes[f],face.plane);face.bias[0]=b->faces[f].stdir[0][3];face.bias[1]=b->faces[f].stdir[1][3];face.points=b->faces[f].numpoints;memcpy(cursor,&face,sizeof(face));cursor+=sizeof(face);memcpy(cursor,b->faces[f].points,face.points*sizeof(vec3_t));cursor+=face.points*sizeof(vec3_t);}}
++        G_INT(OFS_RETURN)=1;goto done;
++    }
++    if((operation!=2&&operation!=3)||((rbmovehead_t*)packet)->magic!=0x52424d31||((rbmovehead_t*)packet)->bytes!=capacity||((rbmovehead_t*)packet)->count!=count)goto done;
++    // A later geometry edit must be undone before this translation can be replayed.
++    for(unsigned int i=0;i<count;i++){brushes_t *b=brushes[i];if((size_t)(end-cursor)<sizeof(rbmovebrush_t))goto done;rbmovebrush_t *entry=(void*)cursor;cursor+=sizeof(*entry);if(entry->faces!=b->numplanes)goto done;
++        for(unsigned int f=0;f<b->numplanes;f++){if((size_t)(end-cursor)<sizeof(rbmoveface_t))goto done;rbmoveface_t *face=(void*)cursor;cursor+=sizeof(*face);if(face->points!=b->faces[f].numpoints||(size_t)(end-cursor)<face->points*sizeof(vec3_t))goto done;
++            for(int a=0;a<3;a++)if(face->plane[a]!=b->planes[f][a])goto done;cursor+=face->points*sizeof(vec3_t);}}
++    if(cursor!=end)goto done;
++    if(operation==3){G_INT(OFS_RETURN)=1;goto done;}
++    cursor=packet+sizeof(rbmovehead_t);
++    for(unsigned int i=0;i<count;i++){brushes_t *b=brushes[i];rbmovebrush_t *entry=(void*)cursor;cursor+=sizeof(*entry);VectorAdd(entry->mins,delta,b->mins);VectorAdd(entry->maxs,delta,b->maxs);
++        for(unsigned int f=0;f<b->numplanes;f++){rbmoveface_t *face=(void*)cursor;cursor+=sizeof(*face);vec3_t *points=(void*)cursor;cursor+=face->points*sizeof(vec3_t);
++            b->planes[f][3]=face->plane[3]+DotProduct(face->plane,delta);
++            for(int a=0;a<2;a++)b->faces[f].stdir[a][3]=face->bias[a]-(lock?DotProduct(b->faces[f].stdir[a],delta):0);
++            for(unsigned int v=0;v<face->points;v++)VectorAdd(points[v],delta,b->faces[f].points[v]);b->faces[f].tex->rebuild=true;b->faces[f].relight=true;}
++        owners[i]->brushesedited=true;AddPointToBounds(b->mins,models[i]->mins,models[i]->maxs);AddPointToBounds(b->maxs,models[i]->mins,models[i]->maxs);
++    }
++    // Moving stable IDs invalidates spatial bounds, not the ID lookup table.
++    for(unsigned int i=0;i<count;i++)if(!i||owners[i]!=owners[i-1])Terr_TraceInvalidate(owners[i]);
++    G_INT(OFS_RETURN)=1;
++done:
++    BZ_Free(brushes);BZ_Free(owners);BZ_Free(models);
+ }
+ void QCBUILTIN PF_brush_get(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+ {
+@@ -8711,6 +8790,7 @@
+ }
+ qboolean Terr_ReformEntitiesLump(model_t *mod, heightmap_t *hm, char *entities)
+ {
++    double rbParseStarted=Sys_DoubleTime();
+ 	char token[8192];
+ 	int nest = 0;
+ 	int buflen = strlen(entities);
+@@ -9300,6 +9380,7 @@
+ 	Mod_SetEntitiesString(mod, outstart, false);
+ 
+ 	mod->numsubmodels = submodelnum;
++    if(Cvar_VariableValue("ftebroom_profile_commit"))Con_Printf("RB_LOAD91 native_map_parse ms=%.3f brushes=%u submodels=%i\n",(Sys_DoubleTime()-rbParseStarted)*1000,hm->numbrushes,submodelnum);
+ 
+ 	return true;
+ }
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -8718,6 +8718,7 @@
+ 	{"ftebroom_preview_boxes", PF_ReyondBroom_PreviewBoxes, 0},
+ 	{"ftebroom_selection_points", PF_ReyondBroom_SelectionPoints, 0},
+ 	{"ftebroom_point_colors", PF_ReyondBroom_PointColors, 0},
++	{"ftebroom_brush_move", PF_ReyondBroom_BrushMove, 0},
+ 	{"brush_get",				PF_brush_get,			0},
+ 	{"brush_create",			PF_brush_create,		0},
+ 	{"brush_delete",			PF_brush_delete,		0},
+--- a/engine/common/pr_common.h
++++ b/engine/common/pr_common.h
+@@ -1315,3 +1315,5 @@
+ void QCBUILTIN PF_brush_calcfacepoints_attrs(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
+ 
+ void QCBUILTIN PF_brush_model_create(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
++
++void QCBUILTIN PF_ReyondBroom_BrushMove(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
