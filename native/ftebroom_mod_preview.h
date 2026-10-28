@@ -9,11 +9,11 @@ static std::string modQuote(const std::string& text)
 static void modValidate()
 {
 #ifndef _WIN32
-  throw std::runtime_error("Embedded mod preview is currently Windows-only. Use BSP preview or launch your game separately with a Run task.");
+  if(gameProfile!=4)throw std::runtime_error("Embedded mod preview is currently Windows-only. Use BSP preview or launch your game separately with a Run task.");
 #endif
   auto mod=std::filesystem::u8path(gameRuntime());
   if(!std::filesystem::is_regular_file(runBundledEngine()))throw std::runtime_error("The bundled preview engine is missing.");
-  if(!std::filesystem::is_directory(mod) || (!std::filesystem::is_regular_file(mod/"progs.dat") && !std::filesystem::is_regular_file(mod/"pak0.pak")))throw std::runtime_error("The runtime mod directory must contain progs.dat.");
+  if(!std::filesystem::is_directory(mod) || (gameProfile!=4 && !std::filesystem::is_regular_file(mod/"progs.dat") && !std::filesystem::is_regular_file(mod/"pak0.pak")))throw std::runtime_error("The runtime mod directory must contain progs.dat.");
   auto name=mod.filename().u8string();
   if(name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)
     throw std::runtime_error("The runtime mod folder name must contain only letters, digits, _ or -.");
@@ -22,6 +22,7 @@ static void modPreview()
 {
   if(runActive || buildRunning)return;
   try {
+    if(gameProfile==4)halfLifeInstallRuntime();
     modValidate();
     if(buildResult.empty() || (buildResultDocument!=documentFile || buildResultProfile!=gameProfile))throw std::runtime_error("Build this map before opening the mod preview.");
     auto name=documentFile.stem().u8string();
@@ -40,14 +41,26 @@ static void modPreview()
     std::filesystem::copy_file(buildResult,maps/(name+".bsp"),std::filesystem::copy_options::overwrite_existing);
     for(const char* ext:{".lit",".lux"}){auto extra=buildResult;extra.replace_extension(ext);if(std::filesystem::exists(extra))std::filesystem::copy_file(extra,maps/(name+ext),std::filesystem::copy_options::overwrite_existing); }
     if(cvars->GetFloat("ftebroom_bsp_preview"))buildEdit();
+#ifdef _WIN32
     modEmbedBegin();
+#endif
     auto embeddedEngine=runBundledEngine();
-    std::string args="-plugin -ftebroom-preview -noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" -game "+modQuote(mod.filename().u8string())+
-      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set r_drawviewmodel 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+"+map "+name;
+    std::string gameSwitch=gameProfile==4?std::string("-game valve "):std::string();
+#ifdef _WIN32
+    std::string previewSwitch="-plugin -ftebroom-preview ";
+#else
+    std::string previewSwitch;
+#endif
+    std::string args=previewSwitch+"-noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" "+gameSwitch+"-game "+modQuote(mod.filename().u8string())+
+      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set r_drawviewmodel 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+exec quake.rc +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+"+map "+name;
     if(cvars->GetFloat("ftebroom_skip_setup"))args+=" +set ftebroom_preview_trace 1";
     RunProfile preview{std::string(gameProfileName())+": mod preview",root.u8string(),true,{{1,embeddedEngine.u8string(),args}}};
     runBegin(preview);runWindow=false;
     if(!runActive){modEmbedEnd();throw std::runtime_error(runError);}
+#ifdef _WIN32
     buildMessage="Choose Free camera to inspect, or Play mod to control the player.";
+#else
+    buildMessage="FreeHL / FreeCS is running in a separate window. Close it to return to editing.";
+#endif
   }catch(const std::exception& error){modEmbedEnd();buildMessage=error.what();}
 }

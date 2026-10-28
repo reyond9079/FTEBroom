@@ -65,7 +65,7 @@ static void uiLoad()
     {
       uiScaleChoice = std::clamp(scale, 0, 4);
       uiLocked = locked != 0;
-      int theme=0;if(appearance>>theme)uiTheme=std::clamp(theme,0,3);
+      int theme=0;if(appearance>>theme)uiTheme=std::clamp(theme,0,4);
       int language=0;if(appearance>>language)uiLanguage=std::clamp(language,0,6);
     }
     std::ifstream layout(documentPath("workspace.ini"), std::ios::binary);

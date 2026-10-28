@@ -38,7 +38,7 @@ static void resetMaterialBrowser()
 }
 static std::string materialFolder(const std::string& name)
 {
-  if(gameProfile==2){auto shortName=name.rfind("textures/",0)==0?name.substr(9):name;auto wad=q1MaterialWad.find(shortName);if(wad!=q1MaterialWad.end())return wad->second;}
+  if(gameWad()){auto shortName=name.rfind("textures/",0)==0?name.substr(9):name;auto wad=q1MaterialWad.find(shortName);if(wad!=q1MaterialWad.end())return wad->second;}
   auto slash = name.find_last_of('/');
   return slash == std::string::npos ? "(root)" : name.substr(0, slash);
 }
@@ -222,6 +222,8 @@ static void materialFlagField(
         "Cluster portal", "Do not enter", "Bot clip",     "Mover",      "Origin",
         "Body",           "Corpse",       "Detail",       "Structural", "Translucent",
         "Trigger",        "No drop"};
+      static const char* q2Surfaces[]={"Light","Slick","Sky","Warp","Translucent 33%","Translucent 66%","Flowing","No draw","Hint","Skip"};
+      static const char* q2Contents[32]={"Solid","Window","Auxiliary","Lava","Slime","Water","Mist",nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,"Area portal","Player clip","Monster clip","Current 0","Current 90","Current 180","Current 270","Current up","Current down","Origin","Monster","Dead monster","Detail","Translucent","Ladder",nullptr,nullptr};
       for (unsigned bit = 0; bit < 32; ++bit)
       {
         bool enabled = (flags & (uint32_t(1) << bit)) != 0;
@@ -232,6 +234,7 @@ static void materialFlagField(
           flagName = surfaceNames[bit];
         else if (std::string(op) == "contents")
           flagName = contentNames[bit];
+        if(gameProfile==3)flagName=std::string(op)=="surface"?(bit<10?q2Surfaces[bit]:nullptr):std::string(op)=="contents"?q2Contents[bit]:nullptr;
         const auto name = flagName ? std::string(flagName) + "##" + std::to_string(bit)
                                    : "Bit " + std::to_string(bit);
         if (ImGui::Checkbox(name.c_str(), &enabled))
@@ -325,7 +328,7 @@ static void materialBrowser()
   char current[1024] = {};
   cvars->GetString("ftebroom_current_material", current, sizeof current);
   ImGui::SeparatorText(cvars->GetFloat("ftebroom_face_count") ? "Selected surfaces" : "New brush material");
-  if(gameProfile==2 && *current && current[0]!='<') {
+  if(gameWad() && *current && current[0]!='<') {
     std::string key=current;std::transform(key.begin(),key.end(),key.begin(),[](unsigned char c){return char(std::tolower(c));});if(key.rfind("textures/",0)!=0)key="textures/"+key;
     if(!materials.count(key)) {
       ImGui::TextWrapped("Texture is not present in the connected WADs. Add the WAD containing this texture.");
@@ -334,7 +337,7 @@ static void materialBrowser()
   if (*current && current[0] != '<')
   {
     auto name = std::string(current);
-    if(gameProfile==2)std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return char(std::tolower(c));});
+    if(gameWad())std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return char(std::tolower(c));});
     if (name.rfind("textures/", 0) != 0 && materials.count("textures/" + name))
       name = "textures/" + name;
     ImGui::Image((ImTextureID)thumbnail(name), {52, 52});
@@ -379,7 +382,7 @@ static void materialBrowser()
               + (ImGui::GetIO().KeyCtrl ? "1\n" : "0\n"))
                .c_str());
   }
-  if (gameProfile!=2 && ImGui::CollapsingHeader("Surface attributes"))
+  if (!gameWad() && ImGui::CollapsingHeader("Surface attributes"))
   {
     materialFlagField("Surface Flags", "surface", "ftebroom_surface_flags", 32);
     materialFlagField("Content Flags", "contents", "ftebroom_content_flags", 64);
@@ -394,7 +397,7 @@ static void materialBrowser()
   if(uiTheme==0){ImGui::PopStyleColor(4);ImGui::PopStyleVar();}
   uiInspectorTopEnd("Material browser divider",propertiesHeight);
   ImGui::SeparatorText("Material collections");
-  if(gameProfile==2 && !q1MissingWads.empty()) {
+  if(gameWad() && !q1MissingWads.empty()) {
     ImGui::TextColored({1,.7f,.25f,1},"Missing WAD archives: %zu",q1MissingWads.size());
     if(ImGui::IsItemHovered()){ImGui::BeginTooltip();ImGui::TextUnformatted("The MAP stores texture names, not texture pixels. Reconnect these WADs with Add WAD(s):");for(const auto& path:q1MissingWads)ImGui::TextUnformatted(path.u8string().c_str());ImGui::EndTooltip();}
   }
@@ -439,7 +442,7 @@ static void materialBrowser()
     auto found=materialDimensions.find(name);
     if(found==materialDimensions.end()){
       auto wadSize=q1MaterialDimensions.find(materialCanonical(name));
-      if(gameProfile==2 && wadSize!=q1MaterialDimensions.end())found=materialDimensions.emplace(name,ImVec2(wadSize->second.first,wadSize->second.second)).first;
+      if(gameWad() && wadSize!=q1MaterialDimensions.end())found=materialDimensions.emplace(name,ImVec2(wadSize->second.first,wadSize->second.second)).first;
     }
     if(found==materialDimensions.end()){
       if(!dimensionBudget--){dimensionBudget=0;++dimensionPending;return false;}

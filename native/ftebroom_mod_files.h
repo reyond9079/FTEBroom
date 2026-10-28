@@ -58,7 +58,7 @@ static void modFileImportMap(const std::filesystem::path& path,float x,float y) 
   if(bytes.empty()||bytes.size()>16*1024*1024)throw std::runtime_error("Import requires a MAP file up to 16 MiB.");
   auto profile=ftebroom::mapProfile(bytes);
   if(profile.terrain)throw std::runtime_error("Terrain maps cannot be imported as brush geometry.");
-  if(profile.profile>=0 && (profile.profile==2)!=(gameProfile==2))throw std::runtime_error("Import a map from the same game family; Quake 1 and Quake 3 materials are not interchangeable.");
+  if(profile.profile>=0 && (profile.profile>=2?profile.profile:0)!=(gameProfile>=2?gameProfile:0))throw std::runtime_error("Import a map from the same game family; Quake 1 and Quake 3 materials are not interchangeable.");
   qhandle_t handle;
   if(files->Open("data/import-in.map",&handle,2)<0)throw std::runtime_error("Cannot stage the imported map.");
   files->Write(handle,bytes.data(),static_cast<int>(bytes.size()));files->Close(handle);
@@ -156,13 +156,11 @@ static std::filesystem::path modFilesEditPending;
 static bool modFilesTextDirty(){return modFilesEditOpen&&modFilesEditOriginal!=modFilesEditBuffer.data();}
 static void modFilesDelete(const std::filesystem::path& path){
   modFileValidate(path);
-  for(const auto& root:modFileRoots())if(path==root)throw std::runtime_error("Cannot delete a configured root.");
-  if(modFileMember(path)){ftebroom::pak::erase(path);modFilesError="Deleted archive member; the original archive was backed up alongside it.";}
+  for(const auto& root:modFileRoots())if(std::filesystem::weakly_canonical(path)==std::filesystem::weakly_canonical(root))throw std::runtime_error("Cannot delete a configured root.");
+  if(modFileMember(path)){ftebroom::pak::erase(path);modFilesError="Deleted archive member.";}
   else {
     if(std::filesystem::is_symlink(path))throw std::runtime_error("Symbolic links are not deleted.");
-    auto trash=path.parent_path()/".ftebroom-trash";std::filesystem::create_directories(trash);
-    auto backup=trash/(std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count())+"-"+path.filename().u8string());
-    std::filesystem::rename(path,backup);modFilesError="Deleted; recoverable copy: "+backup.u8string();
+    std::filesystem::remove_all(path);modFilesError="Deleted.";
   }
   modFilesRefresh=true;
 }
@@ -315,7 +313,7 @@ static void modFilesPanel() {
           ImGui::BeginDisabled(wadBrowseMember(path));
           if(ImGui::MenuItem("Cut")){modFilesClipboard=path;modFilesCut=true;}
           if(ImGui::MenuItem("Paste",nullptr,false,!modFilesClipboard.empty())){try{modFilesPaste();}catch(const std::exception& e){modFilesError=e.what();}}
-          if(ImGui::MenuItem("Delete (keep backup)")){try{modFilesDelete(path);}catch(const std::exception& e){modFilesError=e.what();}}
+          if(ImGui::MenuItem("Delete")){try{modFilesDelete(path);}catch(const std::exception& e){modFilesError=e.what();}}
           if(ImGui::MenuItem("Rename...")){modFilesRename=path;std::snprintf(modFilesRenameName,sizeof modFilesRenameName,"%s",label.c_str());}
           ImGui::EndDisabled();
           if(!directory&&modFileText(path)&&ImGui::MenuItem("Edit text...")){try{modFilesEdit(path);}catch(const std::exception& e){modFilesError=e.what();}}

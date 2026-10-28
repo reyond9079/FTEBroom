@@ -16,14 +16,21 @@ static bool gamePreviewAfterBuild=false;
 static char gameDefinitions[1024]="";
 static char gameQC[1024]="";
 static char q1Mod[1024]="",q1Wads[8192]="",q1Definitions[1024]="";
+static char q2Mod[1024]="",hlMod[1024]="",hlWads[8192]="",hlDefinitions[1024]="",q2Definitions[1024]="";
+static int hlRuntime=0;
+static bool gameClassic(){return gameProfile>=2;}
+static bool gameWad(){return gameProfile==2||gameProfile==4;}
+static const char* gameProfileNames="Quake III Arena\0FTE Custom game\0Quake 1\0Quake II\0Half-Life\0";
+static const char* gameProfileKey(int p){return p==4?"halflife":p==3?"quake2":p==2?"quake1":p==1?"when-the-sky-went-dark":"quake3";}
 static std::string q3Root;
 static int q1MapFormat=1,q1BspFormat=0;
-static const char* gameProfileName(){return gameProfile==2?"Quake 1":gameProfile==1?"FTE Custom game":"Quake III Arena";}
-static std::string q1Authoring(){return q1UseLibre?libreMod():q1Mod;}
-static std::string gameRuntime(){return gameProfile==2?q1Authoring():gameMod;}
+static const char* gameProfileName(){return gameProfile==4?"Half-Life":gameProfile==3?"Quake II":gameProfile==2?"Quake 1":gameProfile==1?"FTE Custom game":"Quake III Arena";}
+static std::string q1Authoring(){return gameProfile==4?std::string(hlMod):q1UseLibre?libreMod():q1Mod;}
+static std::string gameRuntime(){return gameProfile==3?std::string(q2Mod):gameWad()?q1Authoring():gameMod;}
 // Standard Quake layout: id1 supplies base assets, the selected mod overrides them.
 static std::string q1BaseDirectory(){
   auto mod=std::filesystem::u8path(q1Authoring());
+  if(gameProfile==4){auto base=mod.parent_path()/"valve";return base!=mod&&std::filesystem::is_directory(base)?base.generic_u8string():std::string{};}
   if(mod.empty()||q1UseLibre||ftebroom::quakeId1(mod))return {};
   auto base=mod.parent_path()/"id1";
   return base!=mod&&std::filesystem::is_directory(base)?base.generic_u8string():std::string{};
@@ -39,9 +46,15 @@ static void gameProfileLoad()
     // Earlier versions enabled mod launch implicitly. Require a new explicit opt-in.
     int previewPolicy=0;input>>previewPolicy;input>>gameWallMode;gameWallMode=std::clamp(gameWallMode,0,4);
     std::string wall;if(input>>std::quoted(wall))std::snprintf(gameWallFile,sizeof gameWallFile,"%s",wall.c_str());
-    gameProfile=std::clamp(selected,0,2);gamePreviewAfterBuild=previewPolicy==1 && automatic!=0;
+    gameProfile=std::clamp(selected,0,4);gamePreviewAfterBuild=previewPolicy==1 && automatic!=0;
     std::snprintf(gameMod,sizeof gameMod,"%s",mod.c_str());
     std::snprintf(gameEngine,sizeof gameEngine,"%s",engine.c_str());
+  }
+  std::ifstream legacy(settingsPath().parent_path()/"reyondbroom-legacy-games.txt");
+  std::string q2,hl,hw,hd,qd;
+  if(legacy>>std::quoted(q2)>>std::quoted(hl)>>std::quoted(hw)>>std::quoted(hd)>>std::quoted(qd)>>hlRuntime){
+    std::snprintf(q2Mod,sizeof q2Mod,"%s",q2.c_str());std::snprintf(hlMod,sizeof hlMod,"%s",hl.c_str());
+    std::snprintf(hlWads,sizeof hlWads,"%s",hw.c_str());std::snprintf(hlDefinitions,sizeof hlDefinitions,"%s",hd.c_str());std::snprintf(q2Definitions,sizeof q2Definitions,"%s",qd.c_str());hlRuntime=std::clamp(hlRuntime,0,1);
   }
   std::ifstream quake(settingsPath().parent_path()/"ftebroom-quake1.txt");
   std::string root,wads,defs;
@@ -61,7 +74,9 @@ static bool gameProfileSave()
   output.close();
   std::ofstream quake(settingsPath().parent_path()/"ftebroom-quake1.txt");
   quake<<std::quoted(std::string())<<' '<<std::quoted(q1Mod)<<' '<<std::quoted(q1Wads)<<' '<<std::quoted(q1Definitions)<<' '<<q1MapFormat<<' '<<q1BspFormat<<' '<<std::quoted(q3Root)<<' '<<q1UseLibre<<'\n';
-  quake.close();return bool(output)&&bool(quake);
+  quake.close();std::ofstream legacy(settingsPath().parent_path()/"reyondbroom-legacy-games.txt");
+  legacy<<std::quoted(q2Mod)<<' '<<std::quoted(hlMod)<<' '<<std::quoted(hlWads)<<' '<<std::quoted(hlDefinitions)<<' '<<std::quoted(q2Definitions)<<' '<<hlRuntime<<'\n';legacy.close();
+  return bool(output)&&bool(quake)&&bool(legacy);
 }
 #include "ftebroom_setup_choices.h"
 static void gameProfileFields(bool wizard=false)
@@ -69,12 +84,22 @@ static void gameProfileFields(bool wizard=false)
   gameProfileLoad();
   ImGui::BeginDisabled(gameProfileLocked);
   int old=gameProfile;
-  if(!wizard && ImGui::Combo("Game profile",&gameProfile,"Quake III Arena\0FTE Custom game\0Quake 1\0")) {
-    if(old!=2)q3Root=baseq3;
-    std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==2?q1Authoring().c_str():q3Root.c_str());
+  if(!wizard && ImGui::Combo("Game profile",&gameProfile,gameProfileNames)) {
+    if(old<2)q3Root=baseq3;
+    std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==3?q2Mod:gameWad()?q1Authoring().c_str():q3Root.c_str());
   }
   if(gameProfile==2) {
     setupQuakeModFields();
+  }
+  if(gameProfile==3||gameProfile==4){
+    auto path=gameProfile==3?q2Mod:hlMod;ImGui::InputText(gameProfile==3?"Quake II mod directory":"Half-Life mod directory",path,1024);
+    ImGui::TextWrapped(gameProfile==3?"Choose baseq2 or a mod directory. A sibling baseq2 supplies base resources. PAK archives and WAL textures are supported.":"Choose valve for Half-Life or cstrike for Counter-Strike 1.5. A sibling valve supplies base resources. WAD3 textures retain their own palettes.");
+    if(gameProfile==4){ImGui::Combo("Game runtime",&hlRuntime,"FreeHL (Half-Life)\0FreeCS (Counter-Strike 1.5)\0");ImGui::TextWrapped("Runtime installation adds a separate ReyondBroom package. Original game files are not replaced. Retail assets are required; arbitrary DLL mods are not supported by FreeHL/FreeCS.");}
+    if(ImGui::CollapsingHeader("Advanced settings")){
+      ImGui::InputText("Entity definitions (optional .fgd / .def / .ent)",gameProfile==3?q2Definitions:hlDefinitions,1024);
+      if(gameProfile==4)ImGui::InputTextMultiline("Additional WAD3 archives (optional, one path per line)",hlWads,sizeof hlWads,{0,60*uiScale()});
+      ImGui::TextUnformatted(gameProfile==3?"MAP: Valve 220 with Q2 surface flags | BSP: IBSP 38":"MAP: Valve 220 | BSP: GoldSrc 30");
+    }
   }
   if(gameProfile==1) {
     ImGui::InputText("Runtime mod directory (optional for mapping)",gameMod,sizeof gameMod);
@@ -93,7 +118,11 @@ static void gameProfileFields(bool wizard=false)
 
 static std::string gameDefinitionPath()
 {
-  gameProfileLoad();if(gameProfile==2){
+  gameProfileLoad();if(gameProfile>=3){
+    auto overridePath=gameProfile==3?q2Definitions:hlDefinitions;if(*overridePath)return overridePath;
+    auto found=ftebroom::discoverModDefinitions(std::filesystem::u8path(gameRuntime()));
+    return !found.empty()?found:gameProfile==3?"quake2.fgd":hlRuntime?"counterstrike.fgd":"halflife.fgd";
+  }if(gameProfile==2){
     if(*q1Definitions)return q1Definitions;
     auto detected=ftebroom::discoverModDefinitions(std::filesystem::u8path(q1Authoring()));
     return !detected.empty()?detected:q1UseLibre?"librequake.def":"quake1.ent";

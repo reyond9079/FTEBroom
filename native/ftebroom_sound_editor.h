@@ -10,6 +10,7 @@ static std::array<ImVec2,1024> soundPeaks;
 static float soundVolume=1,soundSpeed=1,soundStart=0,soundEnd=0;
 static double soundPlayCursor=0,soundQueueClock=0;
 static int soundTool=0;
+static ImVec2 soundVolumeMin,soundVolumeMax;
 static plugaudiofuncs_t* soundAPI;
 struct SoundJobResult {std::string bytes,error;bool save=false;};
 static std::future<SoundJobResult> soundJob;
@@ -119,8 +120,8 @@ static void soundPanel(){
       if(ImGui::IsItemActive()&&(ImGui::IsItemActivated()||ImGui::GetIO().MouseDelta.x!=0)){float current=std::clamp((ImGui::GetIO().MousePos.x-p.x)/sz.x,0.f,1.f)*duration;if(soundTool==1){soundStart=std::min(anchor,current);soundEnd=std::max(anchor,current);soundTrim=true;soundStop();}else soundSeek(current,true);}
       {float x=p.x+sz.x*float(soundPlayCursor/44100)/duration;d->AddLine({x,p.y},{x,p.y+sz.y},IM_COL32(255,210,75,255),2);}}
     d->PopClipRect();
-    bool changed=ImGui::SliderFloat("Volume",&soundVolume,0,2,"%.2fx");changed|=ImGui::SliderFloat("Speed",&soundSpeed,.25f,4,"%.2fx");
-    if(soundTool==1)changed|=ImGui::DragFloatRange2("Selection",&soundStart,&soundEnd,.01f,0,std::max(.01f,duration),"Start %.3f s","End %.3f s");if(changed)soundStop();
+    ImGui::SliderFloat("Volume",&soundVolume,0,2,"%.2fx");soundVolumeMin=ImGui::GetItemRectMin();soundVolumeMax=ImGui::GetItemRectMax();ImGui::SliderFloat("Speed",&soundSpeed,.25f,4,"%.2fx");
+    if(soundTool==1&&ImGui::DragFloatRange2("Selection",&soundStart,&soundEnd,.01f,0,std::max(.01f,duration),"Start %.3f s","End %.3f s"))soundStop();
     if(soundTool==1)ImGui::Checkbox("Apply trim when saving",&soundTrim);ImGui::Text("%.3f s / %.3f s",std::max(0.f,soundEnd-soundStart)/soundSpeed,duration);
     ImGui::BeginDisabled(soundRangeEnd()<=soundRangeStart()||!soundAPI);if(ImGui::Button(soundPlaying?"Pause":"Play")){if(soundPlaying)soundStop();else{double cursor=soundPlayCursor/44100;if(cursor<soundRangeStart()||cursor>=soundRangeEnd())cursor=soundRangeStart();soundSeek(cursor,true);}}ImGui::EndDisabled();ImGui::SameLine();if(ImGui::Button("Stop")){soundStop();soundPlayCursor=soundRangeStart()*44100;}
     ImGui::SameLine();ImGui::BeginDisabled(soundTrim&&soundEnd<=soundStart);if(ImGui::Button("Save with backup"))soundLaunch(true);ImGui::EndDisabled();ImGui::EndDisabled();

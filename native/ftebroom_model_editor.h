@@ -109,6 +109,7 @@ static void modelEditPublish(){
   cvars->SetFloat("ftebroom_modeleditor_count",modelEditNodes.size()-1);modelEditChanged=false;
 }
 static void modelEditExport(){
+  if(modelViewerStudio){modelConverterShow(modelViewerPath);return;}
   if(!modelEditLoaded){modelEditMessage="Wait for model metadata before exporting.";return;}
   if(modelConverterPending){modelEditMessage="Wait for the current export to finish.";return;}
   if(!modelEditValid())return;
@@ -172,6 +173,7 @@ static void modelEditorInspector(){
     ImGui::Text("Size: %.3f, %.3f, %.3f",high[0]-low[0],high[1]-low[1],high[2]-low[2]);
     ImGui::TextWrapped("Orbit, fly and pan in the preview. View contains floor grid, origin axes and reset camera.");return;
   }
+  if(modelViewerStudio){ImGui::TextUnformatted("GoldSrc studio model");ImGui::TextWrapped("Textured animation, skins and bones are available. Mesh transforms require conversion to an editable format such as MD3. Export model as... opens the converter.");return;}
   modelEditLoad();
   ImGui::TextUnformatted("Model editor");ImGui::TextDisabled("Source file is not modified. Export to save.");
   if(modelEditNodes.empty()){ImGui::TextWrapped("Loading editable mesh metadata...");return;}

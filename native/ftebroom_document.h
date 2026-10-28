@@ -67,19 +67,20 @@ static std::filesystem::path documentDefaultFolder()
 static std::string documentMetadata(std::string bytes)
 {
   if(bytes.rfind("// ReyondBroom profile=",0)==0 || bytes.rfind("// FTEBroom profile=",0)==0)bytes.erase(0,bytes.find('\n')+1);
-  const char* profile=gameProfile==2?"quake1":gameProfile==1?"when-the-sky-went-dark":"quake3";
-  const char* format=documentTerrain?"fte-terrain":gameProfile==2?(q1MapFormat?"valve220":"quake-standard"):"quake3";
+  const char* profile=gameProfileKey(gameProfile);
+  const char* format=documentTerrain?"fte-terrain":gameProfile>=3?"valve220":gameProfile==2?(q1MapFormat?"valve220":"quake-standard"):"quake3";
   return std::string("// ReyondBroom profile=")+profile+" format="+format+"\n"+bytes;
 }
 static void documentSelectProfile(const std::string& bytes)
 {
   auto header=ftebroom::mapProfile(bytes);int selected=header.profile;
   if(selected<0&&!pendingDocumentFile.empty()){recentLoad();for(const auto& entry:recentMaps)if(entry.path==pendingDocumentFile.lexically_normal().u8string()){selected=entry.profile;break;}}
-  documentTerrain=header.terrain;if(header.format>=0)q1MapFormat=header.format;
+  documentTerrain=header.terrain;if(header.profile==2&&header.format>=0)q1MapFormat=header.format;
   if(selected<0 || selected==gameProfile)return;
-  if(gameProfile!=2)q3Root=baseq3;
+  if(gameProfile<2)q3Root=baseq3;
+  q1MapWads.clear();q1MissingMapWads.clear();q1DocumentPak.clear();
   gameProfile=selected;
-  std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==2?q1Authoring().c_str():q3Root.c_str());
+  std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==3?q2Mod:gameWad()?q1Authoring().c_str():q3Root.c_str());
   gameProfileSave();if(!mountAssets())setupNeeded=true;
 }
 static void terrainCopySections(const std::filesystem::path& from,const std::filesystem::path& to)
@@ -149,9 +150,9 @@ static void documentProceed()
   if (next == "exit")
     action("quit force\n");
   else if (next.rfind("__profile:",0)==0) {
-    int selected=std::atoi(next.c_str()+10);if(selected<0||selected>2)return;
-    if(gameProfile!=2)q3Root=baseq3;gameProfile=selected;
-    std::snprintf(baseq3,sizeof baseq3,"%s",selected==2?q1Authoring().c_str():q3Root.c_str());
+    int selected=std::atoi(next.c_str()+10);if(selected<0||selected>4)return;
+    if(gameProfile<2)q3Root=baseq3;gameProfile=selected;
+    std::snprintf(baseq3,sizeof baseq3,"%s",selected==3?q2Mod:(selected==2||selected==4)?q1Authoring().c_str():q3Root.c_str());
     q1MapWads.clear();q1MissingMapWads.clear();q1DocumentPak.clear();
     gameProfileSave();if(!mountAssets())setupNeeded=true;
     documentTerrain=false;documentUntitled=true;documentFile.clear();pendingDocumentFile.clear();pendingDocumentAlias.clear();documentName="untitled";
@@ -177,7 +178,7 @@ static void documentProceed()
       const auto source=q1Read(pendingDocumentFile);
       profileLoad("map_read",prepareStarted);
       documentSelectProfile(source);
-      if(gameProfile==2){std::string member;std::filesystem::path archive;ftebroom::pak::split(pendingDocumentFile,archive,member);bool changed=archive!=q1DocumentPak;q1DocumentPak=archive;q1MapFormat=ftebroom::quake1::valveMap(source)?1:0;if(q1DiscoverWads(source,pendingDocumentFile)||changed){gameProfileSave();mountAssets();}}
+      if(gameWad()){std::string member;std::filesystem::path archive;ftebroom::pak::split(pendingDocumentFile,archive,member);bool changed=archive!=q1DocumentPak;q1DocumentPak=archive;if(gameProfile==2)q1MapFormat=ftebroom::quake1::valveMap(source)?1:0;if(q1DiscoverWads(source,pendingDocumentFile)||changed){gameProfileSave();mountAssets();}}
       pendingDocumentAlias =
         "_ftebroom_open_"
         + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())
@@ -287,13 +288,13 @@ static void documentSaveFinished()
       throw std::runtime_error("The engine did not write the map.");
     std::filesystem::path archive;std::string member;
     bool packed=ftebroom::pak::split(target,archive,member);
-    if(packed){if(savingExport)throw std::runtime_error("Export compiler input to a folder, not a PAK.");auto bytes=ftebroom::quake1::map(q1Read(source),q1MapFormat==0,q1WadList(),true);ftebroom::pak::replace(target,documentMetadata(bytes));}
+    if(packed){if(savingExport)throw std::runtime_error("Export compiler input to a folder, not a PAK.");auto bytes=gameWad()?ftebroom::quake1::map(q1Read(source),gameProfile==2&&q1MapFormat==0,q1WadList(),true,gameProfile==4):q1Read(source);ftebroom::pak::replace(target,documentMetadata(bytes));}
     else {
     std::filesystem::create_directories(target.parent_path());
     // Stage beside the destination so replacement remains atomic across drives.
     auto adjacent = target;
     adjacent += ".ftebroom-" + std::to_string(saveSerial) + ".tmp";
-    if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path(),q1Read(source)):q1WadList(),true);
+    if(gameWad()){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:gameProfile==2&&q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path(),q1Read(source)):q1WadList(),true,gameProfile==4);
       std::ofstream output(adjacent,std::ios::binary);output<<(savingExport?converted:documentMetadata(converted));output.close();if(!output)throw std::runtime_error("Cannot write Quake map.");}
     else {std::ofstream output(adjacent,std::ios::binary);auto bytes=q1Read(source);output<<(savingExport?bytes:documentMetadata(bytes));output.close();if(!output)throw std::runtime_error("Cannot write map.");}
 #ifdef _WIN32
@@ -554,7 +555,7 @@ static void documentFileBrowser()
       fileBrowserSaving ? (documentName + (fileBrowserObj ? ".obj" : ".map")).c_str() : "");
     if(fileBrowserNew){
       std::snprintf(fileBrowserName,sizeof fileBrowserName,"untitled.map");
-      auto root=newMapProfile==2?q1Authoring():std::string(baseq3);
+      auto root=newMapProfile==3?std::string(q2Mod):newMapProfile==4?std::string(hlMod):newMapProfile==2?(q1UseLibre?libreMod():std::string(q1Mod)):std::string(baseq3);
       fileBrowserFolder=root.empty()?documentPath("maps"):std::filesystem::u8path(root)/"maps";
       std::snprintf(fileBrowserPath,sizeof fileBrowserPath,"%s",fileBrowserFolder.u8string().c_str());
     }
@@ -566,8 +567,8 @@ static void documentFileBrowser()
   {
     if(fileBrowserNew) {
       ImGui::TextUnformatted("Create a new map: choose its game profile and destination.");
-      if(ImGui::Combo("Game profile",&newMapProfile,"Quake III Arena\0FTE Custom game\0Quake 1\0")) {
-        auto root=newMapProfile==2?q1Authoring():(gameProfile!=2?std::string(baseq3):q3Root);
+      if(ImGui::Combo("Game profile",&newMapProfile,gameProfileNames)) {
+        auto root=newMapProfile==3?std::string(q2Mod):newMapProfile==4?std::string(hlMod):newMapProfile==2?(q1UseLibre?libreMod():std::string(q1Mod)):q3Root;
         fileBrowserFolder=root.empty()?documentPath("maps"):std::filesystem::u8path(root)/"maps";
         std::snprintf(fileBrowserPath,sizeof fileBrowserPath,"%s",fileBrowserFolder.u8string().c_str());
       }
@@ -627,7 +628,7 @@ static void documentFileBrowser()
     {
       std::error_code error;
       auto folder = std::filesystem::u8path(fileBrowserPath);
-      if (std::filesystem::is_directory(folder, error) || (gameProfile==2 && [&](){try{ftebroom::pak::list(folder);return true;}catch(...){return false;}}()))
+      if (std::filesystem::is_directory(folder, error) || (gameClassic() && [&](){try{ftebroom::pak::list(folder);return true;}catch(...){return false;}}()))
       {
         fileBrowserFolder = folder;
         documentError.clear();
@@ -641,7 +642,7 @@ static void documentFileBrowser()
     try {
       auto found=ftebroom::pak::list(fileBrowserFolder);
       for(const auto& entry:found){auto extension=entry.second.extension().u8string();std::transform(extension.begin(),extension.end(),extension.begin(),::tolower);
-        bool pak=extension==".pak";bool allowedPak=gameProfile==2&&!fileBrowserDefinitions&&!fileBrowserTrace&&!fileBrowserObj;
+        bool pak=extension==".pak";bool allowedPak=gameClassic()&&!fileBrowserDefinitions&&!fileBrowserTrace&&!fileBrowserObj;
         if(pak&&!allowedPak)continue;
         if(entry.first || (fileBrowserObj ? extension==".obj" : fileBrowserTrace ? extension==(fileBrowserTrace==1?".lin":".prt") : fileBrowserDefinitions ? (extension==".ent"||extension==".def"||extension==".fgd") : extension==".map"))entries.push_back(entry);
       }
@@ -712,9 +713,9 @@ static void documentFileBrowser()
         try {
           if(std::filesystem::exists(target))throw std::runtime_error("Choose a new filename; existing maps are not replaced.");
           std::filesystem::create_directories(target.parent_path());
-          const char* profile=newMapProfile==2?"quake1":newMapProfile==1?"when-the-sky-went-dark":"quake3";
+          const char* profile=gameProfileKey(newMapProfile);
           std::ofstream out(target,std::ios::binary);
-          out<<"// ReyondBroom profile="<<profile<<" format="<<(newMapProfile==2?(q1MapFormat?"valve220":"quake-standard"):"quake3")<<"\n{\n\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \""<<(newMapProfile!=0?"info_player_start":"info_player_deathmatch")<<"\"\n\"origin\" \"0 0 64\"\n}\n";
+          out<<"// ReyondBroom profile="<<profile<<" format="<<(newMapProfile>=3?"valve220":newMapProfile==2?(q1MapFormat?"valve220":"quake-standard"):"quake3")<<"\n{\n\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \""<<(newMapProfile!=0?"info_player_start":"info_player_deathmatch")<<"\"\n\"origin\" \"0 0 64\"\n}\n";
           out.close();if(!out)throw std::runtime_error("Cannot create map.");
           documentNext="@"+target.u8string();documentProceed();fileBrowserNew=false;ImGui::CloseCurrentPopup();
         }catch(const std::exception& e){documentError=e.what();}

@@ -42,7 +42,7 @@ int fb_land_apply()
         int model=selection[b].model,id=selection[b].id;patchinfo_t info;
         int cp=patch_getcp(model,id,__NULL__,0,&info);
         if(cp) {
-            if(cvar("ftebroom_quake1")){valid=FALSE;fb_geom_error="Quake 1 does not support patches";break;}
+            if(cvar("ftebroom_classic_map")){valid=FALSE;fb_geom_error="Quake 1 does not support patches";break;}
             patchvert_t *points=memalloc(cp*sizeof(patchvert_t));patch_getcp(model,id,points,cp,&info);info.shadername=strzone(info.shadername);
             int width=bound(3,cvar("ftebroom_land_patch_u"),31)|1,heightPoints=bound(3,cvar("ftebroom_land_patch_v"),31)|1;
             for(int dim=0;dim<2;dim++) {

@@ -15,7 +15,7 @@ static void newWadCreate(){
         auto name=std::filesystem::u8path(newWadName);if(name.empty()||name.has_parent_path()||name=="."||name=="..")throw std::runtime_error("Enter a filename, without directories.");
         name.replace_extension(".wad");auto target=newWadFolder/name;
         if(ftebroom::pak::exists(target)||std::filesystem::exists(target))throw std::runtime_error("A file with that name already exists.");
-        std::string bytes("WAD2",4);bytes.resize(12,0);bytes[8]=12;
+        std::string bytes(gameProfile==4?"WAD3":"WAD2",4);bytes.resize(12,0);bytes[8]=12;
         if(modFilePacked(newWadFolder)){modFileValidate(target);ftebroom::pak::replace(target,bytes);}
         else {if(!std::filesystem::is_directory(newWadFolder))throw std::runtime_error("Choose an existing directory.");std::ofstream out(target,std::ios::binary);out.write(bytes.data(),bytes.size());out.close();if(!out)throw std::runtime_error("Cannot create WAD.");}
         if(newWadForImport)newWadCreated=target;modFilesRefresh=true;newWadOpen=false;
@@ -39,7 +39,7 @@ static void assetToolsPanel(){
     if(ImGui::Begin("New WAD",&newWadOpen,ImGuiWindowFlags_NoCollapse)){
       ImGui::TextWrapped("Directory: %s",newWadFolder.u8string().c_str());ImGui::InputText("Filename",newWadName,sizeof newWadName);
       if(!newWadError.empty())ImGui::TextWrapped("%s",newWadError.c_str());
-      if(ImGui::Button("Create WAD2"))try{
+      if(ImGui::Button(gameProfile==4?"Create WAD3":"Create WAD2"))try{
         newWadCreate();
       }catch(const std::exception& e){newWadError=e.what();}
       ImGui::SameLine();if(ImGui::Button("Cancel"))newWadOpen=false;

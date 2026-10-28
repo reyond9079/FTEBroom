@@ -1,36 +1,40 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "ftebroom_bsp_atlas.h"
+#include "ftebroom_legacy_images.h"
 namespace ftebroom::bspUV {
 using UV=std::array<float,2>;
 struct Material {std::string name;unsigned width=0,height=0;std::string image;std::vector<std::array<UV,2>> edges;};
-inline std::vector<Material> read(const std::string& source,const std::string& palette){
+inline std::vector<Material> read(const std::string& source,const std::string& palette,const std::map<std::string,std::string>& wals={}){
   using quake1::word;using quake1::range;using bspAtlas::real;using bspAtlas::u16;
-  bool q3=source.substr(0,4)=="IBSP",bsp2=source.substr(0,4)=="BSP2"||source.substr(0,4)=="2PSB";
-  if((q3&&word(source,4)!=46)||(!q3&&!bsp2&&word(source,0)!=29))throw std::runtime_error("UV view supports BSP29, BSP2 and Quake III IBSP46.");
-  unsigned header=q3?8:4,count=q3?17:15;range(source,header,count*8);
+  bool q2=source.substr(0,4)=="IBSP"&&word(source,4)==38,hl=source.size()>=4&&word(source,0)==30,q3=source.substr(0,4)=="IBSP"&&!q2,bsp2=source.substr(0,4)=="BSP2"||source.substr(0,4)=="2PSB";
+  if((q3&&word(source,4)!=46)||(!q3&&!q2&&!hl&&!bsp2&&word(source,0)!=29))throw std::runtime_error("UV view supports BSP29, BSP2 and Quake III IBSP46.");
+  unsigned header=(q3||q2)?8:4,count=q3?17:q2?19:15;range(source,header,count*8);
   std::vector<std::string> lumps(count);for(unsigned i=0;i<count;i++){auto off=word(source,header+i*8),size=word(source,header+i*8+4);range(source,off,size);lumps[i]=source.substr(off,size);}
   std::vector<Material> result;std::map<unsigned,size_t> indices;uint64_t pixels=0,edges=0;
   auto material=[&](unsigned id)->Material&{
     auto found=indices.find(id);if(found!=indices.end())return result[found->second];
     if(result.size()>=4096)throw std::runtime_error("UV material limit exceeded.");
     Material m;
-    if(q3){range(lumps[1],size_t(id)*72,72);m.name=quake1::name(lumps[1],size_t(id)*72,64);}
+    if(q2){range(lumps[5],size_t(id)*76,76);m.name=quake1::name(lumps[5],size_t(id)*76+40,32);auto found=wals.find(m.name);if(found!=wals.end()){auto t=legacy::wal(found->second,palette);m.width=t.width;m.height=t.height;m.image=quake1::tga(t,palette);}else m.width=m.height=512;}
+    else if(q3){range(lumps[1],size_t(id)*72,72);m.name=quake1::name(lumps[1],size_t(id)*72,64);}
     else{
       auto& l=lumps[2];auto n=word(l,0);if(id>=n)throw std::runtime_error("Invalid BSP texture index.");auto off=word(l,4+size_t(id)*4);range(l,off,40);
       m.name=quake1::name(l,off,16);m.width=word(l,off+16);m.height=word(l,off+20);
       if(!m.width||!m.height||m.width>8192||m.height>8192)throw std::runtime_error("Invalid UV texture size.");
-      auto data=word(l,off+24);if(data&&palette.size()==768){
+      auto data=word(l,off+24);std::string colours=palette;
+      if(hl&&data){size_t end=40;for(int mip=0;mip<4;mip++)end=std::max(end,size_t(word(l,off+24+4*mip))+size_t(m.width>>mip)*(m.height>>mip));range(l,off+end,770);if(u16(l,off+end)!=256)throw std::runtime_error("Invalid GoldSrc texture palette.");colours=l.substr(off+end+2,768);}
+      if(data&&colours.size()==768){
         pixels+=uint64_t(m.width)*m.height;if(pixels>33554432)throw std::runtime_error("Embedded UV images exceed 32 million pixels.");
         range(l,size_t(off)+data,size_t(m.width)*m.height);bspAtlas::Image image;image.width=m.width;image.height=m.height;image.rgba.resize(size_t(m.width)*m.height*4);
-        for(size_t p=0;p<size_t(m.width)*m.height;p++){unsigned c=(unsigned char)l[size_t(off)+data+p];for(int a=0;a<3;a++)image.rgba[p*4+a]=(unsigned char)palette[c*3+a];image.rgba[p*4+3]=!m.name.empty()&&m.name[0]=='{'&&c==255?0:255;}
+        for(size_t p=0;p<size_t(m.width)*m.height;p++){unsigned c=(unsigned char)l[size_t(off)+data+p];for(int a=0;a<3;a++)image.rgba[p*4+a]=(unsigned char)colours[c*3+a];image.rgba[p*4+3]=!m.name.empty()&&m.name[0]=='{'&&c==255?0:255;}
         m.image=bspAtlas::tga(image);
       }
     }
     indices[id]=result.size();result.push_back(std::move(m));return result.back();
   };
   auto edge=[&](Material& m,UV a,UV b){for(float v:{a[0],a[1],b[0],b[1]})if(!std::isfinite(v)||std::abs(v)>1e7f)throw std::runtime_error("Invalid BSP UV coordinate.");if(++edges>2000000)throw std::runtime_error("UV edge limit exceeded.");m.edges.push_back({a,b});};
-  auto& surfaces=lumps[q3?13:7];unsigned stride=q3?104:bsp2?28:20;if(surfaces.size()%stride)throw std::runtime_error("Invalid BSP face records.");
+  auto& surfaces=lumps[q3?13:q2?6:7];unsigned stride=q3?104:bsp2?28:20;if(surfaces.size()%stride)throw std::runtime_error("Invalid BSP face records.");
   for(size_t at=0;at<surfaces.size();at+=stride){
     if(q3){
       unsigned type=word(surfaces,at+8);if(type!=1&&type!=2&&type!=3)continue;auto& m=material(word(surfaces,at));
@@ -47,10 +51,10 @@ inline std::vector<Material> read(const std::string& source,const std::string& p
         for(unsigned i=0;i<total;i+=3){UV a=uv(word(lumps[11],size_t(start+i)*4)),b=uv(word(lumps[11],size_t(start+i+1)*4)),c=uv(word(lumps[11],size_t(start+i+2)*4));edge(m,a,b);edge(m,b,c);edge(m,c,a);}
       }
     }else{
-      unsigned ti=bsp2?word(surfaces,at+16):u16(surfaces,at+10);range(lumps[6],size_t(ti)*40,40);auto& m=material(word(lumps[6],size_t(ti)*40+32));
-      unsigned n=bsp2?word(surfaces,at+12):u16(surfaces,at+8),first=word(surfaces,at+(bsp2?8:4));if(n>65536)throw std::runtime_error("Invalid BSP face size.");range(lumps[13],size_t(first)*4,size_t(n)*4);std::vector<UV> points;
-      for(unsigned i=0;i<n;i++){int32_t e=int32_t(word(lumps[13],size_t(first+i)*4));if(e==INT32_MIN)throw std::runtime_error("Invalid BSP edge.");size_t record=size_t(e<0?-e:e)*(bsp2?8:4);unsigned v=bsp2?word(lumps[12],record+(e<0?4:0)):u16(lumps[12],record+(e<0?2:0));range(lumps[3],size_t(v)*12,12);UV p{};
-        for(int a=0;a<2;a++){p[a]=real(lumps[6],size_t(ti)*40+a*16+12);for(int k=0;k<3;k++)p[a]+=real(lumps[6],size_t(ti)*40+a*16+k*4)*real(lumps[3],size_t(v)*12+k*4);p[a]/=a?m.height:m.width;}points.push_back(p);
+      unsigned ti=bsp2?word(surfaces,at+16):u16(surfaces,at+10),ts=q2?76:40,tl=q2?5:6,el=q2?11:12,sl=q2?12:13,vl=q2?2:3;range(lumps[tl],size_t(ti)*ts,ts);auto& m=material(q2?ti:word(lumps[tl],size_t(ti)*ts+32));
+      unsigned n=bsp2?word(surfaces,at+12):u16(surfaces,at+8),first=word(surfaces,at+(bsp2?8:4));if(n>65536)throw std::runtime_error("Invalid BSP face size.");range(lumps[sl],size_t(first)*4,size_t(n)*4);std::vector<UV> points;
+      for(unsigned i=0;i<n;i++){int32_t e=int32_t(word(lumps[sl],size_t(first+i)*4));if(e==INT32_MIN)throw std::runtime_error("Invalid BSP edge.");size_t record=size_t(e<0?-e:e)*(bsp2?8:4);unsigned v=bsp2?word(lumps[el],record+(e<0?4:0)):u16(lumps[el],record+(e<0?2:0));range(lumps[vl],size_t(v)*12,12);UV p{};
+        for(int a=0;a<2;a++){p[a]=real(lumps[tl],size_t(ti)*ts+a*16+12);for(int k=0;k<3;k++)p[a]+=real(lumps[tl],size_t(ti)*ts+a*16+k*4)*real(lumps[vl],size_t(v)*12+k*4);p[a]/=a?m.height:m.width;}points.push_back(p);
       }
       for(size_t i=0;i<points.size();i++)edge(m,points[i],points[(i+1)%points.size()]);
     }

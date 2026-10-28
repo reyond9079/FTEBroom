@@ -67,31 +67,10 @@
  		} while (i != hm->numbrushes);
  	}
  //	Con_Printf("brush %u (%i faces)\n", out->id, oface);
-@@ -7588,7 +7608,7 @@
-         model_t *model=world->Get_CModel(world,(float)items[i*2]);heightmap_t *hm=model?model->terrain:NULL;
-         if(!hm)continue;unsigned int index=Terr_BrushIndex_Find(hm,items[i*2+1]);
-         if(index>=hm->numbrushes)continue;brushes_t *brush=&hm->wbrushes[index];
--        if(brush->id!=(unsigned int)items[i*2+1]||brush->patch||brush->selected||brush->numplanes<4)continue;
-+        if(brush->id!=(unsigned int)items[i*2+1]||brush->patch||brush->numplanes<4)continue;
-         brushes[used++]=brush;
-     }
-     for(unsigned int ray=0;ray<rays;ray++){
-@@ -7597,8 +7617,8 @@
-         for(unsigned int i=0;i<used;i++){
-             brushes_t *brush=brushes[i];float enter=0,leave=nearest;qboolean valid=true;
-             for(int axis=0;axis<3;axis++){
--                if(fabs(direction[axis])<0.000001){if(lines[ray*2][axis]<brush->mins[axis]-.001||lines[ray*2][axis]>brush->maxs[axis]+.001){valid=false;break;}}
--                else {float x=(brush->mins[axis]-lines[ray*2][axis])/direction[axis],y=(brush->maxs[axis]-lines[ray*2][axis])/direction[axis];enter=max(enter,min(x,y));leave=min(leave,max(x,y));if(enter>leave+.001){valid=false;break;}}
-+                if(fabs(direction[axis])<0.000001){if(lines[ray*2][axis]<brush->mins[axis]||lines[ray*2][axis]>brush->maxs[axis]){valid=false;break;}}
-+                else {float x=(brush->mins[axis]-lines[ray*2][axis])/direction[axis],y=(brush->maxs[axis]-lines[ray*2][axis])/direction[axis];enter=max(enter,min(x,y));leave=min(leave,max(x,y));if(enter>leave){valid=false;break;}}
-             }
-             if(!valid)continue;enter=0;leave=nearest;
-             for(unsigned int f=0;f<brush->numplanes;f++){
-@@ -7611,6 +7631,65 @@
-         VectorMA(lines[ray*2],nearest,direction,tips[ray]);
+@@ -7612,6 +7632,65 @@
      }
      BZ_Free(brushes);G_INT(OFS_RETURN)=rays;
-+}
+ }
 +
 +// Immutable numeric snapshots for offline, translation-only brush transactions.
 +// Packet storage belongs to QC history and contains no native pointers.
@@ -150,9 +129,10 @@
 +    G_INT(OFS_RETURN)=1;
 +done:
 +    BZ_Free(brushes);BZ_Free(owners);BZ_Free(models);
- }
++}
  void QCBUILTIN PF_brush_get(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
  {
+ 	world_t			*vmw			= prinst->parms->user;
 @@ -8711,6 +8790,7 @@
  }
  qboolean Terr_ReformEntitiesLump(model_t *mod, heightmap_t *hm, char *entities)

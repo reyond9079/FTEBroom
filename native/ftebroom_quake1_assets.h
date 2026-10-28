@@ -22,7 +22,7 @@ static const std::vector<std::filesystem::path>& q1WadPaths(){return q1ResolvedW
 static void q1FindWads(bool strict=false){
   q1MissingWads=q1MissingMapWads;
   q1ResolvedWads.clear();q1WadLabels.clear();std::vector<std::filesystem::path> sources;
-  char builtin[4096]={};if(files->NativePath("quake1-editor.wad",(fs_relative)5,builtin,sizeof builtin))sources.push_back(std::filesystem::u8path(builtin));
+  char builtin[4096]={};if(gameWad()&&files->NativePath(gameProfile==4?"halflife-editor.wad":"quake1-editor.wad",(fs_relative)5,builtin,sizeof builtin))sources.push_back(std::filesystem::u8path(builtin));
   std::vector<std::string> roots={q1Authoring(),gameRuntime()};if(roots[0]==roots[1])roots.pop_back();
   auto base=q1BaseDirectory();if(!base.empty())roots.insert(roots.begin(),base);
   for(const auto& root:roots){if(root.empty())continue;std::vector<std::filesystem::path> archives,loose;
@@ -37,7 +37,7 @@ static void q1FindWads(bool strict=false){
     sources.insert(sources.end(),loose.begin(),loose.end());
   }
   if(!q1DocumentPak.empty())for(const auto& e:ftebroom::pak::directory(q1DocumentPak)){auto ext=std::filesystem::u8path(e.name).extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);if(ext==".wad")sources.push_back(q1DocumentPak/std::filesystem::u8path(e.name));}
-  std::istringstream input(q1Wads);std::string line;
+  std::istringstream input(gameProfile==4?hlWads:q1Wads);std::string line;
   while(std::getline(input,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(line.empty())continue;auto path=std::filesystem::u8path(line);if(path.is_relative())path=std::filesystem::u8path(q1Authoring())/path;sources.push_back(path);}
   ftebroom::quake1::prioritizeMapWads(sources,q1MapWads);
   char writable[4096]={};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,writable,sizeof writable))throw std::runtime_error("No writable editor cache.");auto cache=std::filesystem::u8path(writable).parent_path()/"cache/wads";std::filesystem::create_directories(cache);
@@ -73,7 +73,7 @@ static std::string q1CompilerWads(const std::filesystem::path& folder,const std:
   for(const auto& name:wanted){auto found=q1MaterialWad.find(name);if(found==q1MaterialWad.end())unresolved=true;else owners.insert(found->second);}
   std::vector<std::string> archives;
   for(const auto& path:q1WadPaths()){auto label=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();if(unresolved||owners.count(label))archives.push_back(q1Read(path));}
-  auto bytes=ftebroom::quake1::compilerWad(archives,wanted);auto target=folder/"textures.wad";
+  auto bytes=ftebroom::quake1::compilerWad(archives,wanted,gameProfile==4);auto target=folder/"textures.wad";
   std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();
   if(!output)throw std::runtime_error("Cannot stage WAD for the compiler.");return "textures.wad";
 }
@@ -97,6 +97,7 @@ static void q1IndexAssets() {
   static ftebroom::quake1::WadImageCache images;images.prune();
   for(const auto& path:q1WadPaths()){
     auto archive=decoded.load(path,q1Read);
+    if(gameProfile==2&&!archive->empty()&&!archive->front().palette.empty())throw std::runtime_error("Quake 1 requires WAD2 textures: "+path.u8string());
     for(size_t i=0;i<archive->size();i++){
       const auto& tex=(*archive)[i];
       q1MaterialWad[tex.name]=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();

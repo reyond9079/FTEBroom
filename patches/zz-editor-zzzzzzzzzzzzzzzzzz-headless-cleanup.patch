@@ -1,0 +1,11 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -3698,7 +3698,7 @@
+ {
+  rb_mesh_cache_t *cache=&rb_mesh_caches[group];
+  if(group==2)RB_ClearOrderCache();
+- if(BE_VBO_Destroy){BE_VBO_Destroy(&cache->vertexBuffer,cache->vertexMemory);BE_VBO_Destroy(&cache->indexBuffer,cache->indexMemory);}
++ if(rf && BE_VBO_Destroy){BE_VBO_Destroy(&cache->vertexBuffer,cache->vertexMemory);BE_VBO_Destroy(&cache->indexBuffer,cache->indexMemory);}
+  for(unsigned int i=0;i<cache->count;i++){
+ #ifdef GLQUAKE
+   if(qrenderer==QR_OPENGL)GLBE_DestroyEditorMesh(&cache->meshes[i].vbo);

@@ -44,7 +44,7 @@ static void generatorPanel() {
       changed|=ImGui::SliderFloat("Frequency",&frequency,.01f,64);changed|=ImGui::SliderFloat("Roughness",&roughness,0,2);
       changed|=ImGui::InputInt("Seed",&seed);changed|=ImGui::Combo("Side",&side,"+Z (top)\0-Z (bottom)\0+X\0-X\0+Y\0-Y\0");
       changed|=ImGui::Checkbox("Triangular grid",&triangles);
-      if(gameProfile!=2) {
+      if(!gameClassic()) {
         ImGui::SeparatorText("Selected patches");
         if(ImGui::SliderInt("Control points U",&pu,3,31)){pu|=1;changed=true;}
         if(ImGui::SliderInt("Control points V",&pv,3,31)){pv|=1;changed=true;}

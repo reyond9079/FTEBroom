@@ -2,20 +2,20 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 93: faster large brush selections, centered BSP models, UV texture overlays and a seek-first sound editor.** [Usage, measurements and checks](docs/selection-bsp-sound-alpha93.md) · [Batch deletion and transparency](docs/batch-delete-materials-alpha92.md) · [BSP atlases and WAD tools](docs/asset-tools-alpha90.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 94: Quake II and Half-Life mapping profiles, bundled compiler chains, WAD3/WAL resources and a Half-Life theme.** [Setup, supported formats, tests and limitations](docs/legacy-games-alpha94.md) · [Large selection measurements](docs/selection-bsp-sound-alpha93.md) · [BSP atlases and WAD tools](docs/asset-tools-alpha90.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.93/ReyondBroom-0.5.0-alpha.93-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.93/ReyondBroom-0.5.0-alpha.93-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.94/ReyondBroom-0.5.0-alpha.94-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.94/ReyondBroom-0.5.0-alpha.94-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.93**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.93/ReyondBroom-0.5.0-alpha.93-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.94**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.94/ReyondBroom-0.5.0-alpha.94-Windows-x64.zip)
 
-An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake III Arena and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
+An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 
 **Alpha.60:** four-step setup with theme previews, saved fullscreen mode, FTE Custom offset mapping and reduced resource-reload stalls. [Usage and checks](docs/alpha60.md) · [Custom GLSL](docs/alpha59.md).
 
@@ -28,6 +28,8 @@ An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and 
 
 - Quake 1: WAD2/palette resources, 99 entity classes, standard/Valve 220 MAP, BSP29/BSP2 builds and free-camera/play preview. [Guide](docs/quake1.md).
 - LibreQuake installer, packed WAD/MAP resources and mod model thumbnails. [Guide](docs/alpha29.md).
+- Quake II: WAL/PCX and PAK resources, MD2 models, Valve 220 MAP and an isolated ericw-tools IBSP38 compile chain. [Guide](docs/legacy-games-alpha94.md#quake-ii).
+- Half-Life / Counter-Strike 1.5: WAD3 palettes, studio MDL, FGD, SDHLT BSP30 compilation and FreeHL/FreeCS runtime installation. [Guide and compatibility limits](docs/legacy-games-alpha94.md#half-life-and-counter-strike-15).
 - Quake 3 resource setup; loose textures, PK3 archives and shader previews. Resources are mounted read-only.
 - Native file navigation for Open/Save As, dirty-state guards, MAP persistence, autosave and transaction-based Undo/Redo.
 - WASD/QX navigation, relative mouse look, orbit/pan, saved viewpoints, orthographic views, linked cameras and resizable layouts.

@@ -20,7 +20,7 @@ public:
     auto found=entries.find(key);
     if(found!=entries.end() && found->second.size==size && found->second.modified==modified){found->second.used=++clock;return found->second.textures;}
     auto textures=std::make_shared<const std::vector<Texture>>(wad(read(key)));
-    size_t bytes=0;for(const auto& t:*textures)bytes+=sizeof(t)+t.name.size()+t.pixels.size();
+    size_t bytes=0;for(const auto& t:*textures)bytes+=sizeof(t)+t.name.size()+t.pixels.size()+t.palette.size();
     if(found!=entries.end()){resident-=found->second.bytes;entries.erase(found);}
     constexpr size_t limit=256u*1024*1024;
     while(!entries.empty() && resident+bytes>limit){auto oldest=entries.begin();for(auto it=entries.begin();it!=entries.end();++it)if(it->second.used<oldest->second.used)oldest=it;resident-=oldest->second.bytes;entries.erase(oldest);}
@@ -59,7 +59,7 @@ public:
 inline std::string textureCacheKey(const Texture& t,const std::string& palette) {
   uint64_t hash=14695981039346656037ull;
   auto feed=[&](unsigned char c){hash=(hash^c)*1099511628211ull;};
-  for(unsigned char c:palette)feed(c);for(unsigned char c:t.name)feed(c);
+  for(unsigned char c:t.palette.empty()?palette:t.palette)feed(c);for(unsigned char c:t.name)feed(c);
   for(auto value:{t.width,t.height})for(int shift=0;shift<32;shift+=8)feed((value>>shift)&255);
   for(auto c:t.pixels)feed(c);
   std::ostringstream out;out<<"v1-"<<std::hex<<hash;return out.str();

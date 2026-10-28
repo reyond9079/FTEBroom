@@ -3,7 +3,7 @@ struct RecentMap { std::string path; int profile=-1; bool favorite=false; };
 static std::vector<RecentMap> recentMaps;
 static bool recentLoaded=false,recentWindow=false,recentFavorites=false;
 static const char* recentProfileName(int profile) {
-  return profile==0?"Quake III Arena":profile==1?"FTE Custom game":profile==2?"Quake 1":"Unknown profile";
+  return profile==0?"Quake III Arena":profile==1?"FTE Custom game":profile==2?"Quake 1":profile==3?"Quake II":profile==4?"Half-Life":"Unknown profile";
 }
 static void recentLoad() {
   if(recentLoaded)return;recentLoaded=true;

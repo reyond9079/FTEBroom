@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <future>
 #include "ftebroom_lmp.h"
+#include "ftebroom_legacy_images.h"
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
@@ -15,7 +16,7 @@ static bool imageViewerOpen=false, imageViewerFit=true;
 static float imageViewerZoom=1;
 static bool imageFile(const std::filesystem::path& path) {
   auto ext=entityLower(path.extension().u8string());
-  return ext==".lmp"||ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".tga"||ext==".bmp"||ext==".gif"||ext==".psd";
+  return ext==".wal"||ext==".pcx"||ext==".lmp"||ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".tga"||ext==".bmp"||ext==".gif"||ext==".psd";
 }
 struct FileImagePixels {std::string bytes,error;};
 static std::future<FileImagePixels> fileImageJob;
@@ -25,6 +26,10 @@ static FileImagePixels fileImageDecode(const std::filesystem::path& path,bool fu
   FileImagePixels result;
   try {
     auto bytes=modFileBytes(path);if(bytes.empty()||bytes.size()>32*1024*1024)throw std::runtime_error("Image must be between 1 byte and 32 MiB.");
+    auto ext=entityLower(path.extension().u8string());
+    if(ext==".wal"||ext==".pcx"){auto texture=ext==".wal"?ftebroom::legacy::wal(bytes,palette):ftebroom::legacy::pcx(bytes);
+      if(!full&&(texture.width>256||texture.height>256)){auto small=texture;float scale=std::min(256.f/texture.width,256.f/texture.height);small.width=std::max(1u,unsigned(texture.width*scale));small.height=std::max(1u,unsigned(texture.height*scale));small.pixels.resize(size_t(small.width)*small.height);for(unsigned y=0;y<small.height;y++)for(unsigned x=0;x<small.width;x++)small.pixels[size_t(y)*small.width+x]=texture.pixels[size_t(y*texture.height/small.height)*texture.width+x*texture.width/small.width];texture=std::move(small);}
+      result.bytes=ftebroom::quake1::tga(texture,palette);return result;}
     int width=0,height=0,channels=0;
     if(entityLower(path.extension().u8string())==".lmp"){
       auto image=ftebroom::lmp::decode(bytes,palette,entityLower(path.filename().u8string()));
@@ -65,10 +70,11 @@ static FileImage& fileImage(const std::filesystem::path& path,bool full=false) {
   if(!fileImageJob.valid()){
     try{modFileValidate(path);}catch(const std::exception& e){FileImage bad;bad.error=e.what();return fileImages.emplace(key,std::move(bad)).first->second;}
     std::string palette;
-    if(entityLower(path.extension().u8string())==".lmp"){
+    if(entityLower(path.extension().u8string())==".lmp"||entityLower(path.extension().u8string())==".wal"){
       try{std::filesystem::path archive;std::string member;if(ftebroom::pak::split(path,archive,member))palette=modFileBytes(archive/"gfx/palette.lmp");}catch(...){}
       if(palette.size()!=768)try{palette=modelResource("gfx/palette.lmp");}catch(...){}
     }
+    if(entityLower(path.extension().u8string())==".wal")try{auto pcx=modelResource("pics/colormap.pcx");palette=ftebroom::legacy::pcx(pcx).palette;}catch(...){}
     fileImageJobKey=key;fileImageJobGeneration=fileImageGeneration;fileImageJob=std::async(std::launch::async,[path,full,palette](){return fileImageDecode(path,full,palette);});
   }
   return pending;

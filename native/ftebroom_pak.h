@@ -54,8 +54,8 @@ inline std::vector<std::pair<bool,fs::path>> list(const fs::path& folder){
   for(const auto& c:children)result.push_back({c.second,folder/fs::u8path(c.first)});return result;
 }
 // Stream a complete replacement archive, validate it, back up, then atomically install it.
-inline void rewrite(const fs::path& archive,const std::map<std::string,std::string>& changes,const std::string& from="",const std::string& to="",const std::string& removed=""){
-  if(zipFile(archive)){zipRewrite(archive,changes,from,to,removed);return;}
+inline void rewrite(const fs::path& archive,const std::map<std::string,std::string>& changes,const std::string& from="",const std::string& to="",const std::string& removed="",bool keepBackup=true){
+  if(zipFile(archive)){zipRewrite(archive,changes,from,to,removed,keepBackup);return;}
   for(const auto& change:changes)if(!validName(change.first))throw std::runtime_error("Invalid PAK destination.");
   if(!from.empty()&&(!validName(from)||!validName(to)||to.rfind(from+"/",0)==0))throw std::runtime_error("Invalid PAK rename destination.");
   auto entries=directory(archive);auto stamp=fs::last_write_time(archive);auto size=fs::file_size(archive);
@@ -69,7 +69,7 @@ inline void rewrite(const fs::path& archive,const std::map<std::string,std::stri
     auto offset=out.tellp();if(next.size()>65536||offset<0||uint64_t(offset)+next.size()*64>0x7fffffff)throw std::runtime_error("PAK directory exceeds supported limits.");
     for(const auto& e:next){char name[56]={};std::copy(e.name.begin(),e.name.end(),name);out.write(name,56);put(out,e.offset);put(out,e.size);}out.seekp(4);put(out,uint32_t(offset));put(out,uint32_t(next.size()*64));out.close();in.close();if(!out)throw std::runtime_error("Cannot finish PAK staging.");directory(temp);
     if(fs::last_write_time(archive)!=stamp||fs::file_size(archive)!=size)throw std::runtime_error("PAK changed while saving. Retry after reloading it.");
-    fs::copy_file(archive,backup);
+    if(keepBackup)fs::copy_file(archive,backup);
 #ifdef _WIN32
     if(!ReplaceFileW(archive.c_str(),temp.c_str(),nullptr,0,nullptr,nullptr)){auto error=GetLastError();throw std::runtime_error("Cannot replace PAK (Windows error "+std::to_string(error)+"); original and backup are preserved.");}
 #else
@@ -86,4 +86,4 @@ inline void rename(const fs::path& source,const fs::path& destination){
 }
 }
 
-namespace ftebroom::pak { inline void erase(const fs::path& path){fs::path a;std::string m;if(!split(path,a,m)||m.empty())throw std::runtime_error("Choose an archive member.");rewrite(a,{},"","",m);} }
+namespace ftebroom::pak { inline void erase(const fs::path& path){fs::path a;std::string m;if(!split(path,a,m)||m.empty())throw std::runtime_error("Choose an archive member.");rewrite(a,{},"","",m,false);} }

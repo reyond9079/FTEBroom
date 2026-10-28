@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ftebroom_md3.h"
+#include "ftebroom_legacy_models.h"
 struct EntityPreviewPart {qhandle_t image=0;std::vector<std::array<ftebroom::MdlVertex,3>> triangles;};
 struct EntityPreview {qhandle_t image=0;std::vector<EntityPreviewPart> parts;std::vector<std::pair<size_t,size_t>> order;};
 static std::map<std::string,EntityPreview> entityPreviews;
 static void clearEntityPreviews(){for(auto& p:entityPreviews)for(auto& part:p.second.parts)if(part.image)draw->UnloadImage(part.image);entityPreviews.clear();}
-static std::string modelResource(const std::string& path){if(gameProfile==2&&path=="gfx/palette.lmp")return q1Palette();size_t length=0;auto raw=(char*)files->LoadFile(path.c_str(),&length);if(!raw)return {};std::string result(raw,length);core->Free(raw);return result;}
+static std::string modelResource(const std::string& path){if(path=="gfx/palette.lmp")return q1Palette();size_t length=0;auto raw=(char*)files->LoadFile(path.c_str(),&length);if(!raw)return {};std::string result(raw,length);core->Free(raw);return result;}
 static qhandle_t modelImage(std::string path){
  auto found=materials.find(path);if(found!=materials.end()&&!found->second.preview.empty())path=found->second.preview;
- for(auto suffix:{"",".tga",".png",".jpg",".jpeg"})if(!modelResource(path+suffix).empty())return draw->LoadImage((path+suffix).c_str());
+ for(auto suffix:{"",".tga",".png",".jpg",".jpeg",".pcx"})if(!modelResource(path+suffix).empty())return draw->LoadImage((path+suffix).c_str());
  return 0;
 }
 static bool entityModelTile(const ftebroom::EntityDefinition& def,ImVec2 tile,float size){
@@ -18,7 +19,16 @@ static bool entityModelTile(const ftebroom::EntityDefinition& def,ImVec2 tile,fl
   EntityPreview preview;
   try {
    auto bytes=modelResource(def.model);if(bytes.empty())throw std::runtime_error("Missing model");
-   if(bytes.compare(0,4,"IDP3")==0){
+   if(bytes.substr(0,4)=="IDST"||bytes.substr(0,4)=="IDP2"){
+    std::string companion;
+    if(bytes.substr(0,4)=="IDST"&&bytes.size()>=244&&!ftebroom::quake1::word(bytes,180)){
+      auto stem=def.model.substr(0,def.model.find_last_of('.'));companion=modelResource(stem+"t.mdl");if(companion.empty())companion=modelResource(stem+"T.mdl");}
+    auto parts=bytes.substr(0,4)=="IDP2"?ftebroom::legacyModels::md2(bytes,std::max(0,std::atoi(def.modelSkin.c_str())),std::max(0,std::atoi(def.modelFrame.c_str()))):ftebroom::legacyModels::studio(bytes,companion,std::max(0,std::atoi(def.modelSkin.c_str())));
+    for(size_t i=0;i<parts.size();i++){auto& part=parts[i];qhandle_t image=0;
+      if(!part.embedded.pixels.empty()){auto tga=ftebroom::quake1::tga(part.embedded,{});auto name="ftebroom/legacy-model-"+std::to_string(entityDefinitionEpoch)+"-"+std::to_string(std::hash<std::string>{}(key))+"-"+std::to_string(i)+".tga";draw->LoadImageData(name.c_str(),"image/tga",tga.data(),tga.size());image=draw->LoadImage(name.c_str());}
+      else image=modelImage(part.image);preview.parts.push_back({image,std::move(part.triangles)});
+    }
+   }else if(bytes.compare(0,4,"IDP3")==0){
     auto surfaces=ftebroom::readMd3(bytes);std::map<std::string,std::string> skins;
     if(def.modelSkin.find(".skin")!=std::string::npos){std::istringstream input(modelResource(def.modelSkin));std::string line;while(std::getline(input,line)){auto comma=line.find(',');if(comma!=line.npos){auto value=line.substr(comma+1);value.erase(0,value.find_first_not_of(" \t"));auto end=value.find_last_not_of(" \r\t");if(end!=value.npos)value.erase(end+1);skins[line.substr(0,comma)]=value;}}}
     for(auto& surface:surfaces){auto name=skins.count(surface.name)?skins[surface.name]:surface.shader;preview.parts.push_back({modelImage(name),std::move(surface.triangles)});}

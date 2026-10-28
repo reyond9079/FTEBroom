@@ -89,7 +89,7 @@ static void definitionsLoadCommand()
   commands->Argv(1, argument, sizeof argument);
   std::string path = argument;
   if (path.empty())
-    path = gameProfile==2 ? std::string{} : definitionMapPath;
+    path = gameClassic() ? std::string{} : definitionMapPath;
   if (path.rfind("external:", 0) == 0)
     path = path.substr(9);
   if (path.rfind("builtin:", 0) == 0)

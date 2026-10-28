@@ -184,7 +184,7 @@ public:
     EntityDefinitions result;
     while (pos < tokens.size())
     {
-      auto kind = take();
+      auto kind = take();if(kind=="@baseclass")kind="@BaseClass";if(kind=="@pointclass")kind="@PointClass";if(kind=="@solidclass")kind="@SolidClass";
       if (kind == "@include")
         throw std::runtime_error("FGD @include must be resolved before parsing");
       if (kind != "@PointClass" && kind != "@SolidClass" && kind != "@BaseClass")
@@ -241,8 +241,14 @@ public:
             d.hasColor = true;
           }
         }
-        if (key == "model" || key == "studio")
-          d.model = value;
+        if (key == "model" || key == "studio"){
+          d.model=value;
+          if(value.find('{')!=std::string::npos){
+            auto literal=[&](const char* field){auto at=value.find(field);if(at==value.npos)return std::string{};at=value.find(':',at);if(at==value.npos)return std::string{};at=value.find_first_not_of(" \t",at+1);if(at==value.npos)return std::string{};
+              if(value[at]=='\"'){auto end=value.find('\"',at+1);return end==value.npos?std::string{}:value.substr(at+1,end-at-1);}auto end=value.find_first_of(",} \t",at);return value.substr(at,end-at);};
+            d.model=literal("path");if(!d.model.empty()&&d.model[0]==':')d.model.erase(0,1);d.modelSkin=literal("skin");d.modelFrame=literal("frame");d.modelScale=literal("scale");
+          }
+        }
         if (key == "skin")
           d.modelSkin = value;
         if (key == "frame")

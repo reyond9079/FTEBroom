@@ -169,7 +169,7 @@ static bool actionMatches(uint32_t required, uint32_t current)
 }
 static bool actionAvailable(const Action& a)
 {
-  if(gameProfile==2 && std::string(a.id)=="Menu/Tools/Control Point")return false;
+  if(gameClassic() && std::string(a.id)=="Menu/Tools/Control Point")return false;
   if((int)cvars->GetFloat("ftebroom_tool")==4)
   {
     const std::string id=a.id;
@@ -431,7 +431,7 @@ static void actionMenuGroup(const char* group)
       std::string(a.id).rfind(prefix, 0) == 0
       && std::string(a.id).find('/', prefix.size()) == std::string::npos)
     {
-      if(gameProfile==2 && std::string(a.id)=="Menu/Tools/Control Point")continue;
+      if(gameClassic() && std::string(a.id)=="Menu/Tools/Control Point")continue;
       bool held = a.command && std::string(a.command).rfind("ftebroom_hold ", 0) == 0;
       if (
         ImGui::MenuItem(
@@ -502,7 +502,7 @@ static void actionMenus()
         ImGui::EndMenu();
       }
       if(std::string(group)=="View" && ImGui::BeginMenu("Interface theme")) {
-        for(int t=0;t<4;t++)if(ImGui::MenuItem(uiThemeNames[t],nullptr,uiTheme==t)){uiTheme=t;uiSaveAppearance();}
+        for(int t=0;t<5;t++)if(ImGui::MenuItem(uiThemeNames[t],nullptr,uiTheme==t)){uiTheme=t;uiSaveAppearance();}
         ImGui::EndMenu();
       }
       if (std::string(group) == "View" && ImGui::BeginMenu("Grid"))

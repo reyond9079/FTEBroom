@@ -104,6 +104,7 @@ static void modelConverterPanel() {
     ImGui::BeginDisabled(modelConverterPending);
     if(modelImportProfile==1||modelConverterEditor){int choice=modelConverterFormat;if(ImGui::Combo("Target format",&choice,"MD3 (baked animation)\0OBJ + MTL (static)\0Quake MDL (paletted skin)\0IQM (static pose)\0MD5MESH (static pose)\0")){modelConverterFormat=choice;auto target=std::filesystem::u8path(modelConverterDestination);target.replace_extension(modelConverterExtension());std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());}}
     else ImGui::Text("Target: %s",modelImportProfile==2?"Quake MDL":"Quake III MD3");
+    if(modelImportProfile>=3)ImGui::TextWrapped("Converter outputs target the FTE engine. Native Quake II MD2 / GoldSrc studio MDL export is not provided by this converter.");
     ImGui::InputText("Destination",modelConverterDestination,sizeof modelConverterDestination);
     if(modelConverterEditor){
       if(ImGui::Button("Choose folder...")){modelConverterFolder=std::filesystem::u8path(modelConverterDestination).parent_path();modelConverterFolderOpen=true;}

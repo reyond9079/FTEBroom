@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-static ImVec2 setupGameCenters[3],setupModCenters[2];
+static ImVec2 setupGameCenters[5],setupModCenters[2];
 static bool setupChoice(const char* id,const char* title,const char* subtitle,bool selected,const char* logo=nullptr,ImVec2* center=nullptr,float progress=-1,const char* progressLabel=nullptr) {
   ImGui::PushID(id);
   auto start=ImGui::GetCursorScreenPos();ImVec2 size{ImGui::GetContentRegionAvail().x,(progress>=0?110:76)*uiScale()};
@@ -21,14 +21,14 @@ static bool setupChoice(const char* id,const char* title,const char* subtitle,bo
   ImGui::PopID();return clicked;
 }
 static void setupGameChoices() {
-  const int order[]={2,0,1};
-  const char* titles[]={"Quake 1","Quake III Arena","FTE Custom game"};
-  const char* captions[]={"Classic Quake maps, WAD textures and mods","Quake III maps, patches and shaders","Custom FTE games and engine features"};
-  const char* logos[]={"ui/games/quake1.png","ui/games/quake3.png","ui/games/fte.png"};
-  for(int i=0;i<3;i++)if(setupChoice(titles[i],titles[i],captions[i],gameProfile==order[i],logos[i],&setupGameCenters[i])){
-    if(gameProfile!=2)q3Root=baseq3;
+  const int order[]={2,3,0,4,1};
+  const char* titles[]={"Quake 1","Quake II","Quake III Arena","Half-Life","FTE Custom game"};
+  const char* captions[]={"Classic Quake maps, WAD textures and mods","Quake II maps, WAL textures and PAK archives","Quake III maps, patches and shaders","GoldSrc maps, WAD3 textures, FreeHL / FreeCS","Custom FTE games and engine features"};
+  const char* logos[]={"ui/games/quake1.png",nullptr,"ui/games/quake3.png",nullptr,"ui/games/fte.png"};
+  for(int i=0;i<5;i++)if(setupChoice(titles[i],titles[i],captions[i],gameProfile==order[i],logos[i],&setupGameCenters[i])){
+    if(gameProfile<2)q3Root=baseq3;
     gameProfile=order[i];
-    std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==2?q1Authoring().c_str():q3Root.c_str());
+    std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==3?q2Mod:gameWad()?q1Authoring().c_str():q3Root.c_str());
   }
 }
 static bool setupModBrowseOpen=false;

@@ -492,7 +492,7 @@ void(entedit_t *nent) editor_ents_updated =
 
     // Definitions without a model must not erase the standard Quake player marker.
     string playerClass=nent->fields["classname"];
-    if(!nent->modelindex && cvar("ftebroom_quake1") &&
+    if(!nent->modelindex && cvar("ftebroom_game_profile")==2 &&
        (playerClass=="info_player_start" || playerClass=="info_player_start2" || playerClass=="info_player_coop" || playerClass=="info_player_deathmatch"))
         nent->modelindex=modelindexforname("progs/player.mdl");
 

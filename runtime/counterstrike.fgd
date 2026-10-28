@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Counter-Strike 1.5 / FreeCS additions to the Half-Life definitions.
+@include "halflife.fgd"
+@BaseClass = CSTeam
+[
+ team(choices) : "Team" : 0 = [ 0 : "Both teams" 1 : "Terrorists" 2 : "Counter-Terrorists" ]
+]
+@SolidClass base(Targetname, CSTeam) = func_buyzone : "Buy zone" []
+@SolidClass base(Targetname) = func_bomb_target : "Bomb planting zone" []
+@SolidClass base(Targetname) = func_hostage_rescue : "Hostage rescue zone" []
+@SolidClass base(Targetname) = func_escapezone : "Terrorist escape zone" []
+@SolidClass base(Targetname) = func_vip_safetyzone : "VIP rescue zone" []
+@PointClass base(Targetname) size(-16 -16 -36,16 16 36) color(0 180 255) studio("models/hostage.mdl") = hostage_entity : "Hostage" []
+@PointClass base(Targetname) size(-16 -16 -36,16 16 36) color(0 255 0) studio("models/player/vip/vip.mdl") = info_vip_start : "VIP start" []
+@PointClass size(-8 -8 -8,8 8 8) color(255 80 0) = info_bomb_target : "Bomb target without a brush volume" []
+@PointClass size(-8 -8 -8,8 8 8) color(0 255 255) = info_hostage_rescue : "Hostage rescue without a brush volume" []
+@PointClass size(-8 -8 -8,8 8 8) color(255 200 0) = info_map_parameters : "Counter-Strike map rules"
+[
+ buying(choices) : "Buying restriction" : 0 = [ 0 : "Both teams" 1 : "Only Counter-Terrorists" 2 : "Only Terrorists" 3 : "Neither team" ]
+ bombradius(integer) : "Bomb damage radius" : 500
+]

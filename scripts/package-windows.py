@@ -15,6 +15,7 @@ parser.add_argument("--version", required=True)
 args = parser.parse_args()
 source = Path(__file__).resolve().parents[1]
 runpy.run_path(str(source / 'scripts/fetch-q3map2-source.py'))
+runpy.run_path(str(source / 'scripts/generate-legacy-editor-textures.py'))
 bundle = args.bundle.resolve()
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=False)
@@ -52,9 +53,10 @@ shutil.copy2(source / "scripts/Launch-ReyondBroom.cmd", root / "Launch-ReyondBro
 shutil.copytree(source / "tools/q3map2", root / "tools/q3map2")
 shutil.copytree(source / "tools/ericw", root / "tools/ericw")
 shutil.copytree(source / "tools/audio", root / "tools/audio")
+runpy.run_path(str(source / 'scripts/package-legacy-games.py'))['bundle'](source,root,'Windows-x64')
 if not (root / "tools/audio/ffmpeg.exe").is_file():
     raise RuntimeError("Build the audio helper with scripts/build-audio.sh first")
-shutil.copytree(bundle / "licenses", root / "licenses")
+shutil.copytree(bundle / "licenses", root / "licenses", dirs_exist_ok=True)
 shutil.copytree(source / "runtime", root / "ftebroom", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 for name in ("default.fmf", "installed.lst"):
     shutil.copy2(source / "runtime" / name, root / name)

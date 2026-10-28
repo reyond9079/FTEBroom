@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Small native previews share the live palette, including retro frame edges.
-static ImVec2 setupThemeCenters[4];
+static ImVec2 setupThemeCenters[5];
 static ImVec2 setupScaleCenters[5];
 static void setupScaleList() {
   const char* names[]={"Small","Medium","Large","Extra Large","Largest"};
@@ -20,11 +20,11 @@ static void setupScaleList() {
 }
 static void setupThemeTiles()
 {
-  const int order[]={0,3,1,2};
+  const int order[]={0,3,1,2,4};
   const float gap=12*uiScale();
   const auto available=ImGui::GetContentRegionAvail();
-  const ImVec2 tile{(available.x-gap)*.5f,std::max(100.f,(available.y-gap)*.5f)};
-  for(int slot=0;slot<4;slot++) {
+  const ImVec2 tile{(available.x-gap)*.5f,std::max(100.f,(available.y-gap*2)/3)};
+  for(int slot=0;slot<5;slot++) {
     const int theme=order[slot];
     if(slot%2)ImGui::SameLine(0,gap);
     ImGui::PushID(theme);

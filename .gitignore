@@ -18,3 +18,7 @@ __pycache__/
 !/tools/ericw/BUNDLE.md
 /tools/audio/*
 !/tools/audio/BUNDLE.md
+
+# Generated neutral textures are rebuilt by the package scripts.
+/runtime/halflife-editor.wad
+/runtime/textures/fb_grey.wal

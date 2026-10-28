@@ -9,6 +9,47 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="legacy94q2"||std::string(mode)=="legacy94hl"){
+    bool hl=std::string(mode)=="legacy94hl";gameProfile=hl?4:3;auto folder=std::filesystem::u8path(root)/(hl?"hl":"q2");
+    std::snprintf(hl?hlMod:q2Mod,1024,"%s",folder.u8string().c_str());gameProfileSave();expect(mountAssets(),"legacy94_mount_requested");documentRequest("@"+(folder/"maps/room.map").u8string());
+  }
+  if(std::string(mode)=="legacy94ready"){
+    expect(!assetsLoading&&!setupNeeded&&assetError.empty(),"legacy94_resources_ready");
+    expect(!documentUntitled&&documentFile.filename()=="room.map"&&documentError.empty(),"legacy94_map_open");
+    expect(materials.count("textures/fb_grey")&&entityDefinitions.count(gameProfile==4?"monster_scientist":"monster_soldier"),"legacy94_materials_and_entities");
+    if(!assetError.empty())core->Print(("LEGACY94_ASSET_ERROR "+assetError+"\n").c_str());
+    expect(cvars->GetFloat("ftebroom_classic_map")&&!cvars->GetFloat("ftebroom_allow_engine_terrain"),"legacy94_classic_tools_guard");
+    buildGeometry=buildVis=buildLight=true;buildBegin();expect(buildRunning,"legacy94_build_started");
+  }
+  if(std::string(mode)=="legacy94built"){
+    expect(!buildRunning&&!runHadError&&!buildResult.empty()&&buildValidBsp(buildResult),"legacy94_compiled_valid_bsp");
+    core->Print(("LEGACY94_BUILD "+buildMessage+"\n"+runLog+"\n").c_str());buildEdit();
+  }
+  if(std::string(mode)=="legacy94runtimes"){
+    auto mod=std::filesystem::u8path(hlMod);hlRuntime=1;halfLifeInstallRuntime();expect(std::filesystem::exists(mod/"reyondbroom-freecs-94.pk3")&&!std::filesystem::exists(mod/"reyondbroom-freehl-94.pk3"),"legacy94_freecs_exclusive");
+    hlRuntime=0;halfLifeInstallRuntime();expect(std::filesystem::exists(mod/"reyondbroom-freehl-94.pk3")&&!std::filesystem::exists(mod/"reyondbroom-freecs-94.pk3"),"legacy94_freehl_exclusive");
+  }
+  if(std::string(mode)=="model94hl"){modelEditorShow("models/qa/studio94.mdl");modelViewerBones=true;modelViewerPlay=true;}
+  if(std::string(mode)=="model94hlcheck"){
+    expect(cvars->GetFloat("ftebroom_modelviewer_count")==1&&cvars->GetFloat("ftebroom_modelviewer_bones_drawn")==2,"model94_goldsrc_animation_and_bones");
+    ftebroom::EntityDefinition d;d.model="models/qa/studio94.mdl";d.name="test94_studio";entityDefinitions[d.name]=d;cvars->SetFloat("ftebroom_test_model_previews",1);cvars->SetString("ftebroom_test_entity_filter","test94_studio");selectEntityTab=true;frame();frame();expect(entityPreviews.count(d.model+":")&&entityPreviews[d.model+":"].image,"model94_goldsrc_textured_thumbnail");modelViewerOpen=false;
+  }
+  if(std::string(mode)=="model94q2"){modelEditorShow("models/qa/test94.md2");modelViewerBones=false;}
+  if(std::string(mode)=="model94q2check"){
+    expect(cvars->GetFloat("ftebroom_modelviewer_count")==1,"model94_md2_loaded");
+    ftebroom::EntityDefinition d;d.model="models/qa/test94.md2";d.name="test94_md2";entityDefinitions[d.name]=d;cvars->SetFloat("ftebroom_test_model_previews",1);cvars->SetString("ftebroom_test_entity_filter","test94_md2");selectEntityTab=true;frame();frame();expect(entityPreviews.count(d.model+":")&&entityPreviews[d.model+":"].image,"model94_md2_textured_thumbnail");modelViewerOpen=false;
+  }
+  if(std::string(mode)=="bones94open"){modelEditorShow("models/qa/bones94.md5mesh");modelViewerBones=true;}
+  if(std::string(mode)=="bones94check"){
+    expect(cvars->GetFloat("ftebroom_modelviewer_bones_drawn")==2,"bones94_visible_skeletal_joints");modelViewerOpen=false;
+  }
+  if(std::string(mode)=="sound94play"){modelViewerOpen=false;soundSeek(.2,true);frame();}
+  if(std::string(mode)=="sound94gain"){
+    auto p=soundVolumeMin,b=soundVolumeMax;float x=p.x+(b.x-p.x)*.3f,y=(p.y+b.y)*.5f;auto before=soundVolume;
+    event(0,0,0,x,y,1280,800);event(1,mouseKeys[0],0,x,y,1280,800);event(0,0,0,x,y,1280,800);event(2,mouseKeys[0],0,x,y,1280,800);event(0,0,0,x,y,1280,800);
+    expect(soundVolume!=before&&soundPlaying,"sound94_volume_changes_without_stopping");soundStop();soundEditorOpen=false;
+  }
+
   if(std::string(mode)=="uv93open"){
     modelEditorShow(gameProfile==2?"models/selected92.bsp":"qa5/selected90.bsp");bspUVShow();expect(bspUVOpen&&bspUVJob.valid(),"uv93_background_read_started");
   }
@@ -548,8 +589,8 @@ static void testDesktop(){
     auto folder=std::filesystem::u8path(root);auto archive=folder/"browser.pk3";
     modFilesEdit(archive/"texts/readme.txt");std::snprintf(modFilesEditBuffer.data(),modFilesEditBuffer.size(),"edited in PK3");modFilesSaveText();expect(ftebroom::pak::read(archive/"texts/readme.txt")=="edited in PK3","pk3_text_editor_save");
     std::snprintf(modFilesEditBuffer.data(),modFilesEditBuffer.size(),"unsaved");modFilesEdit(folder/"note.txt");expect(modFilesEditConfirm&&modFilesEditPath==archive/"texts/readme.txt","text_editor_dirty_switch_guard");modFilesEditConfirm=false;modFilesEditPending.clear();modFilesEditOpen=false;
-    modFilesDelete(archive/"delete.txt");expect(!ftebroom::pak::exists(archive/"delete.txt"),"pk3_delete_with_backup");
-    modFilesDelete(folder/"note.txt");expect(!std::filesystem::exists(folder/"note.txt")&&std::filesystem::is_directory(folder/".ftebroom-trash"),"loose_delete_recoverable");
+    modFilesDelete(archive/"delete.txt");expect(!ftebroom::pak::exists(archive/"delete.txt"),"pk3_delete_direct");
+    modFilesDelete(folder/"note.txt");expect(!std::filesystem::exists(folder/"note.txt")&&!std::filesystem::exists(folder/".ftebroom-trash"),"loose_delete_direct");
     imageViewerOpen=false;modelConverterOpen=false;modFilesFolder=folder/"many-images";modFilesRefresh=true;frame();frame();
     ImGuiWindow* contents=nullptr;for(auto window:GImGui->Windows)if(std::strstr(window->Name,"Folder contents"))contents=window;
     if(contents){ImGui::SetScrollY(contents,contents->ScrollMax.y);frame();frame();float height=contents->ScrollMax.y,scroll=contents->Scroll.y;for(int i=0;i<8;i++)frame();expect(std::abs(contents->ScrollMax.y-height)<.1f&&std::abs(contents->Scroll.y-scroll)<.1f,"file_tiles_stable_at_bottom");}

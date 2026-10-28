@@ -22,7 +22,7 @@ static void prefabShow(){
 static void prefabInsert(int collection,int item,float x,float y){
   if(collection<0||size_t(collection)>=prefabCollections.size())throw std::runtime_error("Collection was removed; drag again.");auto& c=prefabCollections[collection];
   if(item<0||size_t(item)>=c.data.groups.size())throw std::runtime_error("Prefab was removed; drag again.");
-  if(c.profile.profile>=0&&(c.profile.profile==2)!=(gameProfile==2))throw std::runtime_error("Choose a collection from the same game family.");
+  if(c.profile.profile>=0&&(c.profile.profile>=2?c.profile.profile:0)!=(gameProfile>=2?gameProfile:0))throw std::runtime_error("Choose a collection from the same game family.");
   organizationLoad();auto base=c.data.entities[c.data.groups[item]].get("_tb_name"),name=base;std::set<std::string> names;for(const auto& n:organizationNodes)if(n.kind==2)names.insert(n.name);
   for(int suffix=1;names.count(name);suffix++)name=base+"_"+std::to_string(suffix);
   auto bytes=ftebroom::prefab::extract(c.data,c.data.groups[item],name);qhandle_t handle;

@@ -8,6 +8,7 @@ static int bspModelSteps=0,bspModelProfile=0;
 static std::future<ftebroom::bspAtlas::Result> bspModelAtlasJob;
 static void bspModelShow(){
   if(!*bspModelDestination){auto folder=ftebroom::pak::diskFolder(documentDefaultFolder());std::error_code ec;while(!folder.empty()&&!std::filesystem::is_directory(folder,ec)){auto parent=folder.parent_path();if(parent==folder)break;folder=parent;}if(folder.empty())folder=documentPath("maps");auto target=folder/"selected-model.bsp";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());}
+  if(gameProfile>=3)bspModelAtlas=false;
   bspModelWindow=true;
 }
 static void bspModelPublish(ftebroom::bspAtlas::Result result){
@@ -51,12 +52,21 @@ static void bspModelBegin(){
   if(std::filesystem::exists(target))throw std::runtime_error("Choose a new filename; the source and existing models are never overwritten.");
   if(!*baseq3)throw std::runtime_error("Configure game resources first.");
   auto shaderFolder=target.parent_path()/(target.stem().u8string()+"-atlas");
+  if(bspModelAtlas&&gameProfile>=3)throw std::runtime_error("Atlas creation currently supports Quake 1 and Quake III. Export this profile without an atlas.");
   if(bspModelAtlas&&std::filesystem::exists(shaderFolder))throw std::runtime_error("The atlas directory already exists. Choose a new model name.");
   if(bspModelAtlas&&gameProfile!=2&&modFileModelPath(shaderFolder).empty())throw std::runtime_error("Quake III atlases need a destination inside the configured game resource directories.");
   auto stamp=std::chrono::high_resolution_clock::now().time_since_epoch().count();
   auto work=std::filesystem::absolute(documentPath("data/bsp-model-export"))/std::to_string(stamp);std::filesystem::create_directories(work);
   RunProfile profile{"Export selected BSP model",work.u8string(),false,{{0,"${WORK_DIR_PATH}/selection.map","@selected-brushes"}}};
-  if(gameProfile==2){if(runVariables["qbsp"].empty())throw std::runtime_error("Configure the ericw qbsp compiler in Setup compile.");
+  if(gameProfile==3){
+    if(runVariables["q2bsp"].empty())throw std::runtime_error("Configure q2bsp in Setup compile.");
+    auto mod=std::filesystem::u8path(q2Mod),base=mod.parent_path()/"baseq2";if(!std::filesystem::is_directory(base))base=mod;
+    profile.tasks.push_back({1,"${q2bsp}","-q2bsp -nofill -basedir "+modQuote(base.generic_u8string())+" -gamedir "+modQuote(mod.generic_u8string())+" -path \"${WORK_DIR_PATH}\" \"${WORK_DIR_PATH}/selection.map\""});
+  }else if(gameProfile==4){
+    if(runVariables["hlcsg"].empty()||runVariables["hlbsp"].empty())throw std::runtime_error("Configure hlcsg / hlbsp in Setup compile.");
+    profile.tasks.push_back({1,"${hlcsg}","-nowadtextures \"${WORK_DIR_PATH}/selection.map\""});
+    profile.tasks.push_back({1,"${hlbsp}","-nofill \"${WORK_DIR_PATH}/selection.map\""});
+  }else if(gameProfile==2){if(runVariables["qbsp"].empty())throw std::runtime_error("Configure the ericw qbsp compiler in Setup compile.");
     profile.tasks.push_back({1,"${qbsp}",std::string("-nofill ")+(q1BspFormat==1?"-bsp2 ":"")+"\"${WORK_DIR_PATH}/selection.map\""});
   }else{
     if(runVariables["q3map2"].empty())throw std::runtime_error("Configure q3map2 in Setup compile.");
@@ -65,7 +75,7 @@ static void bspModelBegin(){
     std::string args="-game quake3 -fs_basepath "+modQuote(game.parent_path().generic_u8string())+" -fs_basegame "+modQuote(game.filename().u8string())+" -fs_game "+modQuote(game.filename().u8string())+" -threads ${CPU_COUNT} -meta \"${WORK_DIR_PATH}/selection.map\"";
     profile.tasks.push_back({1,"${q3map2}",args});
   }
-  runExportHook=nullptr;runStageHook=nullptr;runBegin(profile);if(!runActive)throw std::runtime_error(runError.empty()?"Cannot start export.":runError);
+  runExportHook=nullptr;runStageHook=nullptr;runBegin(profile);runWindow=false;if(!runActive)throw std::runtime_error(runError.empty()?"Cannot start export.":runError);
   bspModelTarget=target;bspModelWork=work;bspModelProfile=gameProfile;bspModelSteps=profile.tasks.size();bspModelBusy=runExclusive=gameProfileLocked=true;bspModelMessage="Compiling only the selected brushes. No VIS or LIGHT stage.";
 }
 static void bspModelTick(){
@@ -78,10 +88,10 @@ static void bspModelTick(){
     if(runActive)return;
     soundWrite(bspModelWork/"compile.log",runLog);
     if(runHadError||runStep!=bspModelSteps)throw std::runtime_error(runHadError?runError:"BSP model export cancelled.");
-    auto bytes=q1Read(bspModelWork/"selection.bsp");if(!ftebroom::quake1::bsp(bytes,bspModelProfile==2))throw std::runtime_error("Compiler produced an invalid BSP.");
+    auto bytes=q1Read(bspModelWork/"selection.bsp");if(!(bspModelProfile>=3?ftebroom::quake1::gameBsp(bytes,bspModelProfile):ftebroom::quake1::bsp(bytes,bspModelProfile==2)))throw std::runtime_error("Compiler produced an invalid BSP.");
     // Model exports carry no gameplay entities, including the Q3 flood seed.
     while(bytes.size()%4)bytes+='\0';size_t entities=bytes.size();bytes+="{\n\"classname\" \"worldspawn\"\n}\n";bytes+='\0';
-    size_t header=bspModelProfile==2?4:8;ftebroom::bspAtlas::put(bytes,header,entities);ftebroom::bspAtlas::put(bytes,header+4,bytes.size()-entities);
+    size_t header=(bspModelProfile==2||bspModelProfile==4)?4:8;ftebroom::bspAtlas::put(bytes,header,entities);ftebroom::bspAtlas::put(bytes,header+4,bytes.size()-entities);
     if(!bspModelAtlas){ftebroom::bspAtlas::Result result;result.bsp=std::move(bytes);bspModelPublish(std::move(result));bspModelBusy=runExclusive=gameProfileLocked=false;return;}
     uint64_t imagePixels=0;std::map<std::string,ftebroom::bspAtlas::Image> images;
     std::string palette=bspModelProfile==2?modelResource("gfx/palette.lmp"):std::string{};
@@ -111,7 +121,8 @@ static void bspModelPanel(){
       try{std::vector<std::filesystem::path> dirs;for(const auto& e:std::filesystem::directory_iterator(bspModelFolder,std::filesystem::directory_options::skip_permission_denied))if(e.is_directory()&&dirs.size()<1024)dirs.push_back(e.path());std::sort(dirs.begin(),dirs.end());for(const auto& p:dirs)if(ImGui::Selectable(p.filename().u8string().c_str())){bspModelFolder=p;break;}}catch(const std::exception& e){ImGui::TextWrapped("%s",e.what());}ImGui::EndChild();
       if(ImGui::Button("Use this folder")){auto name=std::filesystem::u8path(bspModelDestination).filename();if(name.empty())name="selected-model.bsp";auto target=bspModelFolder/name;std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());bspModelChooseFolder=false;ImGui::CloseCurrentPopup();}ImGui::EndPopup();
     }
-    ImGui::Checkbox("Create texture atlas and UV painting template",&bspModelAtlas);
+    ImGui::BeginDisabled(gameProfile>=3);ImGui::Checkbox("Create texture atlas and UV painting template",&bspModelAtlas);ImGui::EndDisabled();
+    if(gameProfile>=3)ImGui::TextDisabled("Atlas export currently supports Quake 1 / Quake III. UV inspection supports all four BSP formats.");
     if(bspModelAtlas)ImGui::TextWrapped("Static opaque diffuse colors only. Shader animation, sky, liquids and transparency cannot be baked. Up to 16 pages of 1024 pixels; oversized UV islands stop export instead of reducing resolution. UV outlines are separate transparent TGA images.");
     if(ImGui::Button("Compile selected brushes"))try{bspModelBegin();}catch(const std::exception& e){bspModelMessage=e.what();}ImGui::EndDisabled();
     if(bspModelBusy){ImGui::SameLine();if(ImGui::Button("Cancel compilation")&&runActive)runStop();ImGui::ProgressBar(-float(ImGui::GetTime()),{-1,0},"Exporting BSP model");}

@@ -6,7 +6,7 @@ static constexpr int uiDefaultScaleChoice = 0;
 #endif
 static int uiScaleChoice = uiDefaultScaleChoice;
 static int uiTheme = 0;
-static const char* uiThemeNames[]={"Modern Dark","Retro Light","Retro Dark","Modern Light"};
+static const char* uiThemeNames[]={"Modern Dark","Retro Light","Retro Dark","Modern Light","Half-Life"};
 static ImFont* uiFonts[5] = {};
 static ImFont* uiItalicFonts[5] = {};
 static ImFont* uiBoldFonts[5] = {};
@@ -93,6 +93,22 @@ static void uiStyle()
     c[ImGuiCol_Button]=uiColor(200,214,233);c[ImGuiCol_ButtonHovered]=uiColor(170,199,237);
     c[ImGuiCol_ButtonActive]=uiColor(140,180,232);c[ImGuiCol_FrameBg]=uiColor(255,255,255);
     c[ImGuiCol_TextDisabled]=uiColor(110,115,125);
+  }
+  if(uiTheme==4) {
+    // Original olive/orange palette inspired by classic Half-Life VGUI.
+    for(auto slot:{ImGuiCol_WindowBg,ImGuiCol_PopupBg,ImGuiCol_MenuBarBg,ImGuiCol_Tab,ImGuiCol_TabDimmed})c[slot]=uiColor(63,68,52);
+    c[ImGuiCol_ChildBg]=c[ImGuiCol_FrameBg]=uiColor(37,42,32);
+    c[ImGuiCol_Text]=uiColor(225,211,176);c[ImGuiCol_TextDisabled]=uiColor(151,151,126);
+    c[ImGuiCol_Border]=uiColor(116,119,88);c[ImGuiCol_BorderShadow]=uiColor(22,27,21);
+    c[ImGuiCol_TitleBg]=uiColor(38,43,32);c[ImGuiCol_TitleBgActive]=uiColor(78,83,61);
+    c[ImGuiCol_Button]=uiColor(85,91,65);c[ImGuiCol_ButtonHovered]=uiColor(112,113,68);c[ImGuiCol_ButtonActive]=uiColor(153,113,37);
+    c[ImGuiCol_FrameBgHovered]=uiColor(62,70,46);c[ImGuiCol_FrameBgActive]=uiColor(77,81,49);
+    c[ImGuiCol_Header]=c[ImGuiCol_TabSelected]=uiColor(91,93,58);c[ImGuiCol_HeaderHovered]=c[ImGuiCol_TabHovered]=uiColor(128,110,45);
+    c[ImGuiCol_HeaderActive]=uiColor(151,112,37);c[ImGuiCol_TabDimmedSelected]=uiColor(76,81,57);
+    c[ImGuiCol_CheckMark]=c[ImGuiCol_SliderGrab]=c[ImGuiCol_SliderGrabActive]=c[ImGuiCol_TabSelectedOverline]=uiColor(245,164,37);
+    c[ImGuiCol_Separator]=uiColor(99,104,74);c[ImGuiCol_SeparatorHovered]=c[ImGuiCol_SeparatorActive]=uiColor(245,164,37);
+    s.WindowRounding=s.ChildRounding=s.FrameRounding=s.GrabRounding=s.PopupRounding=s.TabRounding=0;
+    s.WindowBorderSize=s.ChildBorderSize=s.FrameBorderSize=1;
   }
   s.ScaleAllSizes(uiScale());
   ImGui::GetIO().FontDefault = uiFonts[uiScaleChoice];

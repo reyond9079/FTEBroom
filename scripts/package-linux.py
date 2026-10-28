@@ -12,6 +12,7 @@ p.add_argument('--sdl2', action='store_true', help='Package the SDL2 engine inst
 a = p.parse_args()
 src = Path(__file__).resolve().parents[1]
 runpy.run_path(str(src / 'scripts/fetch-q3map2-source.py'))
+runpy.run_path(str(src / 'scripts/generate-legacy-editor-textures.py'))
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=False)
 platform = 'Linux-SDL2-x64' if a.sdl2 else 'Linux-x64'
@@ -48,6 +49,7 @@ spec.loader.exec_module(module)
 module.bundle_compiler(root/'tools/q3map2/q3map2', a.deps/'compiler-library-sources')
 shutil.copytree(a.deps/'compiler-library-sources', root/'tools/q3map2/library-sources')
 shutil.copytree(src/'runtime', root/'ftebroom', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+runpy.run_path(str(src/'scripts/package-legacy-games.py'))['bundle'](src,root,platform)
 shutil.copy2(src/'csaddon.dat', root/'ftebroom/csaddon.dat')
 for name in ('default.fmf','installed.lst'):
     shutil.copy2(src/'runtime'/name, root/name)

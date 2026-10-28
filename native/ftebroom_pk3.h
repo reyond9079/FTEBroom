@@ -37,7 +37,7 @@ inline std::string zipRead(const fs::path& archive,const std::string& member){
     if(crc32(0,(const Bytef*)result.data(),result.size())!=e.crc)throw std::runtime_error("PK3 CRC mismatch.");return result;
   }throw std::runtime_error("PK3 member not found.");
 }
-inline void zipRewrite(const fs::path& archive,const std::map<std::string,std::string>& changes,const std::string& from,const std::string& to,const std::string& removed){
+inline void zipRewrite(const fs::path& archive,const std::map<std::string,std::string>& changes,const std::string& from,const std::string& to,const std::string& removed,bool keepBackup=true){
   auto entries=zipDirectory(archive);auto stamp=fs::last_write_time(archive);auto size=fs::file_size(archive);auto serial=std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count());auto temp=archive;temp+=".ftebroom-"+serial+".tmp";auto backup=archive;backup+=".ftebroom-"+serial+".bak";
   for(const auto& c:changes)if(!zipName(c.first))throw std::runtime_error("Invalid PK3 destination.");
   if(!from.empty()&&(!zipName(from)||!zipName(to)||to.rfind(from+"/",0)==0))throw std::runtime_error("Invalid PK3 rename.");
@@ -58,7 +58,7 @@ inline void zipRewrite(const fs::path& archive,const std::map<std::string,std::s
     if(!matched)throw std::runtime_error("PK3 source not found.");if(written.size()>=65535)throw std::runtime_error("Too many PK3 entries.");auto central=out.tellp();
     for(const auto& e:written){put(out,0x02014b50);putHalf(out,20);putHalf(out,20);putHalf(out,e.flags);putHalf(out,e.method);put(out,0);put(out,e.crc);put(out,e.compressed);put(out,e.size);putHalf(out,e.name.size());putHalf(out,0);putHalf(out,0);putHalf(out,0);putHalf(out,0);put(out,0);put(out,e.offset);out.write(e.name.data(),e.name.size());}
     auto end=out.tellp();if(end<0||uint64_t(end)>0xffff0000ULL)throw std::runtime_error("PK3 directory requires ZIP64.");put(out,0x06054b50);put(out,0);putHalf(out,written.size());putHalf(out,written.size());put(out,uint32_t(end-central));put(out,uint32_t(central));putHalf(out,0);out.close();in.close();if(!out)throw std::runtime_error("Cannot finish PK3.");zipDirectory(temp);
-    if(fs::last_write_time(archive)!=stamp||fs::file_size(archive)!=size)throw std::runtime_error("PK3 changed during save.");fs::copy_file(archive,backup);
+    if(fs::last_write_time(archive)!=stamp||fs::file_size(archive)!=size)throw std::runtime_error("PK3 changed during save.");if(keepBackup)fs::copy_file(archive,backup);
 #ifdef _WIN32
     if(!ReplaceFileW(archive.c_str(),temp.c_str(),nullptr,0,nullptr,nullptr))throw std::runtime_error("Cannot replace PK3; original and backup preserved.");
 #else

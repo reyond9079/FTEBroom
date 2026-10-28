@@ -37,6 +37,7 @@ static std::filesystem::path settingsPath()
   return std::filesystem::u8path(path);
 }
 #include "ftebroom_game_profile.h"
+#include "ftebroom_halflife_runtime.h"
 static std::string token(const std::string& source,size_t& offset){return ftebroom::shaderpreview::token(source,offset);}
 static int QDECL
 collectResource(const char* name, qofs_t, time_t, void*, searchpathfuncs_s*)
@@ -55,6 +56,7 @@ static void scanDirectory(const std::string& path)
   files->EnumerateFiles((fs_relative)4, (path + "*").c_str(), collectResource, nullptr);
 }
 #include "ftebroom_quake1_assets.h"
+#include "ftebroom_quake2_assets.h"
 static void profileStartMap();
 static void assetsReady()
 {
@@ -64,7 +66,7 @@ static void assetsReady()
   resourceFiles.clear();
   resourceDirs.clear();
   shaderFiles = 0;
-  if(gameProfile==2) {
+  if(gameWad()) {
     try {q1IndexAssets();publishMaterialTags();command("ftebroom_definitions\n");char current[256]={};cvars->GetString("mapname",current,sizeof current);if(std::filesystem::path(current).stem()=="start"&&!cvars->GetFloat("ftebroom_dirty"))profileStartMap();assetsLoading=false;setupNeeded=false;cvars->SetFloat("ftebroom_material_count",float(materials.size()));return;}
     catch(const std::exception& e){assetError=e.what();assetsLoading=false;setupNeeded=true;return;}
   }
@@ -94,11 +96,12 @@ static void assetsReady()
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
       return char(std::tolower(c));
     });
+    if(gameProfile==3&&ext!=".wal")continue;
     if (
       path.rfind("textures/", 0) == 0
-      && (ext == ".tga" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".dds"))
+      && (ext == ".tga" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".dds" || (gameProfile==3&&(ext == ".wal" || ext == ".pcx"))))
     {
-      if (path == "textures/ftebroom/overlay.tga" || path.rfind("textures/_ftebroom_q1/",0)==0)
+      if (path == "textures/ftebroom/overlay.tga" || path.rfind("textures/_ftebroom_q1/",0)==0 || path.rfind("textures/_ftebroom_q2/",0)==0)
         continue;
       auto name = path.substr(0, dot);
       materials[name] = {name, path, false};
@@ -127,6 +130,7 @@ static void assetsReady()
       if(material.valid)materials[name]={name,material.preview,true,material.tags,material.opacity,material.masked,material.blend,material.alphaTest};
     }
   }
+  if(gameProfile==3){try{q2IndexAssets();}catch(const std::exception& e){assetError=e.what();assetsLoading=false;setupNeeded=true;return;}}
   publishMaterialTags();
   command("ftebroom_definitions\n");
   assetsLoading = false;
@@ -173,7 +177,9 @@ static bool mountAssets()
   assetError.clear();
   gameProfileLoad();
   cvars->SetFloat("ftebroom_allow_engine_terrain",gameProfile==1);
-  cvars->SetFloat("ftebroom_quake1",gameProfile==2);
+  cvars->SetFloat("ftebroom_quake1",gameWad());
+  cvars->SetFloat("ftebroom_game_profile",gameProfile);
+  cvars->SetFloat("ftebroom_classic_map",gameClassic());
   try
   {
     if(gameProfile==2) {
@@ -183,11 +189,15 @@ static bool mountAssets()
       std::snprintf(baseq3,sizeof baseq3,"%s",selected.c_str());
       if(!gameProfileSave())throw std::runtime_error("Cannot save the resource configuration.");
     }
-    if(gameProfile!=2){
+    if(gameProfile>=3){auto root=std::filesystem::u8path(gameProfile==3?q2Mod:hlMod);auto child=root/(gameProfile==3?"baseq2":hlRuntime?"cstrike":"valve");if(std::filesystem::is_directory(child))std::snprintf(gameProfile==3?q2Mod:hlMod,1024,"%s",child.u8string().c_str());}
+    if(gameProfile==4)halfLifeInstallRuntime();
+    if(gameProfile>=3)std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==3?q2Mod:hlMod);
+    if(!gameWad()){
       char writable[4096]={};if(files->NativePath("scripts/ftebroom-quake1.shader",(fs_relative)5,writable,sizeof writable)){
         auto generated=std::filesystem::u8path(writable);if(std::filesystem::exists(generated))std::ofstream(generated)<<"// Quake 1 material aliases inactive.\n";
       }
     }
+    if(gameProfile!=3){char cache[4096]{};if(files->NativePath("scripts/reyondbroom-quake2.shader",(fs_relative)5,cache,sizeof cache)&&std::filesystem::exists(std::filesystem::u8path(cache)))std::ofstream(std::filesystem::u8path(cache))<<"// Quake II aliases inactive.\n";}
     auto path = std::filesystem::weakly_canonical(std::filesystem::u8path(baseq3));
     if (!*baseq3 || !std::filesystem::is_directory(path))
       throw std::runtime_error(gameProfile==2?"Choose the Quake 1 mod folder, or enable LibreQuake.":"Choose an existing baseq3 folder.");
@@ -199,15 +209,16 @@ static bool mountAssets()
       std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
         return char(std::tolower(c));
       });
-      if (ext == ".pk3" || (gameProfile==2 && (ext==".pak" || ext==".wad")))
+      if (ext == ".pk3" || (gameClassic() && (ext==".pak" || ext==".wad")))
         hasAssets = true;
     }
     if(gameProfile==2)hasAssets=hasAssets||std::filesystem::exists(path/"gfx/palette.lmp");
-    if (!hasAssets && gameProfile!=2)
+    if (!hasAssets && !gameClassic())
       throw std::runtime_error(
         "No PK3 archives, textures or scripts were found in this folder.");
     auto normalized = path.generic_u8string();
-    auto base=gameProfile==2?q1BaseDirectory():std::string{};
+    auto base=gameWad()?q1BaseDirectory():std::string{};
+    if(gameProfile==3){auto q2base=path.parent_path()/"baseq2";if(q2base!=path&&std::filesystem::is_directory(q2base))base=q2base.generic_u8string();}
     cvars->SetString("ftebroom_assetpath", base.empty()?normalized.c_str():base.c_str());
     cvars->SetString("ftebroom_modassetpath",gameProfile==1?gameRuntime().c_str():!base.empty()?normalized.c_str():"");
     std::ofstream settings(settingsPath(), std::ios::binary);
@@ -243,7 +254,7 @@ static void projectResourceFields()
   ImGui::PushStyleColor(ImGuiCol_Border,light?uiColor(120,128,140):uiColor(110,120,135));
   ImGui::PushStyleColor(ImGuiCol_FrameBg,light?uiColor(255,255,255):uiColor(42,46,52));
   gameProfileFields(firstSetupStep>=0);
-  if(gameProfile!=2) {
+  if(gameProfile<2) {
     ImGui::TextUnformatted("Map format: Quake 3 (Valve 220)");
     ImGui::TextUnformatted("baseq3 folder");
     ImGui::SetNextItemWidth(-1);

@@ -16,7 +16,12 @@ static void bspUVShow(){
   try{
     auto bytes=modelResource(modelViewerPath);if(bytes.size()>268435456)throw std::runtime_error("BSP exceeds 256 MiB UV preview limit.");
     auto palette=modelResource("gfx/palette.lmp");bspUVUnload();bspUVMaterials.clear();bspUVSource=modelViewerPath;bspUVSelected=0;bspUVZoom=1;bspUVMessage="Reading BSP UVs...";bspUVOpen=true;
-    bspUVJob=std::async(std::launch::async,[bytes=std::move(bytes),palette=std::move(palette)](){BspUVJob r;try{r.materials=ftebroom::bspUV::read(bytes,palette);}catch(const std::exception& e){r.error=e.what();}return r;});
+    std::map<std::string,std::string> wals;
+    if(bytes.size()>=160&&bytes.substr(0,4)=="IBSP"&&ftebroom::quake1::word(bytes,4)==38){auto off=ftebroom::quake1::word(bytes,48),length=ftebroom::quake1::word(bytes,52);ftebroom::quake1::range(bytes,off,length);if(length%76||length/76>4096)throw std::runtime_error("Invalid Quake II texture directory.");
+      for(size_t at=off;at<off+length;at+=76){auto name=ftebroom::quake1::name(bytes,at+40,32);if(!wals.count(name))wals[name]=modelResource("textures/"+name+".wal");}
+      try{palette=ftebroom::legacy::pcx(modelResource("pics/colormap.pcx")).palette;}catch(...){}
+    }
+    bspUVJob=std::async(std::launch::async,[bytes=std::move(bytes),palette=std::move(palette),wals=std::move(wals)](){BspUVJob r;try{r.materials=ftebroom::bspUV::read(bytes,palette,wals);}catch(const std::exception& e){r.error=e.what();}return r;});
   }catch(const std::exception& e){bspUVMessage=e.what();bspUVOpen=true;}
 }
 static void bspUVPanel(){

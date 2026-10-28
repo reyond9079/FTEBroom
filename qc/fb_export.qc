@@ -65,7 +65,7 @@ int fb_export_selected_bsp()
     fb_clip_q3_export=FALSE;fputs(file,"}\n");
     // q3map2 needs an exterior flood seed to retain surfaces of an open model.
     // The native publisher removes this synthetic entity from the output BSP.
-    if(!cvar("ftebroom_quake1"))fputs(file,strcat("{\n\"classname\" \"info_player_start\"\n\"origin\" ",fb_map_quote(fb_clip_vec(minimum-pivot-'32 32 32')),"\n}\n"));
+    if(!cvar("ftebroom_classic_map"))fputs(file,strcat("{\n\"classname\" \"info_player_start\"\n\"origin\" ",fb_map_quote(fb_clip_vec(minimum-pivot-'32 32 32')),"\n}\n"));
     fclose(file);
     cvar_set("ftebroom_export_status",success?"1":"-1");return success;
 }

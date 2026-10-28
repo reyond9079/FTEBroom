@@ -22,16 +22,16 @@ inline void range(const std::string& bytes,uint64_t at,uint64_t size) {
 inline std::string name(const std::string& bytes,size_t at,size_t count) {
   range(bytes,at,count);auto text=bytes.substr(at,count);auto zero=text.find('\0');if(zero!=std::string::npos)text.resize(zero);return text;
 }
-struct Texture {std::string name;uint32_t width,height;std::vector<unsigned char> pixels;};
+struct Texture {std::string name;uint32_t width,height;std::vector<unsigned char> pixels;std::string palette;};
 inline std::vector<Texture> wad(const std::string& bytes) {
-  if(bytes.compare(0,4,"WAD2"))throw std::runtime_error("Quake 1 textures require a WAD2 archive.");
+  bool hl=bytes.compare(0,4,"WAD3")==0;if(!hl&&bytes.compare(0,4,"WAD2"))throw std::runtime_error("Expected WAD2 or WAD3 archive.");
   auto count=word(bytes,4),offset=word(bytes,8);
   if(count>65536)throw std::runtime_error("WAD has too many entries.");
   range(bytes,offset,uint64_t(count)*32);std::vector<Texture> result;
   uint64_t total=0;
   for(uint32_t i=0;i<count;i++) {
     size_t entry=offset+size_t(i)*32;auto start=word(bytes,entry),size=word(bytes,entry+4);range(bytes,start,size);
-    if((unsigned char)bytes[entry+12]!=68)continue;
+    if((unsigned char)bytes[entry+12]!=(hl?67:68))continue;
     // Quake's console font uses the same lump type but is raw 128x128 pixels.
     auto lumpName=name(bytes,entry+16,16);std::transform(lumpName.begin(),lumpName.end(),lumpName.begin(),[](unsigned char c){return char(std::tolower(c));});
     if(lumpName=="conchars")continue;
@@ -46,15 +46,28 @@ inline std::vector<Texture> wad(const std::string& bytes) {
       if(pos<40 || pos>size || length>size-pos)throw std::runtime_error("Invalid WAD mip offset.");}
     size_t first=start+word(bytes,start+24),length=size_t(t.width)*t.height;
     total+=length;if(total>256*1024*1024)throw std::runtime_error("WAD decoded textures exceed 256 MiB.");
+    if(hl){size_t end=40;for(int mip=0;mip<4;mip++)end=std::max(end,size_t(word(bytes,start+24+4*mip))+size_t(t.width>>mip)*(t.height>>mip));
+      if(end+770>size || (unsigned char)bytes[start+end]!=0 || (unsigned char)bytes[start+end+1]!=1)throw std::runtime_error("Invalid WAD3 palette.");t.palette=bytes.substr(start+end+2,768);}
     t.pixels.assign(bytes.begin()+first,bytes.begin()+first+length);result.push_back(std::move(t));
   }return result;
 }
-inline std::string tga(const Texture& texture,const std::string& palette) {
+inline std::string tga(const Texture& texture,const std::string& fallback) {
+  const auto& palette=texture.palette.empty()?fallback:texture.palette;
   if(palette.size()!=768)throw std::runtime_error("Quake palette.lmp must contain 256 RGB colours.");
   std::string out(18,0);out[2]=2;out[12]=texture.width&255;out[13]=texture.width>>8;
   bool masked=!texture.name.empty()&&texture.name[0]=='{';
   out[14]=texture.height&255;out[15]=texture.height>>8;out[16]=masked?32:24;out[17]=masked?40:32;
   for(auto pixel:texture.pixels){out+=palette[3*pixel+2];out+=palette[3*pixel+1];out+=palette[3*pixel];if(masked)out+=char(pixel==255?0:255);}return out;
+}
+inline bool gameBsp(const std::string& bytes,int profile) {
+  if(profile==3||profile==4){
+    bool q2=profile==3;size_t header=q2?8:4;int lumps=q2?19:15;
+    if(bytes.size()<header+lumps*8)return false;
+    if(q2?(bytes.compare(0,4,"IBSP")||word(bytes,4)!=38):word(bytes,0)!=30)return false;
+    for(int i=0;i<lumps;i++){auto at=word(bytes,header+i*8),length=word(bytes,header+i*8+4);if(at>bytes.size()||length>bytes.size()-at||(length&&at<header+lumps*8))return false;}
+    auto models=word(bytes,header+(q2?13:14)*8+4);return models>0&&models%(q2?48:64)==0;
+  }
+  return false;
 }
 inline bool bsp(const std::string& bytes,bool q1) {
   if(bytes.size()<(q1?124:144))return false;
@@ -104,15 +117,16 @@ inline std::string face(const std::string& line,bool classic,bool engineOutput=f
     throw std::runtime_error("This UV mapping needs Valve 220. Select Valve 220 in Game / resources before saving; no file was replaced.");
   out<<prefix<<offset[0]<<' '<<offset[1]<<' '<<std::atan2(sine,cosine)*180/3.141592653589793<<' '<<1/norm<<' '<<1/invY;return out.str();
 }
-inline std::string map(const std::string& source,bool classic,const std::string& wads,bool engineOutput=false) {
+inline std::string map(const std::string& source,bool classic,const std::string& wads,bool engineOutput=false,bool halfLife=false) {
   std::istringstream input(source);std::ostringstream out;std::string line;bool world=false;
   while(std::getline(input,line)) {
     auto start=line.find_first_not_of(" \t\r");auto trimmed=start==std::string::npos?std::string():line.substr(start);
     if(trimmed.rfind("patchDef",0)==0)throw std::runtime_error("Quake 1 does not support patches. Remove or convert patches before saving/building.");
+    if(halfLife&&trimmed.rfind("\"mapversion\"",0)==0)continue;
     if(trimmed.rfind("\"wad\"",0)==0 && !wads.empty())continue;
     if(trimmed.rfind("(",0)==0)line=face(trimmed,classic,engineOutput);
     out<<line<<'\n';
-    if(!world && trimmed.find("\"worldspawn\"")!=std::string::npos){world=true;if(!wads.empty())out<<"\"wad\" "<<std::quoted(wads)<<'\n';}
+    if(!world && trimmed.find("\"worldspawn\"")!=std::string::npos){world=true;if(halfLife)out<<"\"mapversion\" \"220\"\n";if(!wads.empty())out<<"\"wad\" "<<std::quoted(wads)<<'\n';}
   }return out.str();
 }
 inline std::vector<std::string> mapTextures(const std::string& source) {

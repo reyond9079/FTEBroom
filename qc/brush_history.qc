@@ -238,7 +238,7 @@ int(int mod, brushface_t *faces, int numfaces, int contents, float selectnow) br
 //create and journal.
 int(int mod, patchvert_t *vert, patchinfo_t info, float selectnow) patch_history_create =
 {
-    if(cvar("ftebroom_quake1")){print("ReyondBroom: patches are unavailable in Quake 1.\n");return 0;}
+    if(cvar("ftebroom_classic_map")){print("ReyondBroom: patches are unavailable in Quake 1.\n");return 0;}
 	int totalcp = info.cpwidth * info.cpheight;
 	history_t *h = history_allocate();
 

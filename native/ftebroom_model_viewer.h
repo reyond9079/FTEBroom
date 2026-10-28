@@ -11,6 +11,7 @@ static void modelEditorCameraStep();
 static void modelEditorCameraEnd(bool restore=true);
 static bool modelEditorZoom(float wheel);
 static bool modelViewerOpen=false,modelViewerPlay=false,modelViewerBones=false;
+static bool modelViewerStudio=false;
 static std::string modelViewerPath;
 static int modelViewerSequence=0,modelViewerPose=0,modelViewerBone=1;
 static float modelViewerYaw=135,modelViewerPitch=15,modelViewerZoom=1,modelViewerFPS=10;
@@ -26,7 +27,7 @@ static double modelViewerClock=0;
 static bool modelFile(const std::filesystem::path& path) {
   auto ext=entityLower(path.extension().u8string());return ext==".mdl"||ext==".md3"||ext==".md2"||ext==".iqm"||ext==".md5mesh"||ext==".mdx"||ext==".zym"||ext==".dpm"||ext==".psk"||ext==".obj";
 }
-static bool modelViewableFile(const std::filesystem::path& path){return modelFile(path)||entityLower(path.extension().u8string())==".bsp";}
+static bool modelViewableFile(const std::filesystem::path& path){auto ext=entityLower(path.extension().u8string());return modelFile(path)||ext==".bsp"||ext==".sp2"||ext==".spr";}
 static bool modelViewerIsBsp(){return entityLower(std::filesystem::u8path(modelViewerPath).extension().u8string())==".bsp";}
 static void modelViewerLoad(const std::string& path) {
   modelEditorActive=false;cvars->SetFloat("ftebroom_modeleditor_active",0);
@@ -37,7 +38,7 @@ static void modelViewerLoad(const std::string& path) {
   // FTE enumeration includes loose files and mounted PAK/PK3 resources.
   files->EnumerateFiles((fs_relative)4,(parent/(stem+"*.skin")).generic_u8string().c_str(),modelViewerCollectSkin,nullptr);
   std::sort(modelViewerSkinFiles.begin(),modelViewerSkinFiles.end());modelViewerSkinFiles.erase(std::unique(modelViewerSkinFiles.begin(),modelViewerSkinFiles.end()),modelViewerSkinFiles.end());
-  int embedded=1;try{auto bytes=modelResource(path);if(bytes.substr(0,4)=="IDPO")embedded=std::clamp(int(ftebroom::quake1::word(bytes,48)),1,256);else if(bytes.substr(0,4)=="IDST")embedded=std::clamp(int(ftebroom::quake1::word(bytes,196)),1,256);}catch(...){}
+  int embedded=1;modelViewerStudio=false;try{auto bytes=modelResource(path);modelViewerStudio=bytes.substr(0,4)=="IDST";if(bytes.substr(0,4)=="IDPO")embedded=std::clamp(int(ftebroom::quake1::word(bytes,48)),1,256);else if(modelViewerStudio)embedded=std::clamp(int(ftebroom::quake1::word(bytes,196)),1,256);}catch(...){}
   cvars->SetFloat("ftebroom_modelviewer_embeddedskins",embedded);cvars->SetFloat("ftebroom_modelviewer_skins",embedded);cvars->SetFloat("ftebroom_modelviewer_skin",0);cvars->SetString("ftebroom_modelviewer_customskin","");
   cvars->SetString("ftebroom_modelviewer_path",path.c_str());cvars->SetFloat("ftebroom_modelviewer_count",0);cvars->SetFloat("ftebroom_modelviewer_poses",0);
 }
@@ -82,6 +83,14 @@ static void modelViewerPanel() {
         if(bytes.substr(0,4)=="IDPO"){
           auto mdl=ftebroom::readMdl(bytes,modelViewerSkin);auto tga=ftebroom::quake1::tga(mdl.skin,modelResource("gfx/palette.lmp"));
           draw->LoadImageData("ftebroom/viewer-skin.tga","image/tga",tga.data(),tga.size());modelViewerSkinTexture=draw->LoadImage("ftebroom/viewer-skin.tga");
+        }else if(bytes.substr(0,4)=="IDST"){
+          auto companion=std::filesystem::u8path(modelViewerPath);companion.replace_filename(companion.stem().u8string()+"T.mdl");
+          std::string extra;try{extra=modelResource(companion.generic_u8string());}catch(...){}
+          auto parts=ftebroom::legacyModels::studio(bytes,extra,modelViewerSkin);
+          if(!parts.empty()){auto tga=ftebroom::quake1::tga(parts[0].embedded,{});draw->LoadImageData("ftebroom/viewer-skin.tga","image/tga",tga.data(),tga.size());modelViewerSkinTexture=draw->LoadImage("ftebroom/viewer-skin.tga");}
+        }else if(bytes.substr(0,4)=="IDP2"){
+          auto parts=ftebroom::legacyModels::md2(bytes,modelViewerSkin);
+          if(!parts.empty()){auto texture=ftebroom::legacy::pcx(modelResource(parts[0].image));auto tga=ftebroom::quake1::tga(texture,{});draw->LoadImageData("ftebroom/viewer-skin.tga","image/tga",tga.data(),tga.size());modelViewerSkinTexture=draw->LoadImage("ftebroom/viewer-skin.tga");}
         }
       }
       if(modelViewerSkinTexture){float w=0,h=0;draw->ImageSize(modelViewerSkinTexture,&w,&h);float scale=std::min(200.f/std::max(1.f,w),120.f/std::max(1.f,h));ImGui::Image((ImTextureID)modelViewerSkinTexture,{w*scale,h*scale});}

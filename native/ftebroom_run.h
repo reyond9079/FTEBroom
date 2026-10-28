@@ -76,6 +76,17 @@ static void runLoad()
     {1,"${q3map2}",q3+"-vis "+bsp},{1,"${q3map2}",q3+"-light -samples 2 "+bsp}}});
   preset({"Q1: BSP + VIS + LIGHT","${MAP_DIR_PATH}/_ftebroom-build",false,{
     {0,"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map",""},{1,"${qbsp}",map},{1,"${vis}",bsp},{1,"${light}","-extra "+bsp}}});
+  const std::string q2Paths="-basedir \"${BASE_GAME_DIR_PATH}\" -gamedir \"${GAME_DIR_PATH}\" -path \"${WORK_DIR_PATH}\" ";
+  preset({"Q2: BSP + VIS + LIGHT","${MAP_DIR_PATH}/_ftebroom-build",false,{{0,"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map",""},{1,"${q2bsp}","-q2bsp "+q2Paths+map},{1,"${q2vis}",bsp},{1,"${q2light}",q2Paths+bsp}}});
+  preset({"HL: CSG + BSP + VIS + RAD","${MAP_DIR_PATH}/_ftebroom-build",false,{{0,"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map",""},{1,"${hlcsg}","-nowadtextures "+map},{1,"${hlbsp}",map},{1,"${hlvis}",map},{1,"${hlrad}",map}}});
+  auto root=documentPath("ftebroom.cfg").parent_path().parent_path();
+  for(const auto& pair:std::vector<std::pair<std::string,std::string>>{{"q2bsp","tools/ericw-q2/qbsp"},{"q2vis","tools/ericw-q2/vis"},{"q2light","tools/ericw-q2/light"},{"hlcsg","tools/sdhlt/sdHLCSG"},{"hlbsp","tools/sdhlt/sdHLBSP"},{"hlvis","tools/sdhlt/sdHLVIS"},{"hlrad","tools/sdhlt/sdHLRAD"}}){
+    auto path=root/pair.second;
+#ifdef _WIN32
+    path+=".exe";
+#endif
+    if(runVariables[pair.first].empty()&&std::filesystem::is_regular_file(path))runVariables[pair.first]=std::filesystem::absolute(path).u8string();
+  }
   std::error_code compilerError;
   if(std::none_of(runProfiles.begin(),runProfiles.end(),[](const RunProfile& p){return p.name=="Q1: Export + qbsp";}))
     runProfiles.push_back({"Q1: Export + qbsp","${MAP_DIR_PATH}/_ftebroom-build",false,{{0,"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map",""},{1,"${qbsp}","\"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map\""}}});
@@ -204,8 +215,8 @@ static void runBegin(const RunProfile& profile)
 {
   if(runActive||runExclusive)return;
   runWindow=true;runError.clear();runHadError=false;runLog.clear();runStep=0;
-  if(gameProfile==2 && std::any_of(profile.tasks.begin(),profile.tasks.end(),[](const RunTask& task){return task.kind==1 && task.source.find("q3map2")!=std::string::npos;})){
-    runError="q3map2 cannot compile Quake 1 maps. Use Build / Setup build for the Quake 1 BSP, VIS and LIGHT stages.";runHadError=true;return;
+  if(gameClassic() && std::any_of(profile.tasks.begin(),profile.tasks.end(),[](const RunTask& task){return task.kind==1 && task.source.find("q3map2")!=std::string::npos;})){
+    runError="q3map2 cannot compile this game format. Use Compile / Setup compile for the active game profile.";runHadError=true;return;
   }
   if(documentFile.empty() && profile.name!="Export selected BSP model"){runError="Save the map before running a profile.";return;}
   try
@@ -213,6 +224,7 @@ static void runBegin(const RunProfile& profile)
     activeVariables=runVariables;
     activeVariables["MAP_BASE_NAME"]=documentFile.stem().u8string();activeVariables["MAP_FULL_NAME"]=documentFile.filename().u8string();
     activeVariables["MAP_DIR_PATH"]=ftebroom::pak::diskFolder(documentFile.parent_path()).u8string();activeVariables["GAME_DIR_PATH"]=baseq3;
+    auto base=std::filesystem::u8path(baseq3);if(gameProfile==3){auto sibling=base.parent_path()/"baseq2";if(std::filesystem::is_directory(sibling))base=sibling;}activeVariables["BASE_GAME_DIR_PATH"]=base.u8string();
     activeVariables["GAME_DIR"]=baseq3;activeVariables["MODS"]="baseq3";
     activeVariables["CPU_COUNT"]=std::to_string(std::max(1u,std::thread::hardware_concurrency()));
     activeVariables["APP_DIR_PATH"]=documentPath("ftebroom.cfg").parent_path().parent_path().u8string();
@@ -324,9 +336,10 @@ static void runTick()
       if(runIsWorkingMap(target))throw std::runtime_error("Export Map must use a build copy, not the working map.");
       std::filesystem::create_directories(target.parent_path());
       std::filesystem::copy_file(documentPath("data/export-map.map"),target,std::filesystem::copy_options::overwrite_existing);
-      if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(target),false,q1CompilerWads(target.parent_path(),q1Read(target)));
+      if(gameWad()){auto converted=ftebroom::quake1::map(q1Read(target),false,q1CompilerWads(target.parent_path(),q1Read(target)),false,gameProfile==4);
         for(const auto& texture:ftebroom::quake1::mapTextures(converted))if(!materials.count("textures/"+texture))throw std::runtime_error("Missing Quake texture '"+texture+"'. Add its WAD in Game / resources.");
         std::ofstream output(target,std::ios::binary);output<<converted;output.close();if(!output)throw std::runtime_error("Cannot write Quake build snapshot.");}
+      if(gameProfile==3){auto texture=target.parent_path()/"textures/fb_grey.wal";std::filesystem::create_directories(texture.parent_path());auto bytes=modelResource("textures/fb_grey.wal");std::ofstream f(texture,std::ios::binary);f.write(bytes.data(),bytes.size());if(bytes.empty()||!f)throw std::runtime_error("Cannot stage default Quake II material.");}
       if(runExportHook)runExportHook(target);
       runExportWaiting=false;++runStep;
     }
@@ -354,7 +367,7 @@ static void runPanel()
   {
     ImGui::BeginDisabled(runActive);
     static int previousGame=-1;
-    if(previousGame!=gameProfile){previousGame=gameProfile;for(int i=0;i<(int)runProfiles.size();++i)if(runProfiles[i].name.rfind(gameProfile==2?"Q1:":"Q3:",0)==0){runSelected=i;break;}}
+    if(previousGame!=gameProfile){previousGame=gameProfile;for(int i=0;i<(int)runProfiles.size();++i)if(runProfiles[i].name.rfind(gameProfile==4?"HL:":gameProfile==3?"Q2:":gameProfile==2?"Q1:":"Q3:",0)==0){runSelected=i;break;}}
     runSelected=std::clamp(runSelected,0,(int)runProfiles.size()-1);
     if(ImGui::BeginCombo("Profile",runProfiles[runSelected].name.c_str())){for(int i=0;i<(int)runProfiles.size();++i)if(ImGui::Selectable(runProfiles[i].name.c_str(),i==runSelected))runSelected=i;ImGui::EndCombo();}
     if(ImGui::Button("New profile")){runProfiles.push_back(RunProfile{});runSelected=(int)runProfiles.size()-1;}
