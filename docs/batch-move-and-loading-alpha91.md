@@ -23,6 +23,8 @@ path. Entity strings containing escape sequences also retain that path. The new
 native packet validates all brushes before mutation and validates byte ranges
 without the legacy brush API's 65,536-element limit. An incompatible history
 snapshot cancels replay with a message rather than aborting the viewport.
+Fallback updates are explicitly sequenced and reject invalid history ranges,
+including resource reload before the first edit.
 
 ## Measurements
 

@@ -140,6 +140,7 @@ void fb_incremental_materials(int first,int last,int redo)
 }
 int fb_incremental_apply(int first,int last,int redo)
 {
+    if(first<0 || first<history_min || first>=last || last>history_max || !historyring_length)return FALSE;
     // Validate the entire transaction before changing any retained ownership.
     if(!fb_container_cache || !fb_grid_first || !fb_render_first || !fb_filter_tags || !fb_render_access || !fb_grid_brush_bounds || fb_grid_built_epoch!=fb_grid_geometry_epoch || fb_incremental_brush_count>2048)return FALSE;
     static int ids[4096],models[4096];static int *entities;static int entityCapacity;

@@ -83,6 +83,13 @@ int fb_generators_testcommand()
         fb_transform_expect(checkbuiltin(ftebroom_preview_boxes),"preview89_native_batch_available");return TRUE;
     }
     if(argv(1)=="cancel89"){fb_transform_clear();print("RB_PREVIEW89 cancelled\n");return TRUE;}
+    if(argv(1)=="batch91guard"){
+        int cursor91=history;
+        int rejected91=!fb_incremental_apply(-1,0,FALSE);
+        if(fb_incremental_apply(history_max,history_max+1,TRUE))rejected91=FALSE;
+        fb_document_loaded();
+        fb_transform_expect(rejected91 && history==cursor91,"batch91_reload_invalid_ranges_safe");return TRUE;
+    }
     if(argv(1)=="load91begin"){cvar_set("ftebroom_fullbench_name",sprintf("%.9g",gettime(1)));print("RB_LOAD91_BEGIN\n");return TRUE;}
     if(argv(1)=="load91end"){print(sprintf("RB_LOAD91_READY ms=%g nodes=%i faces=%i\n",(gettime(1)-stof(cvar_string("ftebroom_fullbench_name")))*1000,fb_node_count,fb_render_face_count));return TRUE;}
     if(argv(1)=="brushes91select"){
