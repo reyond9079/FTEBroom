@@ -39,7 +39,7 @@ if b'indexed brush queries enabled' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with zz-editor-brush-index.patch before packaging')
 if b'FTEBROOM_REGISTRY_PASS' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with model-registry-growth.patch before packaging')
-for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid', b'ftebroom_incremental_support', b'ftebroom_incremental_bounds', b'ftebroom_pick_candidates', b'ftebroom_collect_marks', b'ftebroom_opaque_batches', b'ftebroom_grid_fade_end', b'ftebroom_label_distance', b'ftebroom_visibility_workers', b'ftebroom_gpu_visibility', b'ftebroom_materials', b'ftebroom_spike_batch', b'ftebroom_selection_points'):
+for symbol in (b'ftebroom_draw_faces', b'ftebroom_cull_points', b'ftebroom_line_visible', b'ftebroom_build_face', b'ftebroom_build_grid', b'ftebroom_incremental_support', b'ftebroom_incremental_bounds', b'ftebroom_pick_candidates', b'ftebroom_collect_marks', b'ftebroom_opaque_batches', b'ftebroom_grid_fade_end', b'ftebroom_label_distance', b'ftebroom_visibility_workers', b'ftebroom_gpu_visibility', b'ftebroom_materials', b'ftebroom_spike_batch', b'ftebroom_selection_points', b'ftebroom_point_colors'):
     if symbol not in (root/'fteqw-gl64').read_bytes():
         raise RuntimeError('Rebuild the engine with the alpha82 ordered opaque and grid passes before packaging')
 spec = spec_from_file_location('compiler_libs', src/'scripts/bundle-compiler-libs.py')

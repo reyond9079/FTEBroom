@@ -23,8 +23,11 @@ int fb_linked_testcommand()
     }
     fb_linked_expect(count==2 && b>=0 && selectedbrushcount==1,"linked_duplicate");
     if(b<0)return TRUE;
+    fb_link_peers_prepare();fb_linked_expect(fb_link_peer_count==2,"peer_index_contains_both_instances");
     brush_undo();fb_document_tick();fb_linked_expect(history==marker && fb_nodes[fb_organize_node(a)].fields["_tb_linked_group_id"]=="","duplicate_single_undo");
+    fb_link_peers_prepare();fb_linked_expect(fb_link_peer_count==0,"peer_index_removes_undone_instance");
     brush_redo();fb_document_tick();
+    fb_link_peers_prepare();fb_linked_expect(fb_link_peer_count==2,"peer_index_restores_redone_instance");
     fb_move_numeric('128 0 0');fb_document_tick();fb_affine_t map;
     fb_linked_matrix(fb_nodes[fb_organize_node(b)].fields["_tb_transformation"],&map);
     fb_linked_expect(map.translation=='128 0 0',"instance_translation_matrix");

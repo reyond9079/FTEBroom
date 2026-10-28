@@ -63,6 +63,49 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="pointcolors88"){
+        fb_point_render_prepare();int errors88=0,checked88=0;
+        int words88=sizeof(trisoup_simple_vert_t)/sizeof(int);int *saved88=memalloc(32*sizeof(trisoup_simple_vert_t));
+        for(int i=0;i<min(32,fb_point_render_count);i++){
+            fb_point_render_t *point88=&fb_point_render[i];fb_point_geometry_t *geometry88=&fb_point_geometry[i];
+            memcpy(saved88,geometry88.wire,8*sizeof(trisoup_simple_vert_t));memcpy(saved88+8*words88,geometry88.solid,24*sizeof(trisoup_simple_vert_t));
+            fb_entity_native_color(point88.id,'-1 -1 -1');fb_entity_draw_box(point88.id,point88.color,FALSE,FALSE,"");
+            int *wire88=(int*)geometry88.wire;int *solid88=(int*)geometry88.solid;
+            for(int word88=0;word88<32*words88;word88++)if(saved88[word88]!=(word88<8*words88?wire88[word88]:solid88[word88-8*words88]))errors88++;
+            checked88++;
+        }
+        memfree(saved88);fb_transform_expect(checked88>0 && !errors88,"pointcolors88_matches_script_bytes");
+        print(sprintf("RB_POINTCOLORS88 points=%i mismatched_words=%i\n",checked88,errors88));return TRUE;
+    }
+    if(argv(1)=="bounds88"){
+        int valid88=FALSE;static vector bounds88[2];vector low88='0 0 0',high88='0 0 0';
+        for(int i=0;i<fb_selected_entity_count;i++)if(fb_entity_bounds(fb_selected_entities[i],bounds88)){
+            if(!valid88){low88=bounds88[0];high88=bounds88[1];valid88=TRUE;}
+            else for(int a=0;a<3;a++){low88[a]=min(low88[a],bounds88[0][a]);high88[a]=max(high88[a],bounds88[1][a]);}
+        }
+        if(!valid88 || selectedbrushcount){fb_transform_expect(FALSE,"bounds88_point_fixture");return TRUE;}
+        float captured88=cvar("ftebroom_camera_captured");cvar_set("ftebroom_camera_captured","1");
+        fb_view_remember_selection();fb_visual_prepare();
+        fb_transform_expect(fb_view_lastmin==low88 && fb_view_lastmax==high88 && fb_visual_min==low88 && fb_visual_max==high88,"bounds88_matches_full_reference");
+        fb_view_remember_selection();fb_visual_prepare();
+        fb_transform_expect(fb_visual_min==low88 && fb_visual_max==high88,"bounds88_reuses_static_selection");
+        cvar_set("ftebroom_camera_captured",ftos(captured88));return TRUE;
+    }
+    if(argv(1)=="peers88"){
+        fb_document_tick();fb_link_peers_prepare();
+        if(fb_node_count>1024){fb_transform_expect(fb_link_peer_count==stoi(argv(2)),"peers88_large_map_candidate_count");return TRUE;}
+        int peer88Errors=0,peer88Groups=0;
+        for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_GROUP && fb_nodes[n].fields["_tb_linked_group_id"]!=""){
+            string key88=fb_nodes[n].fields["_tb_linked_group_id"];int actual88=(int)fb_link_peer_heads[key88],others88=0;
+            for(int peer88=2;peer88<fb_node_count;peer88++)if(fb_nodes[peer88].kind==FB_NODE_GROUP && fb_nodes[peer88].fields["_tb_linked_group_id"]==key88){
+                if(actual88!=peer88)peer88Errors++;if(actual88)actual88=fb_link_peer_next[actual88];if(peer88!=n)others88++;
+            }
+            if(actual88)peer88Errors++;if(others88)peer88Groups++;
+        }
+        fb_transform_expect(!peer88Errors && peer88Groups==fb_link_peer_count,"peers88_matches_full_scan_order");
+        int builds88=fb_link_peer_builds;fb_link_peers_prepare();
+        fb_transform_expect(builds88==fb_link_peer_builds,"peers88_reuses_unchanged_document");return TRUE;
+    }
     if(argv(1)=="spikes87"){
         fb_document_tick();fb_render_allowed(0,FB_PICK_LOCKED);
         static vector spike87Bounds[2];int compared87=0,mismatch87=0;

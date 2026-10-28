@@ -12,6 +12,7 @@ static int entityDefinitionEpoch = 0;
 static bool entityPropertyFocused = false;
 static std::map<int, std::map<std::string, std::string>> entityProperties;
 static std::map<std::string, int> entityUsage;
+static std::set<std::string> selectedEntityClasses;
 static std::set<std::string> entityMapColors;
 static std::string definitionSource, definitionError, definitionMapPath;
 static std::map<std::string, ImVec2> entityTestItems;
@@ -178,15 +179,47 @@ static void definitionsChoose(const std::filesystem::path& path)
             .c_str());
 }
 static int entitySelectionEpoch = -1;
+static bool entitySelectionLinked=false;
 static void entitySelectionLoad()
 {
   auto& epoch = entitySelectionEpoch;
-  int next = (int)cvars->GetFloat("ftebroom_property_epoch");
-  if (next == epoch)
-    return;
-  std::ifstream in(documentPath("data/ftebroom-entity-selection.txt"));
-  if (!in)
-    return;
+  std::string header, serialized;
+  int next=-1;
+  if(qcQuery(0,0,header) && !header.empty()) {
+    std::string version;int count=0,nodes=0,geometry=0,revision=0,linked=0;
+    std::istringstream meta(header);
+    if(!(meta>>version>>next>>count>>nodes>>geometry>>revision>>linked) || version!="RBUI1" || count<0 || count>1000000 || nodes<2 || nodes>4000000)return;
+    entitySelectionLinked=linked!=0;
+    if(next==epoch)return;
+    static int resourceGeometry=-1,resourceRevision=-1,resourceMap=-1;
+    static std::string resources;
+    std::string part;
+    if(resourceGeometry!=geometry || resourceRevision!=revision || resourceMap!=organizationMapEpoch) {
+      std::string fresh;
+      for(int cursor=0;cursor<nodes;cursor+=128) {
+        if(!qcQuery(2,cursor,part))return;
+        fresh+=part;
+      }
+      if(!qcQuery(3,0,part))return;
+      fresh+=part;resources=std::move(fresh);
+      resourceGeometry=geometry;resourceRevision=revision;resourceMap=organizationMapEpoch;
+    }
+    for(int cursor=0;cursor<count;cursor+=64) {
+      if(!qcQuery(1,cursor,part))return;
+      serialized+=part;
+    }
+    serialized+=resources;
+  }else {
+    // Compatibility with older CSQC packages. Updated packages use no file or
+    // cvar transport for inspector state.
+    next=(int)cvars->GetFloat("ftebroom_property_epoch");
+    entitySelectionLinked=cvars->GetFloat("ftebroom_linked_open")!=0;
+    if(next==epoch)return;
+    std::ifstream legacy(documentPath("data/ftebroom-entity-selection.txt"));
+    if(!legacy)return;
+    serialized.assign(std::istreambuf_iterator<char>(legacy),{});
+  }
+  std::istringstream in(serialized);
   std::map<int, std::map<std::string, std::string>> properties;
   std::map<std::string, int> usage;
   std::set<std::string> colors;
@@ -212,6 +245,11 @@ static void entitySelectionLoad()
     }
   }
   entityProperties = std::move(properties);
+  selectedEntityClasses.clear();
+  for (const auto& entity : entityProperties)
+    if (entity.first > 0)
+      if (auto cls = entity.second.find("classname"); cls != entity.second.end())
+        selectedEntityClasses.insert(cls->second);
   entityUsage = std::move(usage);
   entityMapColors = std::move(colors);
   epoch = next;
@@ -225,8 +263,23 @@ static void entitySelectionLoad()
     }
   }
 }
+static void testQCBridge()
+{
+  if(!cvars->GetFloat("ftebroom_skip_setup") || commands->IsInsecure())return;
+  char expected[32]={},classname[128]={};commands->Argv(1,expected,sizeof expected);commands->Argv(2,classname,sizeof classname);
+  std::string header;bool passed=qcQuery(0,0,header) && header.rfind("RBUI1 ",0)==0;
+  entitySelectionLoad();
+  passed=passed && entityProperties.size()==std::strtoul(expected,nullptr,10);
+  if(*classname)for(const auto& entity:entityProperties) {
+    auto field=entity.second.find("classname");
+    if(field==entity.second.end() || field->second!=classname)passed=false;
+  }
+  const int epoch=entitySelectionEpoch;entitySelectionLoad();passed=passed && epoch==entitySelectionEpoch;
+  core->Print((std::string("RB_QC_BRIDGE88 ")+(passed?"PASS":"FAIL")+" entities="+std::to_string(entityProperties.size())+" header="+header+"\n").c_str());
+}
 static void entitySoundPreview()
 {
+  if(!ImGui::CollapsingHeader("Sound preview"))return;
   static char manual[1024]={};std::string candidate;
   for(const auto& entity:entityProperties) {
     for(const char* key:{"noise","sound","soundfile","noise1"}) {auto it=entity.second.find(key);if(it!=entity.second.end()&&!it->second.empty()){candidate=it->second;break;}}
@@ -237,7 +290,6 @@ static void entitySoundPreview()
     }
     if(!candidate.empty())break;
   }
-  if(!ImGui::CollapsingHeader("Sound preview"))return;
   if(!candidate.empty())ImGui::TextWrapped("Entity sound: %s",candidate.c_str());
   ImGui::InputTextWithHint("Sound override","Relative path, e.g. ambience/wind.wav",manual,sizeof manual);
   static float volume=.7f;ImGui::SliderFloat("Preview volume",&volume,0,1);
@@ -357,8 +409,7 @@ static void entityPanel()
         }
         ImGui::SetCursorPos({8+column*cellWidth,rowTop});ImGui::PushID(def->name.c_str());
         ImVec2 tile=ImGui::GetCursorScreenPos();
-        bool selected=chosen==def->name;
-        for(const auto& e:entityProperties){auto c=e.second.find("classname");if(e.first>0 && c!=e.second.end() && c->second==def->name)selected=true;}
+        bool selected=chosen==def->name || selectedEntityClasses.count(def->name)!=0;
         if(ImGui::InvisibleButton("tile",{size,cellHeight-4})) {
           chosen=def->name;
           bool hasEntity=false,compatible=true;

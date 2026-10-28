@@ -16,6 +16,8 @@ enum fs_relative : int;
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "plugin.h"
+#undef LIKEPRINTF
+#include "../engine/qclib/progslib.h"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +41,7 @@ static quintptr_t lastTime;
 static int mouseKeys[5], wheelUp, wheelDown;
 static bool ready;
 static bool modEmbedded;
+#include "ftebroom_qc_bridge.h"
 #include "ftebroom_linux_platform.h"
 static std::string crashCommands;
 static void command(const char* text)
@@ -537,7 +540,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 87");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 88");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1193,7 +1196,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 87");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 88");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -2067,6 +2070,7 @@ extern "C" qboolean NATIVEEXPORT FTEPlug_Init(plugcorefuncs_t* api)
     "ftebroom_test_workspace",
     testWorkspace,
     "Test workspace appearance and input routing.");
+  commands->AddCommand("ftebroom_test_qc_bridge",testQCBridge,"Check direct CSQC inspector queries.");
   commands->AddCommand(
     "ftebroom_definitions", definitionsLoadCommand, "Load entity definitions.");
   commands->AddCommand("ftebroom_ui", uiActionCommand, "Run an editor UI action.");

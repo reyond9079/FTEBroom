@@ -22,13 +22,27 @@ static std::set<std::string> protectedPropertyKeys(const std::map<std::string,st
 }
 static void entityPropertyTable()
 {
-  const bool linked=cvars->GetFloat("ftebroom_linked_open")!=0;
-  std::map<std::string, ftebroom::EntityProperty> definitions;
-  std::set<std::string> keys;
+  const bool linked=entitySelectionLinked;
+  static bool showDefaults = true;
+  ImGui::Checkbox("Show default properties", &showDefaults);
+  static std::map<std::string, ftebroom::EntityProperty> definitions;
+  static std::set<std::string> keys;
+  static std::vector<PropertyRow> rows;
+  static std::vector<int> now;
+  static std::map<std::string, unsigned> protectedCounts;
+  static int selectionEpoch=-2, definitionsEpoch=-2, mapEpoch=-2;
+  static bool defaults=false;
+  // Aggregation depends on the published data, not the frame rate or camera.
+  if(selectionEpoch!=entitySelectionEpoch || definitionsEpoch!=entityDefinitionEpoch || mapEpoch!=organizationMapEpoch || defaults!=showDefaults)
+  {
+    selectionEpoch=entitySelectionEpoch;definitionsEpoch=entityDefinitionEpoch;mapEpoch=organizationMapEpoch;defaults=showDefaults;
+    definitions.clear();keys.clear();rows.clear();now.clear();protectedCounts.clear();
+    std::set<std::string> classes;
   for (const auto& entity : entityProperties)
   {
+    now.push_back(entity.first);
     auto cls = entity.second.find("classname");
-    if (cls != entity.second.end())
+    if (cls != entity.second.end() && classes.insert(cls->second).second)
       if (auto def = entityDefinitions.find(cls->second); def != entityDefinitions.end())
         for (const auto& p : def->second.properties)
         {
@@ -37,11 +51,8 @@ static void entityPropertyTable()
         }
     for (const auto& p : entity.second)
       keys.insert(p.first);
-    for(const auto& key:protectedPropertyKeys(entity.second))keys.insert(key);
+    for(const auto& key:protectedPropertyKeys(entity.second)){keys.insert(key);protectedCounts[key]++;}
   }
-  static bool showDefaults = true;
-  ImGui::Checkbox("Show default properties", &showDefaults);
-  std::vector<PropertyRow> rows;
   for (const auto& key : keys)
   {
     if (key.rfind("_tb_", 0) == 0 || key.rfind("_ftebroom_",0)==0)
@@ -78,6 +89,7 @@ static void entityPropertyTable()
   std::stable_sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
     return a.explicitValue > b.explicitValue;
   });
+  }
   static std::string selected, editing, pending;
   static int column = 0, editColumn = 0, pendingColumn = 0;
   static std::set<std::string> selectedRows;
@@ -85,9 +97,6 @@ static void entityPropertyTable()
   static bool focusEdit = false, editDirty = false;
   static std::vector<int> targets;
   static int targetMapEpoch = -1, targetSerial = 0;
-  std::vector<int> now;
-  for (const auto& e : entityProperties)
-    now.push_back(e.first);
   if (targets != now || targetMapEpoch != organizationMapEpoch)
   {
     if (!editing.empty())
@@ -298,8 +307,7 @@ static void entityPropertyTable()
       if(linked)
       {
         ImGui::TableSetColumnIndex(2);
-        unsigned protectedCount=0;
-        for(const auto& entity:entityProperties)protectedCount+=protectedPropertyKeys(entity.second).count(row.key);
+        unsigned protectedCount=protectedCounts[row.key];
         bool value=protectedCount!=0,mixed=value && protectedCount!=entityProperties.size();
         ImGui::BeginDisabled(row.internal || row.key=="classname" || row.key=="model");
         if(mixed)ImGui::PushItemFlag(ImGuiItemFlags_MixedValue,true);

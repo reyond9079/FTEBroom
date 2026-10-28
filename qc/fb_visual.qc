@@ -30,6 +30,14 @@ void fb_visual_prepare()
 {
     fb_visual_hover=-1;fb_visual_has_bounds=FALSE;fb_visual_spikes=FALSE;
     static vector bounds[2],points[256];
+    // Static selection bounds do not depend on camera motion. During a tool
+    // preview the original replacement-aware path remains authoritative.
+    static int selection=-1,geometry=-1,edits=-1,entities=-1,valid;
+    static vector low,high;
+    int cacheable=!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && !fb_clip_count;
+    if(cacheable && selection==fb_selection_epoch && geometry==fb_grid_geometry_epoch && edits==fb_incremental_epoch && entities==fb_entity_render_epoch){
+        fb_visual_has_bounds=valid;fb_visual_min=low;fb_visual_max=high;
+    }else{
     for(int b=0;b<selectedbrushcount;b++) {
         selbrush_t item=selectedbrushes[b];
         if(fb_preview_replaces(item.model,item.id)) continue;
@@ -43,6 +51,9 @@ void fb_visual_prepare()
     for(int e=0;e<fb_selected_entity_count;e++) if(fb_entity_bounds(fb_selected_entities[e],bounds)) {
         if(fb_transform_replaces(0,fb_selected_entities[e])) continue;
         fb_visual_expand(bounds[0]);fb_visual_expand(bounds[1]);
+    }
+        if(cacheable){selection=fb_selection_epoch;geometry=fb_grid_geometry_epoch;edits=fb_incremental_epoch;entities=fb_entity_render_epoch;valid=fb_visual_has_bounds;low=fb_visual_min;high=fb_visual_max;}
+        else selection=-1;
     }
     if(fb_active && fb_dragged && fb_owner==FB_OWNER_SHAPE) {
         fb_visual_has_bounds=FALSE;
@@ -317,12 +328,13 @@ int fb_visual_candidates_incremental()
     int count=ftebroom_collect_marks(marks,fb_node_count,serial,fb_visual_candidates);
     if(count<0)return FALSE;fb_visual_candidate_count=count;return TRUE;
 }
+int fb_visual_candidate_epoch;
 void fb_visual_candidates_prepare()
 {
     static int geometry=-1,filters=-1,visibility=-1,selection=-1,revision=-1,hover=-2,enabled=-1;
     int current=fb_document_revision(),highlight=autocvar_ftebroom_hover_highlight!=0;
     if(geometry==fb_grid_geometry_epoch&&filters==fb_filter_epoch&&visibility==fb_visibility_epoch&&selection==fb_selection_epoch&&revision==current&&hover==fb_visual_hover&&enabled==highlight)return;
-    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=fb_visual_hover;enabled=highlight;
+    geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;visibility=fb_visibility_epoch;selection=fb_selection_epoch;revision=current;hover=fb_visual_hover;enabled=highlight;fb_visual_candidate_epoch++;
     if(fb_node_count>fb_visual_candidate_capacity){fb_visual_candidate_capacity=fb_node_capacity;memfree(fb_visual_candidates);fb_visual_candidates=memalloc(max(1,fb_node_capacity)*sizeof(int));}
     fb_visual_candidate_count=0;
     if(fb_visual_candidates_incremental())return;
@@ -356,9 +368,20 @@ void fb_visual_draw()
     static vector *boxes;static int boxCapacity;int boxCount=0;
     int batchBoxes=autocvar_ftebroom_native_selection_box && checkbuiltin(ftebroom_selection_boxes);
     if(batchBoxes && boxCapacity<fb_visual_candidate_count){memfree(boxes);boxCapacity=max(64,fb_visual_candidate_count);boxes=memalloc(boxCapacity*3*sizeof(vector));}
-    for(int candidate=0;candidate<fb_visual_candidate_count;candidate++) {
-        int node=fb_visual_candidates[candidate];
-        fb_node_t item=fb_nodes[node];if(nativePointBoxes && item.kind==FB_NODE_ENTITY)continue;
+    // Native point overlays already handled these entities. Cache the remaining
+    // brush/patch list instead of revisiting every selected point every frame.
+    static int *geometryCandidates;static int geometryCapacity,geometryCount,geometryEpoch=-1;
+    if(nativePointBoxes && geometryEpoch!=fb_visual_candidate_epoch){
+        geometryEpoch=fb_visual_candidate_epoch;geometryCount=0;
+        if(geometryCapacity<fb_visual_candidate_count){memfree(geometryCandidates);geometryCapacity=max(64,fb_visual_candidate_count);geometryCandidates=memalloc(geometryCapacity*sizeof(int));}
+        for(int entry=0;entry<fb_visual_candidate_count;entry++){
+            int node=fb_visual_candidates[entry];if(fb_nodes[node].kind!=FB_NODE_ENTITY)geometryCandidates[geometryCount++]=node;
+        }
+    }
+    int candidates=nativePointBoxes?geometryCount:fb_visual_candidate_count;
+    for(int candidate=0;candidate<candidates;candidate++) {
+        int node=nativePointBoxes?geometryCandidates[candidate]:fb_visual_candidates[candidate];
+        fb_node_t item=fb_nodes[node];
         if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         int selected=0,locked=fb_visual_locked(node),hover=FALSE;
         if(item.kind==FB_NODE_ENTITY) selected=fb_entity_selected(item.id);

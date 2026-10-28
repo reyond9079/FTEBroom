@@ -1,0 +1,47 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -3881,6 +3881,20 @@
+ 
+ typedef struct {unsigned int solid,wire;int model;} rb_point_geometry_t;
+ typedef struct {int stride,flags,solidShader,wireShader;unsigned int solidIndices,wireIndices;int wireFlags;} rb_point_params_t;
++// Build the same cached box colors in one VM call, rather than per vertex.
++static void QCBUILTIN PF_ReyondBroom_PointColors(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
++ unsigned int g=G_INT(OFS_PARM0),p=G_INT(OFS_PARM1),count=G_INT(OFS_PARM2);G_INT(OFS_RETURN)=-1;
++ if(count>1000000||!RB_QCBuffer(vm,g,count,sizeof(rb_point_geometry_t))||!RB_QCBuffer(vm,p,count,sizeof(editorqcpoint_t)))return;
++ rb_point_geometry_t *geometry=(rb_point_geometry_t*)(vm->stringtable+g);editorqcpoint_t *points=(editorqcpoint_t*)(vm->stringtable+p);
++ for(unsigned int i=0;i<count;i++)if(!RB_QCBuffer(vm,geometry[i].wire,8,sizeof(qcvertex_t))||!RB_QCBuffer(vm,geometry[i].solid,24,sizeof(qcvertex_t)))return;
++ static const unsigned int corners[]={0,2,6,4,1,3,7,5,0,4,5,1,2,6,7,3,0,1,3,2,4,5,7,6};
++ for(unsigned int i=0;i<count;i++){
++  qcvertex_t *wire=(qcvertex_t*)(vm->stringtable+geometry[i].wire),*solid=(qcvertex_t*)(vm->stringtable+geometry[i].solid);
++  for(unsigned int v=0;v<8;v++){VectorCopy(points[i].color,wire[v].rgba);wire[v].rgba[3]=1;}
++  for(unsigned int v=0;v<24;v++){solid[v]=wire[corners[v]];float shade=.65f+.15f*(v/8);for(unsigned int a=0;a<3;a++)solid[v].rgba[a]=points[i].color[a]*shade;solid[v].rgba[3]=1;}
++ }
++ G_INT(OFS_RETURN)=count;
++}
+ static void QCBUILTIN PF_ReyondBroom_SelectionPoints(pubprogfuncs_t *vm,struct globalvars_s *pr_globals){
+  unsigned int p=G_INT(OFS_PARM0),g=G_INT(OFS_PARM1),count=G_INT(OFS_PARM2),a=G_INT(OFS_PARM3),accessCount=G_INT(OFS_PARM4),sel=G_INT(OFS_PARM5),selectedCount=G_INT(OFS_PARM6),colors=G_INT(OFS_PARM7);
+  G_INT(OFS_RETURN)=-1;
+@@ -3888,10 +3902,15 @@
+  editorqcpoint_t *points=(editorqcpoint_t*)(vm->stringtable+p);rb_point_geometry_t *geometry=(rb_point_geometry_t*)(vm->stringtable+g);int *access=(int*)(vm->stringtable+a),*selected=(int*)(vm->stringtable+sel);vec3_t *palette=(vec3_t*)(vm->stringtable+colors);
+  unsigned int limit=0;for(unsigned int i=0;i<selectedCount;i++){if(selected[i]<0||selected[i]>1000000)return;limit=max(limit,(unsigned int)selected[i]+1);}
+  unsigned char *chosen=BZ_Malloc(max(1,limit));memset(chosen,0,max(1,limit));for(unsigned int i=0;i<selectedCount;i++)chosen[selected[i]]=1;
++ vec3_t forward,right,up;float tx=0,ty=0;
++ qboolean cull=r_refdef.useperspective&&Cvar_VariableValue("ftebroom_native_selection_box")!=2;
++ if(cull){if(r_refdef.dirty)V_ApplyRefdef();AngleVectors(r_refdef.viewangles,forward,right,up);tx=tan(r_refdef.fov_x*M_PI/360);ty=tan(r_refdef.fov_y*M_PI/360);}
+  rb_soup_context_t context=RB_SoupContext("ftebroom/selectionoverlay",DRAWFLAG_LINES);int drawn=0;
+  for(unsigned int i=0;i<count;i++){
+   int node=points[i].node,id=points[i].id;if(node<0||(unsigned int)node>=accessCount||!(access[node]&1))continue;
+   qboolean locked=!(access[node]&2),isSelected=id>=0&&(unsigned int)id<limit&&chosen[id];if(!locked&&!isSelected)continue;
++  // Clip only boxes outside the view; selected boxes behind walls stay visible.
++  if(cull){vec3_t delta;float radius=points[i].radius;VectorSubtract(points[i].center,r_refdef.vieworg,delta);float depth=DotProduct(delta,forward);if(depth+radius<0||fabs(DotProduct(delta,right))>depth*tx+radius*(1+tx)||fabs(DotProduct(delta,up))>depth*ty+radius*(1+ty))continue;}
+   if(!RB_QCBuffer(vm,geometry[i].wire,8,sizeof(qcvertex_t)))continue;
+   qcvertex_t *vertices=(qcvertex_t*)(vm->stringtable+geometry[i].wire);RB_SelectionBox(&context,vertices[0].xyz,vertices[7].xyz,palette[locked?1:0],1);drawn++;
+  }
+@@ -8685,6 +8704,7 @@
+ 	{"ftebroom_selection_box", PF_ReyondBroom_SelectionBox, 0},
+ 	{"ftebroom_selection_boxes", PF_ReyondBroom_SelectionBoxes, 0},
+ 	{"ftebroom_selection_points", PF_ReyondBroom_SelectionPoints, 0},
++	{"ftebroom_point_colors", PF_ReyondBroom_PointColors, 0},
+ 	{"brush_get",				PF_brush_get,			0},
+ 	{"brush_create",			PF_brush_create,		0},
+ 	{"brush_delete",			PF_brush_delete,		0},

@@ -152,6 +152,7 @@ void fb_entity_draw_box(int index,vector colour,int solid,int wire,string shader
     if(solid)addtrisoup_simple("ftebroom/entitysolid",3,item->solidverts,fb_entity_box_triangles,36);
     if(wire)addtrisoup_simple(shader,3|DRAWFLAG_LINES,item->bboxverts,bbox_line_idxs,bbox_line_idxs.length);
 }
+void fb_entity_native_color(int index,vector color){if(index>=0 && index<numents)editents[index].rendercolour=color;}
 vector fb_entity_color(int index) {if(index>=0 && index<numents)return editents[index].colourmod;return '0.3 0.8 0.4';}
 void fb_entity_draw_model(int index)
 {

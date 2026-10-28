@@ -330,6 +330,7 @@ fb_point_geometry_t *fb_point_geometry;int *fb_point_models;int fb_point_model_c
 
 int(fb_point_render_t *points,int count,int *indices,int stride,int revision) ftebroom_cull_points=#0:ftebroom_cull_points;
 int *fb_point_visible;int fb_point_visible_capacity;
+int(fb_point_geometry_t *geometry,fb_point_render_t *points,int count) ftebroom_point_colors=#0:ftebroom_point_colors;
 void fb_point_render_prepare()
 {
     float profile81Time=gettime(1);
@@ -342,6 +343,7 @@ void fb_point_render_prepare()
     fb_point_upload_epoch++;strunzone(colors);colors=strzone(currentColors);
     fb_document_lists_prepare();memfree(fb_point_render);fb_point_render=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_render_t));fb_point_render_count=0;
     memfree(fb_point_geometry);memfree(fb_point_models);fb_point_geometry=memalloc(max(1,fb_point_node_count)*sizeof(fb_point_geometry_t));fb_point_models=memalloc(max(1,fb_point_node_count)*sizeof(int));fb_point_model_count=0;
+    int nativeColors=checkbuiltin(ftebroom_point_colors);
     static vector bounds[2];
     for(int i=0;i<fb_point_node_count;i++){
         int node=fb_point_nodes[i],id=fb_nodes[node].id;
@@ -354,9 +356,16 @@ void fb_point_render_prepare()
         item->color=fb_entity_color(id);
         if(!fb_render_allowed(node,0))item->color=stov(cvar_string("ftebroom_color_locked"));
         if(fb_entity_selected(id))item->color=stov(cvar_string("ftebroom_color_selected"));
-        fb_entity_draw_box(id,item->color,FALSE,FALSE,"");
+        if(!nativeColors)fb_entity_draw_box(id,item->color,FALSE,FALSE,"");
         fb_point_geometry[fb_point_render_count-1].solid=fb_entity_vertices(id,TRUE);fb_point_geometry[fb_point_render_count-1].wire=fb_entity_vertices(id,FALSE);fb_point_geometry[fb_point_render_count-1].model=item->model;
         if(item->model)fb_point_models[fb_point_model_count++]=id;
+    }
+    if(nativeColors){
+        int prepared=ftebroom_point_colors(fb_point_geometry,fb_point_render,fb_point_render_count)==fb_point_render_count;
+        for(int i=0;i<fb_point_render_count;i++){
+            fb_point_render_t *item=&fb_point_render[i];
+            if(prepared)fb_entity_native_color(item.id,item.color);else fb_entity_draw_box(item.id,item.color,FALSE,FALSE,"");
+        }
     }
     fb_commit_profile("fb_point_render_prepare",profile81Time);
 }

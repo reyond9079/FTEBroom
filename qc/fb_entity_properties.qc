@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 var float autocvar_ftebroom_instantiate_defaults=0;
 int *fb_property_entities;int fb_property_entity_count,fb_property_epoch;
+int fb_ui_attached,fb_ui_linked;
 void fb_entity_targets()
 {
     static int geometry=-1,selection=-1,revision=-1;
@@ -39,9 +40,12 @@ void fb_entity_publish()
         if(fb_nodes[linkedRoot].fields)if(fb_nodes[linkedRoot].fields["_tb_linked_group_id"]!=""){linked=TRUE;break;}
         linkedRoot=fb_nodes[linkedRoot].parent;
     }
-    cvar_set("ftebroom_linked_open",itos(linked));
+    fb_ui_linked=linked;
+    if(!fb_ui_attached)cvar_set("ftebroom_linked_open",itos(linked));
     string signature=sprintf("%i/%i/%i",fb_grid_geometry_epoch,fb_entity_selection_key(),fb_entity_render_epoch);
     if(signature==previous)return;strunzone(previous);previous=strzone(signature);
+    ++fb_property_epoch;
+    if(fb_ui_attached)return;
     filestream stream=fopen("ftebroom-entity-selection.txt",FILE_WRITE);if((float)stream<0)return;
     for(int i=0;i<fb_property_entity_count;i++) {
         int id=fb_property_entities[i];fputs(stream,sprintf("e %i\n",id));
@@ -59,7 +63,35 @@ void fb_entity_publish()
         }
     }
     fputs(stream,strcat("d 0 \"",fb_organize_escape(fb_nodes[0].fields["_tb_def"]),"\"\n"));
-    fclose(stream);cvar_set("ftebroom_property_epoch",itos(++fb_property_epoch));
+    fclose(stream);cvar_set("ftebroom_property_epoch",itos(fb_property_epoch));
+}
+// Versioned pull API for the native UI. Publication prepares targets in the
+// normal editor frame; queries never rebuild the document or alter selection.
+// Chunking bounds temporary string work and avoids writing selection to disk.
+string ReyondBroom_UIQuery(float operation,float cursor)
+{
+    if(fb_node_count<2)return "";
+    fb_ui_attached=TRUE;
+    if(operation==0)return sprintf("RBUI1 %i %i %i %i %i %i",fb_property_epoch,fb_property_entity_count,fb_node_count,fb_grid_geometry_epoch,fb_entity_render_epoch,fb_ui_linked);
+    string result="";int begin=max(0,(int)cursor);
+    if(operation==1) {
+        for(int entry=begin;entry<min(begin+64,fb_property_entity_count);entry++) {
+            int id=fb_property_entities[entry];result=strcat(result,sprintf("e %i\n",id));
+            int count=fb_entity_tokenize(terrain_edit(TEREDIT_ENT_GET,id));
+            for(int field=0;field<count;field+=2)result=strcat(result,sprintf("p %i \"%s\" \"%s\"\n",id,fb_organize_escape(argv(field)),fb_organize_escape(argv(field+1))));
+        }
+    }else if(operation==2) {
+        for(int node=begin;node<min(begin+128,fb_node_count);node++) {
+            if(node!=0 && fb_nodes[node].kind!=FB_NODE_ENTITY)continue;
+            if(node>=2)result=strcat(result,sprintf("u %i \"%s\"\n",fb_nodes[node].id,fb_organize_escape(fb_nodes[node].fields["classname"])));
+            for(int channel=0;channel<2;channel++) {
+                string key="_color";if(channel)key="color";
+                string color=fb_nodes[node].fields[key];
+                if(color!="")result=strcat(result,sprintf("c 0 \"%s\"\n",fb_organize_escape(color)));
+            }
+        }
+    }else if(operation==3)result=strcat("d 0 \"",fb_organize_escape(fb_nodes[0].fields["_tb_def"]),"\"\n");
+    return result;
 }
 void fb_entity_property(string operation,string key,string value)
 {

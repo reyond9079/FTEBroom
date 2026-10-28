@@ -130,17 +130,44 @@ void fb_entity_links_prepare()
     }
     fb_commit_profile("fb_entity_links_prepare",profile81Time);
 }
+// Peer membership depends on document structure, not selection or camera.
+// Preserve document order while avoiding a full node scan for every group.
+int *fb_link_peer_next;int *fb_link_peer_groups;int fb_link_peer_count,fb_link_peer_builds;
+hashtable fb_link_peer_heads;
+void fb_link_peers_prepare()
+{
+    static int geometry=-1,structure=-1,entities=-1;
+    if(geometry==fb_grid_geometry_epoch && structure==fb_document_structure_epoch && entities==fb_entity_render_epoch)return;
+    geometry=fb_grid_geometry_epoch;structure=fb_document_structure_epoch;entities=fb_entity_render_epoch;
+    fb_document_lists_prepare();fb_link_peer_builds++;
+    memfree(fb_link_peer_next);memfree(fb_link_peer_groups);
+    fb_link_peer_next=memalloc(max(1,fb_node_capacity)*sizeof(int));fb_link_peer_groups=memalloc(max(1,fb_container_node_count)*sizeof(int));fb_link_peer_count=0;
+    if(fb_link_peer_heads)hash_destroytab(fb_link_peer_heads);fb_link_peer_heads=hash_createtab(max(64,fb_container_node_count*2),EV_INTEGER);
+    for(int entry=fb_container_node_count-1;entry>=0;entry--){
+        int node=fb_container_nodes[entry];if(fb_nodes[node].kind!=FB_NODE_GROUP)continue;
+        string link=fb_nodes[node].fields["_tb_linked_group_id"];if(link=="")continue;
+        fb_link_peer_next[node]=(int)fb_link_peer_heads[link];fb_link_peer_heads[link]=node;
+    }
+    for(int entry=0;entry<fb_container_node_count;entry++){
+        int node=fb_container_nodes[entry];if(fb_nodes[node].kind!=FB_NODE_GROUP)continue;
+        string link=fb_nodes[node].fields["_tb_linked_group_id"];if(link=="")continue;
+        int head=(int)fb_link_peer_heads[link];
+        if(head==node && !fb_link_peer_next[node])continue;
+        fb_link_peer_groups[fb_link_peer_count++]=node;
+    }
+}
 void fb_entity_links_draw()
 {
     static vector linkedBounds[2];int opened=fb_selection_open_node();
-    fb_document_lists_prepare();
-    for(int entry=0;entry<fb_container_node_count;entry++){int n=fb_container_nodes[entry];if(fb_nodes[n].kind==FB_NODE_GROUP && fb_nodes[n].fields["_tb_linked_group_id"]!="") {
+    fb_link_peers_prepare();
+    for(int entry=0;entry<fb_link_peer_count;entry++){
+        int n=fb_link_peer_groups[entry];
         if(n!=opened && !fb_selection_selected(n))continue;
         if(!fb_container_bounds(n,linkedBounds))continue;
         vector from=(linkedBounds[0]+linkedBounds[1])*0.5;
         string link=fb_nodes[n].fields["_tb_linked_group_id"];
-        for(int peer=2;peer<fb_node_count;peer++) {
-            if(peer==n || fb_nodes[peer].kind!=FB_NODE_GROUP || fb_nodes[peer].fields["_tb_linked_group_id"]!=link)continue;
+        for(int peer=(int)fb_link_peer_heads[link];peer;peer=fb_link_peer_next[peer]) {
+            if(peer==n)continue;
             if(!fb_render_allowed(peer,FB_PICK_LOCKED) || !fb_container_bounds(peer,linkedBounds))continue;
             vector to=(linkedBounds[0]+linkedBounds[1])*0.5,direction=normalize(to-from);
             if(vlen(to-from)<0.01)continue;
@@ -150,7 +177,6 @@ void fb_entity_links_draw()
             fb_visual_line(tip,tip-direction*arrow+side*arrow*0.5,'0.65 0.35 1',1,1,TRUE);
             fb_visual_line(tip,tip-direction*arrow-side*arrow*0.5,'0.65 0.35 1',1,1,TRUE);
         }
-    }
     }
     int mode=cvar("ftebroom_entity_links");if(!mode)return;
     if(mode<=2 && !selectedbrushcount && !fb_selected_entity_count)return;

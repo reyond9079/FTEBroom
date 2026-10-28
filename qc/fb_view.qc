@@ -39,6 +39,9 @@ vector fb_view_point(vector pixel,float depth)
 }
 void fb_view_remember_selection()
 {
+    static int selection=-1,geometry=-1,edits=-1,entities=-1;
+    if(selection==fb_selection_epoch && geometry==fb_grid_geometry_epoch && edits==fb_incremental_epoch && entities==fb_entity_render_epoch)return;
+    selection=fb_selection_epoch;geometry=fb_grid_geometry_epoch;edits=fb_incremental_epoch;entities=fb_entity_render_epoch;
     static vector bounds[2];int found=FALSE;
     for(int b=0;b<selectedbrushcount;b++) {
         if(brush_getfacepoints(selectedbrushes[b].model,selectedbrushes[b].id,0,bounds,2)!=2) continue;
