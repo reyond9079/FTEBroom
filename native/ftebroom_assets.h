@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Resource discovery uses FTE's mounted filesystem, including PK3 precedence.
 #include <cctype>
+#include "ftebroom_shader_preview.h"
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -17,6 +18,9 @@ struct MaterialEntry
   std::string name, preview;
   bool shader = false;
   int tags = 0;
+  float opacity = 1;
+  bool masked = false;
+  std::string blend,alphaTest;
 };
 static std::map<std::string, MaterialEntry> materials;
 static std::set<std::string> resourceFiles, resourceDirs;
@@ -33,45 +37,7 @@ static std::filesystem::path settingsPath()
   return std::filesystem::u8path(path);
 }
 #include "ftebroom_game_profile.h"
-static std::string token(const std::string& source, size_t& i)
-{
-  for (;;)
-  {
-    while (i < source.size() && std::isspace((unsigned char)source[i]))
-      ++i;
-    if (source.compare(i, 2, "//") == 0)
-    {
-      while (i < source.size() && source[i] != '\n')
-        ++i;
-    }
-    else if (source.compare(i, 2, "/*") == 0)
-    {
-      auto end = source.find("*/", i + 2);
-      i = end == std::string::npos ? source.size() : end + 2;
-    }
-    else
-      break;
-  }
-  if (i == source.size())
-    return {};
-  if (source[i] == '{' || source[i] == '}')
-    return source.substr(i++, 1);
-  if (source[i] == '"')
-  {
-    size_t start = ++i;
-    while (i < source.size() && source[i] != '"')
-      ++i;
-    auto result = source.substr(start, i - start);
-    if (i < source.size())
-      ++i;
-    return result;
-  }
-  size_t start = i;
-  while (i < source.size() && !std::isspace((unsigned char)source[i]) && source[i] != '{'
-         && source[i] != '}')
-    ++i;
-  return source.substr(start, i - start);
-}
+static std::string token(const std::string& source,size_t& offset){return ftebroom::shaderpreview::token(source,offset);}
 static int QDECL
 collectResource(const char* name, qofs_t, time_t, void*, searchpathfuncs_s*)
 {
@@ -157,43 +123,8 @@ static void assetsReady()
         break;
       if (token(source, offset) != "{")
         continue;
-      int depth = 1, tags = 0;
-      std::string preview, stagePreview;
-      while (depth && offset < source.size())
-      {
-        auto word = token(source, offset);
-        std::transform(word.begin(),word.end(),word.begin(),[](unsigned char c){return char(std::tolower(c));});
-        if (word == "{")
-          ++depth;
-        else if (word == "}")
-          --depth;
-        else if (depth == 1 && word == "qer_editorimage")
-          preview = token(source, offset);
-        else if(depth == 1 && word == "qer_trans") {
-          auto opacity=token(source,offset);char* end=nullptr;
-          float alpha=std::strtof(opacity.c_str(),&end);
-          if(end!=opacity.c_str() && alpha<1)tags|=64;
-        }
-        else if(depth == 2 && (word == "map" || word == "clampmap")) {
-          auto image=token(source,offset);
-          if(stagePreview.empty() && !image.empty() && image[0]!='$')stagePreview=image;
-        }
-        else if (depth == 1 && word == "surfaceparm")
-        {
-          auto parm = token(source, offset);
-          if (parm == "water" || parm == "lava" || parm == "slime")
-            tags |= 32;
-          if (parm == "trans" || parm == "fog")
-            tags |= 64;
-          if (parm == "areaportal")
-            tags |= 128;
-          if (parm == "clusterportal")
-            tags |= 256;
-          if (parm == "sky")tags |= 512;
-        }
-      }
-      if (!depth)
-        materials[name] = {name, preview.empty()?stagePreview:preview, true, tags};
+      auto material=ftebroom::shaderpreview::parse(source,offset);
+      if(material.valid)materials[name]={name,material.preview,true,material.tags,material.opacity,material.masked,material.blend,material.alphaTest};
     }
   }
   publishMaterialTags();

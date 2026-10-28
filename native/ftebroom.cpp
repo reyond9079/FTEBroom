@@ -548,7 +548,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 91");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 92");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1205,7 +1205,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 91");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 92");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1391,7 +1391,7 @@ event(int type, int key, int unicode, float x, float y, float w, float h)
         try {
           auto path=std::filesystem::u8path((const char*)payload->Data);modFileValidate(path);auto ext=path.extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);
           if(ext==".map"){viewActivate(hit);modFileImportMap(path,x,y);}
-          if(modelFile(path)) {viewActivate(hit);auto relative=modFileModelPath(path);command(("ftebroom_model_drop "+organizationQuote(relative)+" "+std::to_string(x)+" "+std::to_string(y)+"\n").c_str());}
+          if(modelFile(path)||ext==".bsp") {viewActivate(hit);auto relative=modFileModelPath(path);command(("ftebroom_model_drop "+organizationQuote(relative)+" "+std::to_string(x)+" "+std::to_string(y)+" "+organizationQuote(gameProfile==0?"misc_model":"func_model")+"\n").c_str());}
         }catch(const std::exception& e){modFilesError=e.what();}return qtrue;
       }
       if (!down && inScene)

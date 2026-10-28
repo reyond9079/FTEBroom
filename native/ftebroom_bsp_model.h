@@ -7,7 +7,7 @@ static std::string bspModelMessage;
 static int bspModelSteps=0,bspModelProfile=0;
 static std::future<ftebroom::bspAtlas::Result> bspModelAtlasJob;
 static void bspModelShow(){
-  if(!*bspModelDestination){auto target=documentDefaultFolder()/"selected-model.bsp";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());}
+  if(!*bspModelDestination){auto folder=ftebroom::pak::diskFolder(documentDefaultFolder());std::error_code ec;while(!folder.empty()&&!std::filesystem::is_directory(folder,ec)){auto parent=folder.parent_path();if(parent==folder)break;folder=parent;}if(folder.empty())folder=documentPath("maps");auto target=folder/"selected-model.bsp";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());}
   bspModelWindow=true;
 }
 static void bspModelPublish(ftebroom::bspAtlas::Result result){
@@ -39,8 +39,15 @@ static void bspModelPublish(ftebroom::bspAtlas::Result result){
 }
 static void bspModelBegin(){
   if(runActive||runExclusive||buildRunning||assetsLoading)throw std::runtime_error("Wait for the current resource or compilation job.");
-  runLoad();auto target=std::filesystem::absolute(std::filesystem::u8path(bspModelDestination)).lexically_normal();
-  if(entityLower(target.extension().u8string())!=".bsp"||!std::filesystem::is_directory(target.parent_path())||modFilePacked(target))throw std::runtime_error("Choose a loose .bsp filename in an existing directory.");
+  runLoad();std::string entered=bspModelDestination;
+  if(entered.size()>=2&&entered.front()=='"'&&entered.back()=='"')entered=entered.substr(1,entered.size()-2);
+  if(entered.empty())throw std::runtime_error("Enter a model filename or choose a destination folder.");
+  auto target=std::filesystem::u8path(entered);if(target.is_relative())target=ftebroom::pak::diskFolder(documentDefaultFolder())/target;
+  if(std::filesystem::is_directory(target))target/="selected-model.bsp";if(target.extension().empty())target.replace_extension(".bsp");target=std::filesystem::absolute(target).lexically_normal();
+  std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());
+  if(modFilePacked(target))throw std::runtime_error("Export to a folder on disk first; exporting directly into PAK/PK3 archives is not supported.");
+  if(entityLower(target.extension().u8string())!=".bsp")throw std::runtime_error("The model filename must end in .bsp.");
+  if(!std::filesystem::is_directory(target.parent_path()))throw std::runtime_error("The destination folder does not exist: "+target.parent_path().u8string()+". Use Choose folder to select an existing folder.");
   if(std::filesystem::exists(target))throw std::runtime_error("Choose a new filename; the source and existing models are never overwritten.");
   if(!*baseq3)throw std::runtime_error("Configure game resources first.");
   auto shaderFolder=target.parent_path()/(target.stem().u8string()+"-atlas");
@@ -102,7 +109,7 @@ static void bspModelPanel(){
       ImGui::TextWrapped("%s",bspModelFolder.u8string().c_str());if(ImGui::Button("Up")&&bspModelFolder.has_parent_path())bspModelFolder=bspModelFolder.parent_path();
       ImGui::BeginChild("Directories",{460*uiScale(),240*uiScale()},ImGuiChildFlags_Borders);
       try{std::vector<std::filesystem::path> dirs;for(const auto& e:std::filesystem::directory_iterator(bspModelFolder,std::filesystem::directory_options::skip_permission_denied))if(e.is_directory()&&dirs.size()<1024)dirs.push_back(e.path());std::sort(dirs.begin(),dirs.end());for(const auto& p:dirs)if(ImGui::Selectable(p.filename().u8string().c_str())){bspModelFolder=p;break;}}catch(const std::exception& e){ImGui::TextWrapped("%s",e.what());}ImGui::EndChild();
-      if(ImGui::Button("Use this folder")){auto target=bspModelFolder/std::filesystem::u8path(bspModelDestination).filename();std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());bspModelChooseFolder=false;ImGui::CloseCurrentPopup();}ImGui::EndPopup();
+      if(ImGui::Button("Use this folder")){auto name=std::filesystem::u8path(bspModelDestination).filename();if(name.empty())name="selected-model.bsp";auto target=bspModelFolder/name;std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());bspModelChooseFolder=false;ImGui::CloseCurrentPopup();}ImGui::EndPopup();
     }
     ImGui::Checkbox("Create texture atlas and UV painting template",&bspModelAtlas);
     if(bspModelAtlas)ImGui::TextWrapped("Static opaque diffuse colors only. Shader animation, sky, liquids and transparency cannot be baked. Up to 16 pages of 1024 pixels; oversized UV islands stop export instead of reducing resolution. UV outlines are separate transparent TGA images.");

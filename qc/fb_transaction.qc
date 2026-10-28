@@ -12,6 +12,10 @@ void fb_tx_remap(int model,int oldid,int newid)
 {
     for(int i=0;i<fb_tx_redocount;i++) history_remap_record(&fb_tx_redo[i],model,oldid,newid);
 }
+void fb_tx_remap_bulk()
+{
+    for(int i=0;i<fb_tx_redocount;i++)history_remap_bulk_record(&fb_tx_redo[i]);
+}
 void fb_history_labels()
 {
     cvar_set("ftebroom_undo_name",history>history_min?historyring[(history-1)&(historyring_length-1)].label:"");

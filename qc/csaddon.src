@@ -98,6 +98,7 @@ fb_view_options.qc
 fb_entity_links.qc
 fb_incremental.qc
 fb_batch_move.qc
+fb_delete_cache.qc
 fb_spawn_master.qc
 fb_context.qc
 fb_renderer_restart.qc

@@ -469,11 +469,11 @@ void fb_visual_face_hover()
     if(pointer_x<mn_x || pointer_y<mn_y || pointer_x>=mn_x+sz_x || pointer_y>=mn_y+sz_y)return;
     int ortho=cvar("ca_brush_view");
     static string last="";static vector points[256];static int count;
-    string key=strcat(sprintf("%v %v %v %v %v %i %g",pointer,getproperty(VF_ORIGIN),getproperty(VF_ANGLES),mn,sz,ortho,cvar("ca_brush_viewsize")),sprintf(" %i %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch,fb_incremental_epoch));
+    string key=strcat(sprintf("%v %v %v %v %v %i %g",pointer,getproperty(VF_ORIGIN),getproperty(VF_ANGLES),mn,sz,ortho,cvar("ca_brush_viewsize")),sprintf(" %i %i %i %i",fb_grid_geometry_epoch,fb_visibility_epoch,fb_filter_epoch,fb_incremental_epoch)," ",itos(fb_selection_epoch));
     if(key!=last){strunzone(last);last=strzone(key);count=0;
         vector end=pointer;if(ortho)end_z+=1;else end_z+=8192;
         if(fb_pick_query(unproject(pointer),unproject(end),pointer,0,FB_HIT_BRUSH,ortho))
-            count=brush_getfacepoints(fb_hits[0].model,fb_hits[0].id,fb_hits[0].face,points,256);
+            if(!selectedbrushcount || brush_isselected(fb_hits[0].model,fb_hits[0].id))count=brush_getfacepoints(fb_hits[0].model,fb_hits[0].id,fb_hits[0].face,points,256);
     }
     if(count<3 || count>256)return;
     vector eye=getproperty(VF_ORIGIN);makevectors(getproperty(VF_ANGLES));vector forward=v_forward;

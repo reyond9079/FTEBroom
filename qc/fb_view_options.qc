@@ -17,12 +17,15 @@ int fb_sky_material(string material)
     return substring(name,0,4)=="sky/" || substring(name,0,6)=="skies/";
 }
 enum : int {FB_TAG_TRIGGER=1,FB_TAG_CLIP=2,FB_TAG_CAULK=4,FB_TAG_HINT=8,FB_TAG_DETAIL=16,FB_TAG_LIQUID=32,FB_TAG_TRANSLUCENT=64,FB_TAG_AREAPORTAL=128,FB_TAG_CLUSTERPORTAL=256};
+hashtable fb_shader_opacity,fb_shader_masked,fb_shader_blend,fb_shader_alpha_test;
 void fb_filter_materials_load()
 {
     if(fb_shader_tags)hash_destroytab(fb_shader_tags);if(fb_shader_previews)hash_destroytab(fb_shader_previews);
     fb_shader_tags=hash_createtab(512,EV_INTEGER);fb_shader_previews=hash_createtab(512,EV_STRING);
+    if(fb_shader_opacity)hash_destroytab(fb_shader_opacity);if(fb_shader_masked)hash_destroytab(fb_shader_masked);if(fb_shader_blend)hash_destroytab(fb_shader_blend);if(fb_shader_alpha_test)hash_destroytab(fb_shader_alpha_test);
+    fb_shader_opacity=hash_createtab(512,EV_FLOAT);fb_shader_masked=hash_createtab(512,EV_INTEGER);fb_shader_blend=hash_createtab(512,EV_STRING);fb_shader_alpha_test=hash_createtab(512,EV_STRING);
     filestream file=fopen("ftebroom-material-tags.txt",FILE_READ);if((float)file<0)return;
-    string line;while((line=fgets(file)))if(tokenize(line)>=2){fb_shader_tags[argv(0)]=stoi(argv(1));fb_shader_previews[argv(0)]=argv(2);}
+    string line;while((line=fgets(file))){int count=tokenize(line);if(count>=2){fb_shader_tags[argv(0)]=stoi(argv(1));fb_shader_previews[argv(0)]=argv(2);fb_shader_opacity[argv(0)]=count>=4?stof(argv(3)):1.0;fb_shader_masked[argv(0)]=stoi(argv(4));fb_shader_blend[argv(0)]=argv(5);fb_shader_alpha_test[argv(0)]=argv(6);}}
     fclose(file);fb_filter_epoch++;
 }
 int fb_filter_face_tags(brushface_t *face,int contents)
@@ -33,6 +36,13 @@ int fb_filter_face_tags(brushface_t *face,int contents)
         if(strstrofs(name,"clip",7)>=0)tags|=FB_TAG_CLIP;
         if(strstrofs(name,"caulk",7)>=0)tags|=FB_TAG_CAULK;
         if(substring(name,7,4)=="hint")tags|=FB_TAG_HINT;
+    }
+    if(cvar("ftebroom_quake1")){
+        if(name=="clip"||name=="playerclip"||name=="monsterclip"||name=="botclip")tags|=FB_TAG_CLIP;
+        if(name=="skip"||name=="nodraw"||name=="caulk"||name=="null"||name=="origin"||name=="bevel"||name=="bevel2")tags|=FB_TAG_CAULK;
+        if(name=="hint"||name=="hintskip")tags|=FB_TAG_HINT;
+        if(name=="trigger")tags|=FB_TAG_TRIGGER;
+        if(substring(name,0,1)=="*")tags|=FB_TAG_LIQUID;
     }
     if(contents&134217728i)tags|=FB_TAG_DETAIL;
     if(contents&536870912i)tags|=FB_TAG_TRANSLUCENT;
@@ -53,7 +63,8 @@ void fb_filter_prepare()
     static int epoch=-1,materials=-1;static string previous="";
     string signature=sprintf("%g %g %g %g %g %g",autocvar_ftebroom_show_brushes,autocvar_ftebroom_show_points,autocvar_ftebroom_show_models,autocvar_ftebroom_render_faces,autocvar_ftebroom_shade_faces,autocvar_ftebroom_show_edges);
     signature=strcat(signature,sprintf(" %g %g %g %g %g %g %i",autocvar_ftebroom_hidden_tags,autocvar_ftebroom_entity_links,autocvar_ftebroom_show_entity_names,autocvar_ftebroom_show_entity_bounds,autocvar_ftebroom_show_group_bounds,autocvar_ftebroom_show_brush_entity_bounds,fb_open_group)," ",autocvar_ftebroom_hidden_classes,ftos(autocvar_ftebroom_bounds_visible));
-    signature=strcat(signature," fog=",cvar_string("r_fog_enabled"));
+    signature=strcat(signature," fog=",cvar_string("r_fog_enabled")," water=",cvar_string("r_wateralpha"));
+    signature=strcat(signature," ",cvar_string("r_lavaalpha")," ",cvar_string("r_slimealpha")," ",cvar_string("r_telealpha"));
     if(signature!=previous){strunzone(previous);previous=strzone(signature);fb_filter_epoch++;}
     int materialEpoch=cvar("ftebroom_material_tag_epoch");
     if(materialEpoch!=materials){materials=materialEpoch;fb_filter_materials_load();epoch=-1;}
@@ -91,7 +102,7 @@ int fb_filter_custom(int node)
     // Map-edit submodels have no server entity submitting their surfaces.
     // Draw them explicitly, independently of selection and point-model visibility.
     if(fb_nodes[node].kind>=FB_NODE_BRUSH && fb_nodes[node].model!=1)return TRUE;
-    return autocvar_ftebroom_render_faces!=0 || !autocvar_ftebroom_shade_faces || (fb_filter_tags[node] & (FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_TRANSLUCENT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL));
+    return autocvar_ftebroom_render_faces!=0 || !autocvar_ftebroom_shade_faces || (fb_filter_tags[node] & (FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_LIQUID|FB_TAG_TRANSLUCENT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL));
 }
 int *fb_render_access;int fb_render_access_count;
 int fb_render_allowed(int node,int flags)
@@ -152,8 +163,22 @@ void fb_static_preview_prepare()
 string fb_surface_material_shader(string material,float alpha)
 {
     string name=strcat(alpha<1?"ftebroom/filtered/":"ftebroom/opaque/",material);
-    if(cvar("ftebroom_quake1"))name=strcat(name,"#q1_",cvar_string("ftebroom_material_tag_epoch"));
+    name=strcat(name,"#assets_",cvar_string("ftebroom_material_tag_epoch"));
     return name;
+}
+float fb_surface_opacity(string source,int tags)
+{
+    if(tags&(FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL))return .35;
+    string key=fb_material_key(source);float opacity=1;if(fb_shader_opacity)opacity=(float)hash_get(fb_shader_opacity,key,1.0);
+    if(opacity<1)return opacity;
+    if(cvar("ftebroom_quake1")&&(tags&FB_TAG_LIQUID)){
+        string alphaVar="r_wateralpha";
+        if(substring(key,0,5)=="*lava")alphaVar="r_lavaalpha";
+        else if(substring(key,0,6)=="*slime")alphaVar="r_slimealpha";
+        else if(substring(key,0,5)=="*tele")alphaVar="r_telealpha";
+        if(cvar_string(alphaVar)=="")alphaVar="r_wateralpha";return bound(0,cvar(alphaVar),1);
+    }
+    return 1;
 }
 // Every editable preview keeps masked WAD texels, including selection/drag layers.
 string fb_surface_preview_shader(string source,float alpha)
@@ -162,10 +187,11 @@ string fb_surface_preview_shader(string source,float alpha)
     if(fb_shader_previews)preview=fb_shader_previews[material];
     if(preview=="")preview=strcat("textures/",material);
     string shader=fb_surface_material_shader(material,alpha);
-    int masked=cvar("ftebroom_quake1") && substring(material,0,1)=="{";
-    string depth=alpha<1?"blendfunc blend\n":"depthwrite\n";
-    if(masked && alpha>=1)depth=strcat("alphafunc GE128\n",depth);
-    shaderforname(shader,strcat("{\ncull none\n",alpha<1?"":"sort opaque\n","{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\nalphagen vertex\n",depth,"}\n}"));
+    int masked=cvar("ftebroom_quake1") && substring(material,0,1)=="{";if(fb_shader_masked)if((int)fb_shader_masked[material])masked=TRUE;
+    string blend="";if(fb_shader_blend)blend=fb_shader_blend[material];
+    string depth="depthwrite\n";if(alpha<1 || blend!="")depth=strcat("blendfunc ",blend!=""?blend:"blend","\n");
+    string program="";if(masked){string test="ge128";if(fb_shader_alpha_test)if(fb_shader_alpha_test[material]!="")test=fb_shader_alpha_test[material];program=strcat("program ftebroom_mask#",test=="lt128"?"LT128":test=="gt0"?"GT0":"GE128","\n");}
+    shaderforname(shader,strcat("{\ncull none\n",program,(alpha<1 || blend!="")?"sort blend\n":"sort opaque\n","{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\nalphagen vertex\n",depth,"}\n}"));
     return shader;
 }
 void fb_filter_patch(int model,int id)
@@ -175,9 +201,10 @@ void fb_filter_patch(int model,int id)
     if(info.cpwidth<2 || info.cpheight<2 || info.cpwidth*info.cpheight!=total)return;
     patchvert_t *mesh=memalloc(total*sizeof(patchvert_t));
     if(patch_getmesh(model,id,mesh,total,&info)!=total){memfree(mesh);return;}
-    string shader="ftebroom/flatface";
+    brushface_t patchFace={0};patchFace.shadername=info.shadername;float opacity=fb_surface_opacity(info.shadername,fb_filter_face_tags(&patchFace,0));
+    string shader=opacity<1?"ftebroom/flattransparent":"ftebroom/flatface";
     if(!autocvar_ftebroom_render_faces) {
-        shader=fb_surface_preview_shader(info.shadername,1);
+        shader=fb_surface_preview_shader(info.shadername,opacity);
     }
     for(int y=0;y<info.cpheight-1;y++)for(int x=0;x<info.cpwidth-1;x++) {
         int at=y*info.cpwidth+x;int corners[4];corners[0]=at;corners[1]=at+1;corners[2]=at+info.cpwidth+1;corners[3]=at+info.cpwidth;
@@ -185,7 +212,7 @@ void fb_filter_patch(int model,int id)
         float shade=1;if(autocvar_ftebroom_shade_faces)shade=0.6+0.4*fabs(normal*normalize('0.3 -0.5 1'));
         vector color='0.65 0.68 0.72'*shade;if(!autocvar_ftebroom_render_faces)color='1 1 1'*shade;
         R_BeginPolygon(shader,3);
-        for(int c=0;c<4;c++){patchvert_t v=mesh[corners[c]];R_PolygonVertex(v.xyz,[v.s,v.t,0],color,1);}
+        for(int c=0;c<4;c++){patchvert_t v=mesh[corners[c]];R_PolygonVertex(v.xyz,[v.s,v.t,0],color,opacity);}
         R_EndPolygon();
     }
     memfree(mesh);
@@ -236,7 +263,7 @@ int fb_render_append_brush(int n,int vertexOffset)
             fb_render_face_t *item=&fb_render_faces[fb_render_face_count++];
             brushface_t face=faces[f];int tags=fb_filter_face_tags(&face,contents);
             if(fb_filter_tags[n]&FB_TAG_TRIGGER)tags|=FB_TAG_TRIGGER;
-            float alpha=1;if(tags&(FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_TRANSLUCENT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL))alpha=0.35;
+            float alpha=fb_surface_opacity(face.shadername,tags);
             float shade=1;if(autocvar_ftebroom_shade_faces)shade=0.6+0.4*fabs(face.planenormal*normalize('0.3 -0.5 1'));
             vector color='0.65 0.68 0.72'*shade,size='1 1 1';string shader="ftebroom/flatface";
             if(alpha<1)shader="ftebroom/flattransparent";
@@ -279,7 +306,8 @@ void fb_render_faces_prepare()
 {
     float profile81Time=gettime(1);
     static int geometry=-1,filters=-1,selection=-1;
-    static string style;string nextStyle=strcat(cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces")," ",cvar_string("ftebroom_material_tag_epoch"));
+    static string style;string nextStyle=strcat(cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces")," ",cvar_string("ftebroom_material_tag_epoch")," ",cvar_string("r_wateralpha"));
+    nextStyle=strcat(nextStyle," ",cvar_string("r_lavaalpha")," ",cvar_string("r_slimealpha")," ",cvar_string("r_telealpha"));
     if(geometry==fb_grid_geometry_epoch && (fb_incremental_enabled()?nextStyle==style:(filters==fb_filter_epoch&&selection==fb_selection_epoch)))return;
     strunzone(style);style=strzone(nextStyle);
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;

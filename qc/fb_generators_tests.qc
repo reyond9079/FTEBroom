@@ -5,6 +5,7 @@ float fb_benchmark_start,fb_benchmark_frames;
 // SPDX-License-Identifier: GPL-3.0-or-later
 int fb_generators_test_history;
 #include "fb_performance_tests.qc"
+#include "fb_delete_tests.qc"
 void fb_polygon_test_rectangle(vector center,float half,float height)
 {
     fb_polygon_count=4;fb_polygon_closed=TRUE;fb_polygon_normal='0 0 1';
@@ -67,6 +68,7 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(fb_delete92_testcommand())return TRUE;
     if(argv(1)=="preview89"){
         fb_transform_expect(fb_transform_capture(),"preview89_capture");
         fb_transform_preview=TRUE;fb_transform_delta='16 0 0';

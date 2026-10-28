@@ -144,14 +144,14 @@ static void modelEditorCloseCheck(bool open){
 }
 static void modelEditorMenus(){
   if(ImGui::BeginMenuBar()){
-    if(ImGui::BeginMenu("File")){if(ImGui::MenuItem("Export model as..."))modelEditExport();ImGui::EndMenu();}
+    if(ImGui::BeginMenu("File")){if(ImGui::MenuItem("Export model as...",nullptr,false,!modelViewerIsBsp()))modelEditExport();ImGui::EndMenu();}
     if(ImGui::BeginMenu("View")){
-      ImGui::MenuItem("View from player perspective",nullptr,&modelEditPlayer);ImGui::MenuItem("View bones",nullptr,&modelViewerBones);
+      ImGui::MenuItem("View from player perspective",nullptr,&modelEditPlayer);ImGui::MenuItem("View bones",nullptr,&modelViewerBones,!modelViewerIsBsp());
       ImGui::MenuItem("Floor grid",nullptr,&modelEditFloor);
       ImGui::MenuItem("Origin axes",nullptr,&modelEditOriginAxes);
       if(ImGui::MenuItem("Frame model / reset camera")){modelEditorCameraEnd();modelEditCameraFree=false;modelViewerYaw=135;modelViewerPitch=15;modelViewerZoom=1;cvars->SetFloat("ftebroom_modeleditor_freecamera",0);}
-      ImGui::MenuItem("Backface culling",nullptr,&modelEditCull);
-      for(int i=0;i<3;i++)if(ImGui::MenuItem(i==0?"Textured":i==1?"Untextured":"Wireframe",nullptr,modelEditDisplay==i))modelEditDisplay=i;
+      ImGui::MenuItem("Backface culling",nullptr,&modelEditCull,!modelViewerIsBsp());
+      for(int i=0;i<3;i++)if(ImGui::MenuItem(i==0?"Textured":i==1?"Untextured":"Wireframe",nullptr,modelEditDisplay==i,!modelViewerIsBsp()||i==0))modelEditDisplay=i;
       ImGui::EndMenu();
     }ImGui::EndMenuBar();
   }
@@ -163,6 +163,13 @@ static void modelEditTree(int index,int depth=0){
   if(open){for(size_t i=0;i<modelEditNodes.size();i++)if(modelEditNodes[i].parent==index)modelEditTree(i,depth+1);ImGui::TreePop();}ImGui::PopID();
 }
 static void modelEditorInspector(){
+  if(modelViewerIsBsp()){
+    ImGui::SeparatorText("BSP preview");ImGui::TextWrapped("Read-only textured geometry. Use the map editor to change brushes and recompile.");
+    auto low=modelEditRead("ftebroom_modeleditor_low"),high=modelEditRead("ftebroom_modeleditor_high");
+    ImGui::Text("Minimum: %.3f, %.3f, %.3f",low[0],low[1],low[2]);ImGui::Text("Maximum: %.3f, %.3f, %.3f",high[0],high[1],high[2]);
+    ImGui::Text("Size: %.3f, %.3f, %.3f",high[0]-low[0],high[1]-low[1],high[2]-low[2]);
+    ImGui::TextWrapped("Orbit, fly and pan in the preview. View contains floor grid, origin axes and reset camera.");return;
+  }
   modelEditLoad();
   ImGui::TextUnformatted("Model editor");ImGui::TextDisabled("Source file is not modified. Export to save.");
   if(modelEditNodes.empty()){ImGui::TextWrapped("Loading editable mesh metadata...");return;}

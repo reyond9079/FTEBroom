@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+static void bspModelShow();
 static bool sceneContextPending = false, sceneContextCandidate = false;
 static int sceneContextSerial = 0;
 static quintptr_t sceneContextTime;
@@ -46,6 +47,7 @@ static void sceneContextPanel()
     int group = (int)cvars->GetFloat("ftebroom_context_group"),
         owner = (int)cvars->GetFloat("ftebroom_context_entity"),
         layer = (int)cvars->GetFloat("ftebroom_context_layer");
+    if(ImGui::MenuItem("Export selected BSP model...",nullptr,false,cvars->GetFloat("ftebroom_selection_count")>0))bspModelShow();
     if (ImGui::MenuItem("Group...", nullptr, false, selected))
     {
       organizationNameRequest = true;

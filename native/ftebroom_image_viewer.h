@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <future>
+#include "ftebroom_lmp.h"
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
@@ -14,17 +15,23 @@ static bool imageViewerOpen=false, imageViewerFit=true;
 static float imageViewerZoom=1;
 static bool imageFile(const std::filesystem::path& path) {
   auto ext=entityLower(path.extension().u8string());
-  return ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".tga"||ext==".bmp"||ext==".gif"||ext==".psd";
+  return ext==".lmp"||ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".tga"||ext==".bmp"||ext==".gif"||ext==".psd";
 }
 struct FileImagePixels {std::string bytes,error;};
 static std::future<FileImagePixels> fileImageJob;
 static std::pair<std::filesystem::path,bool> fileImageJobKey;
 static unsigned fileImageGeneration=0,fileImageJobGeneration=0;
-static FileImagePixels fileImageDecode(const std::filesystem::path& path,bool full){
+static FileImagePixels fileImageDecode(const std::filesystem::path& path,bool full,const std::string& palette={}){
   FileImagePixels result;
   try {
     auto bytes=modFileBytes(path);if(bytes.empty()||bytes.size()>32*1024*1024)throw std::runtime_error("Image must be between 1 byte and 32 MiB.");
     int width=0,height=0,channels=0;
+    if(entityLower(path.extension().u8string())==".lmp"){
+      auto image=ftebroom::lmp::decode(bytes,palette,entityLower(path.filename().u8string()));
+      width=image.width;height=image.height;float scale=full?1.f:std::min(1.f,std::min(256.f/width,256.f/height));int tw=std::max(1,int(width*scale)),th=std::max(1,int(height*scale));
+      std::string raster(18+tw*th*4,0);raster[2]=2;raster[12]=tw&255;raster[13]=tw>>8;raster[14]=th&255;raster[15]=th>>8;raster[16]=32;raster[17]=40;
+      for(int y=0;y<th;y++)for(int x=0;x<tw;x++){auto from=(const unsigned char*)image.rgba.data()+((y*height/th)*width+x*width/tw)*4;auto to=&raster[18+(y*tw+x)*4];to[0]=from[2];to[1]=from[1];to[2]=from[0];to[3]=from[3];}result.bytes=std::move(raster);return result;
+    }
     if(!stbi_info_from_memory((const stbi_uc*)bytes.data(),bytes.size(),&width,&height,&channels)||width<=0||height<=0||size_t(width)*height>16777216)throw std::runtime_error("Unsupported image or more than 16 million pixels.");
     auto pixels=stbi_load_from_memory((const stbi_uc*)bytes.data(),bytes.size(),&width,&height,&channels,4);
     if(!pixels)throw std::runtime_error("Cannot decode image.");
@@ -57,7 +64,12 @@ static FileImage& fileImage(const std::filesystem::path& path,bool full=false) {
   static FileImage pending;
   if(!fileImageJob.valid()){
     try{modFileValidate(path);}catch(const std::exception& e){FileImage bad;bad.error=e.what();return fileImages.emplace(key,std::move(bad)).first->second;}
-    fileImageJobKey=key;fileImageJobGeneration=fileImageGeneration;fileImageJob=std::async(std::launch::async,[path,full](){return fileImageDecode(path,full);});
+    std::string palette;
+    if(entityLower(path.extension().u8string())==".lmp"){
+      try{std::filesystem::path archive;std::string member;if(ftebroom::pak::split(path,archive,member))palette=modFileBytes(archive/"gfx/palette.lmp");}catch(...){}
+      if(palette.size()!=768)try{palette=modelResource("gfx/palette.lmp");}catch(...){}
+    }
+    fileImageJobKey=key;fileImageJobGeneration=fileImageGeneration;fileImageJob=std::async(std::launch::async,[path,full,palette](){return fileImageDecode(path,full,palette);});
   }
   return pending;
 }
@@ -88,4 +100,9 @@ static void imageViewerPanel() {
       ImGui::EndChild();
     }else ImGui::TextUnformatted("Loading image...");
   }ImGui::End();
+}
+
+static void lmpShow(const std::filesystem::path& path){
+  try{auto bytes=modFileBytes(path);if(bytes.size()==768){auto image=ftebroom::lmp::decode(bytes,"",path.filename().u8string());if(image.width==16&&image.height==16){paletteShow(path);return;}}}catch(...){}
+  imageViewerShow(path);
 }

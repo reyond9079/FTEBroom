@@ -2,6 +2,8 @@
 void fb_document_remap(int model,int oldid,int newid);
 void fb_lines_copy(int model,int oldid,int newid);
 void fb_tx_remap(int model,int oldid,int newid);
+void fb_tx_remap_bulk();
+int(int apply,int *pairs,int count) ftebroom_brush_delete_batch=#0:ftebroom_brush_delete_batch;
 void fb_tool_refresh();
 void fb_visibility_set(int model,int id,int hidden);
 void fb_rotate_restore_center(vector center);
@@ -67,6 +69,27 @@ void history_remap_record(history_t *h,int model,int oldid,int newid)
     for(int j=0;j<h->aftercount;j++) if(h->afterselection[j].model==model) if(h->afterselection[j].id==oldid) h->afterselection[j].id=newid;
     if(h->brushmodel==model) if(h->id==oldid) h->id=newid;
 }
+// A delete Undo recreates many IDs. Remap the retained history in one pass.
+hashtable history_pending_remaps;
+int history_deferred_create,history_deferred_delete;
+int history_mapped_id(int model,int id)
+{
+    if(!history_pending_remaps)return id;
+    return (int)hash_get(history_pending_remaps,sprintf("%i:%i",model,id),id);
+}
+void history_remap_bulk_record(history_t *h)
+{
+    if(h->batch)for(int i=0;i<h->batch->brushCount;i++)h->batch->ids[i*2+1]=history_mapped_id(h->batch->ids[i*2],h->batch->ids[i*2+1]);
+    for(int j=0;j<h->selectioncount;j++)h->selection[j].id=history_mapped_id(h->selection[j].model,h->selection[j].id);
+    for(int j=0;j<h->aftercount;j++)h->afterselection[j].id=history_mapped_id(h->afterselection[j].model,h->afterselection[j].id);
+    h->id=history_mapped_id(h->brushmodel,h->id);
+}
+void history_flush_remaps()
+{
+    if(!history_pending_remaps)return;
+    for(int i=history_min;i<history_max;i++)history_remap_bulk_record(&historyring[i&(historyring_length-1)]);
+    fb_tx_remap_bulk();hash_destroytab(history_pending_remaps);history_pending_remaps=0i;
+}
 void history_remap(int model,int oldid,int newid)
 {
     fb_document_remap(model,oldid,newid);
@@ -84,15 +107,14 @@ int fb_selected_entity();
 void fb_restore_entity_selection(int index);
 void history_restore_list(selbrush_t *items,int count,int ent)
 {
-    brush_deselectall();
+    brush_deselectall();memfree(selectedbrushes);selectedbrushes=memalloc(max(1,count)*sizeof(selbrush_t));
     for(int i=0;i<count;i++) {
         selbrush_t item=items[i];
         if(brush_get(item.model,item.id,__NULL__,0,__NULL__)<=0)
-            if(patch_getcp(item.model,item.id,__NULL__,0,__NULL__)<=0) continue;
-        brush_select(item.model,item.id);
-        memcpy(&selectedbrushes[selectedbrushcount-1].facemask,&item.facemask,sizeof(item.facemask));
-        selectedbrushes[selectedbrushcount-1].faceonly=item.faceonly;
+            if(patch_getcp(item.model,item.id,__NULL__,0,__NULL__)<=0)continue;
+        selectedbrushes[selectedbrushcount++]=item;brush_selected(item.model,item.id,-1,TRUE);selectedbrushmodel=item.model;
     }
+    brush_selection_invalidate();
     fb_restore_entity_selection(ent);
 }
 void history_apply(history_t *h,int redo)
@@ -102,7 +124,7 @@ void history_apply(history_t *h,int redo)
     if(h->kind==HIST_PIVOT){fb_rotate_restore_center(stov(redo?h->afterfields:h->beforefields));return;}
     if(h->kind==HIST_VISIBILITY) {fb_visibility_set(h->brushmodel,h->id,stoi(redo?h->afterfields:h->beforefields));return;}
     if(h->kind==HIST_SELECTION) {
-        if(!redo) {history_restore_list(h->selection,h->selectioncount,h->entitybefore);fb_selection_restore_state(h->statebefore);}
+        if(!redo) {history_flush_remaps();history_restore_list(h->selection,h->selectioncount,h->entitybefore);fb_selection_restore_state(h->statebefore);}
         return;
     }
     if(h->kind>=HIST_ENTITY) {
@@ -117,9 +139,10 @@ void history_apply(history_t *h,int redo)
         int id;
         if(h->patchdata) id=patch_create(h->brushmodel,0,h->patchdata,h->patchinfo);
         else id=brush_create(h->brushmodel,h->brushdata,h->brushinfo.numfaces,h->brushinfo.contents);
-        history_remap(h->brushmodel,h->id,id);h->id=id;
-        brush_select(h->brushmodel,id);
-    } else {brush_deselect(h->brushmodel,h->id);brush_delete(h->brushmodel,h->id);}
+        if(history_deferred_create){
+            history_pending_remaps[sprintf("%i:%i",h->brushmodel,h->id)]=id;fb_document_remap(h->brushmodel,h->id,id);
+        }else{history_remap(h->brushmodel,h->id,id);h->id=id;brush_select(h->brushmodel,id);}
+    } else if(!history_deferred_delete){brush_deselect(h->brushmodel,h->id);brush_delete(h->brushmodel,h->id);}
 }
 void fb_terrain_finish();
 void brush_undo()
@@ -128,9 +151,18 @@ void brush_undo()
     if(history<=history_min) return;
     float stamp=historyring[(history-1)&(historyring_length-1)].timestamp;
     for(int r=history-1;r>=history_min && historyring[r&(historyring_length-1)].timestamp==stamp;r--)if(historyring[r&(historyring_length-1)].kind==HIST_MOVE_BATCH)if(!fb_batch_validate(historyring[r&(historyring_length-1)].batch)){print("Move history no longer matches the current geometry; Undo cancelled.\n");return;}
+    int first=history,deleted=0,marker=FALSE,onlyDeletes=TRUE;
+    while(first>history_min&&historyring[(first-1)&(historyring_length-1)].timestamp==stamp){
+        first--;history_t *item=&historyring[first&(historyring_length-1)];
+        if(item->kind==HIST_SELECTION)marker=TRUE;
+        else if(item->kind==HIST_GEOMETRY){if(!item->wasdelete)onlyDeletes=FALSE;else deleted++;}
+        else if(item->kind!=HIST_ENTITY&&item->kind!=HIST_TREE)onlyDeletes=FALSE;
+    }
+    history_deferred_create=onlyDeletes&&marker&&deleted>=32;
+    if(history_deferred_create)history_pending_remaps=hash_createtab(deleted*2,EV_INTEGER);
     do {history--;history_apply(&historyring[history&(historyring_length-1)],FALSE);}
     while(history>history_min && historyring[(history-1)&(historyring_length-1)].timestamp==stamp);
-    fb_history_labels();
+    history_flush_remaps();history_deferred_create=FALSE;fb_history_labels();
 }
 void brush_redo()
 {
@@ -138,12 +170,25 @@ void brush_redo()
     if(history>=history_max) return;
     float stamp=historyring[history&(historyring_length-1)].timestamp;
     for(int r=history;r<history_max && historyring[r&(historyring_length-1)].timestamp==stamp;r++)if(historyring[r&(historyring_length-1)].kind==HIST_MOVE_BATCH)if(!fb_batch_validate(historyring[r&(historyring_length-1)].batch)){print("Move history no longer matches the current geometry; Redo cancelled.\n");return;}
+    int finish=history,deleted=0,onlyDeletes=TRUE;
+    while(finish<history_max&&historyring[finish&(historyring_length-1)].timestamp==stamp){
+        history_t *item=&historyring[finish&(historyring_length-1)];finish++;
+        if(item->kind==HIST_GEOMETRY){if(!item->wasdelete)onlyDeletes=FALSE;else deleted++;}
+        else if(item->kind!=HIST_SELECTION&&item->kind!=HIST_ENTITY&&item->kind!=HIST_TREE)onlyDeletes=FALSE;
+    }
+    if(onlyDeletes&&deleted>=32)if(checkbuiltin(ftebroom_brush_delete_batch)){
+        int *pairs=memalloc(deleted*2*sizeof(int));int at=0;
+        for(int r=history;r<finish;r++){history_t *deletedItem=&historyring[r&(historyring_length-1)];if(deletedItem->kind==HIST_GEOMETRY){pairs[at*2]=deletedItem->brushmodel;pairs[at*2+1]=deletedItem->id;at++;}}
+        if(ftebroom_brush_delete_batch(FALSE,pairs,deleted)==deleted){brush_deselectall();history_deferred_delete=ftebroom_brush_delete_batch(TRUE,pairs,deleted)==deleted;}
+        memfree(pairs);
+    }
     int selection=-1;
     do {
         history_t *h=&historyring[history&(historyring_length-1)];
         if(h->kind==HIST_SELECTION) selection=history;
         history_apply(h,TRUE);history++;
     } while(history<history_max && historyring[history&(historyring_length-1)].timestamp==stamp);
+    history_deferred_delete=FALSE;
     if(selection>=0) {
         history_t *selected=&historyring[selection&(historyring_length-1)];
         history_restore_list(selected->afterselection,selected->aftercount,selected->entityafter);
@@ -212,12 +257,13 @@ int(int mod, patchvert_t *vert, patchinfo_t info, float selectnow) patch_history
 		brush_select(mod, h->id);
 	return h->id;
 };
+int fb_history_defer_delete;
 //delete and journal.
 void(int mod, int id) brush_history_delete =
 {
 	int numfaces = brush_get(mod, id, __NULL__, 0, __NULL__);
 	int numcp = patch_getcp(mod, id, __NULL__, 0, __NULL__);
-	brush_deselect(mod, id);
+	if(!fb_history_defer_delete)brush_deselect(mod, id);
 
 	if (!numfaces && !numcp)
 		return;	//doesn't exist or something, some kind of error. we can't log a delete if it didn't delete anything, if only because we can't recreate it if its undone.
@@ -240,7 +286,7 @@ void(int mod, int id) brush_history_delete =
 		h->brushinfo.numfaces = brush_get(mod, id, h->brushdata, numfaces, &h->brushinfo.contents);
         for (int f=0; f<h->brushinfo.numfaces; f++) h->brushdata[f].shadername = strzone(h->brushdata[f].shadername);
 	}
-	brush_delete(mod, id);
+	if(!fb_history_defer_delete)brush_delete(mod, id);
 };
 
 int(int mod, int id, brushface_t *faces, int numfaces, int contents) brush_history_edit =

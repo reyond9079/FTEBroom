@@ -1,4 +1,6 @@
 string fb_surface_preview_shader(string source,float alpha);
+float fb_surface_opacity(string source,int tags);
+int fb_filter_face_tags(brushface_t *face,int contents);
 vector fb_visual_current_wire;
 void(int mod, int id) DrawEngineBrushWireframe =
 {
@@ -60,20 +62,13 @@ void(int mod, int id, float alpha) DrawEngineBrushFaded =
 		//because lightmaps are special things, we end up in a real mess. so lets just make sure there's a shader now, because we can.
 		//FIXME: we don't manage to pick up the size of the original wad image
 		
-		string materialname = strcat("textures/", faces[f].shadername);
-		shaderforname(materialname,
-			sprintf("{"
-				"{\n"
-					"map \"%s\"\n"
-					"rgbgen vertex\n"
-					"alphagen vertex\n"
-				"}\n"
-			"}", faces[f].shadername));
+        float fadedAlpha=alpha*fb_surface_opacity(faces[f].shadername,fb_filter_face_tags(&faces[f],contents));
+        string materialname=fb_surface_preview_shader(faces[f].shadername,fadedAlpha);
 
 		vector sz = drawgetimagesize(materialname);
 		R_BeginPolygon(materialname, 3);
 		for (int point = 0; point < points; point++)
-			R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, alpha);
+			R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, fadedAlpha);
 		R_EndPolygon();
 	}
 };
@@ -149,12 +144,13 @@ void(brushface_t *faces, int numfaces, vector col, float alpha) DrawQCBrushTextu
 			//this is unfortunate. the built in shaders expect to use lightmaps. we don't have those.
 			//because lightmaps are special things, we end up in a real mess. so lets just make sure there's a shader now, because we can.
 			//FIXME: we don't manage to pick up the size of the original wad image
-			string materialname=fb_surface_preview_shader(faces[f].shadername,alpha);
+			float faceAlpha=alpha*fb_surface_opacity(faces[f].shadername,fb_filter_face_tags(&faces[f],0));
+            string materialname=fb_surface_preview_shader(faces[f].shadername,faceAlpha);
 
 			vector sz = drawgetimagesize(materialname);
 			R_BeginPolygon(materialname, 3);
 			for (point = 0; point < points; point++)
-				R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, alpha);
+				R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, faceAlpha);
 			R_EndPolygon();
 		}
 	}
@@ -163,15 +159,9 @@ void(patchvert_t *cp, patchinfo_t info, vector col, float alpha) DrawQCPatchText
 {
 	int x, y;
 
-	string materialname = strcat("textures/", info.shadername);
-	shaderforname(materialname,
-		sprintf("{"
-			"{\n"
-				"map \"%s\"\n"
-				"rgbgen vertex\n"
-				"alphagen vertex\n"
-			"}\n"
-		"}", info.shadername));
+    brushface_t patchFace={0};patchFace.shadername=info.shadername;
+    alpha*=fb_surface_opacity(info.shadername,fb_filter_face_tags(&patchFace,0));
+    string materialname=fb_surface_preview_shader(info.shadername,alpha);
 
 	R_BeginPolygon(materialname);
 	for (y = 0; y < info.cpheight-1; y++, cp++)

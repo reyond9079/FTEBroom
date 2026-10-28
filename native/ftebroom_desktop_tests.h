@@ -9,6 +9,37 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="bsp92viewer"){
+    auto path=gameProfile==2?"models/selected92.bsp":"qa5/selected90.bsp";expect(modelViewableFile(path)&&!modelFile(path),"bsp92_view_without_converter_route");
+    modelEditorShow(path);expect(modelViewerOpen&&modelEditorActive&&modelViewerIsBsp(),"bsp92_model_editor_open");
+  }
+  if(std::string(mode)=="bsp92viewercheck"){
+    auto low=modelEditRead("ftebroom_modeleditor_low"),high=modelEditRead("ftebroom_modeleditor_high");
+    expect(cvars->GetFloat("ftebroom_modelviewer_count")>0&&high[0]>low[0]&&high[1]>low[1]&&high[2]>low[2],"bsp92_model_editor_bounds_ready");
+    expect(!modelEditDirty&&modelEditNodes.empty(),"bsp92_model_editor_read_only");
+  }
+  if(std::string(mode)=="assets92"){
+    auto archive=std::filesystem::u8path(root)/"pictures92.pak";
+    auto palette=modFileBytes(archive/"gfx/palette.lmp");
+    auto image=fileImageDecode(archive/"gfx/conback.lmp",true,palette);
+    expect(image.error.empty()&&image.bytes.size()>18&&image.bytes[16]==32,"lmp92_pak_picture_decode");
+    auto font=fileImageDecode(archive/"gfx/conchars.lmp",false,palette);expect(font.error.empty()&&!font.bytes.empty(),"lmp92_pak_font_thumbnail");
+    lmpShow(archive/"gfx/palette.lmp");expect(paletteOpen&&paletteError.empty()&&paletteBytes.size()==768,"lmp92_palette_dispatch");paletteOpen=false;
+    lmpShow(archive/"gfx/conback.lmp");expect(imageViewerOpen&&imageViewerPath==archive/"gfx/conback.lmp","lmp92_image_dispatch");
+    frame();frame();
+  }
+  if(std::string(mode)=="bsp92export"){
+    auto target=std::filesystem::u8path(root)/"selected92";
+    auto entered="\""+target.u8string()+"\"";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",entered.c_str());bspModelAtlas=true;bspModelShow();bspModelBegin();
+    expect(bspModelBusy&&bspModelTarget==target.replace_extension(".bsp"),"bsp92_quoted_extensionless_destination");
+  }
+  if(std::string(mode)=="bsp92check"){
+    auto target=std::filesystem::u8path(root)/"selected92.bsp";
+    expect(!bspModelBusy&&!runHadError&&std::filesystem::exists(target),"bsp92_compiled");
+    expect(std::filesystem::exists(std::filesystem::u8path(root)/"selected92-atlas/atlas0.tga")&&std::filesystem::exists(std::filesystem::u8path(root)/"selected92-atlas/uv0.tga"),"bsp92_atlas_and_painting_template");
+    core->Print(("BSP92_RESULT "+bspModelMessage+"\n").c_str());
+    bool rejected=false;try{bspModelBegin();}catch(const std::exception& e){rejected=std::string(e.what()).find("existing")!=std::string::npos;}expect(rejected,"bsp92_existing_file_protected");
+  }
   if(std::string(mode)=="bsp90export"){
     auto target=std::filesystem::u8path(root)/"selected90.bsp";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());bspModelAtlas=true;bspModelShow();bspModelBegin();expect(bspModelBusy,"bsp90_async_started");
   }
@@ -419,7 +450,7 @@ static void testDesktop(){
     bool high=false,mask=false;for(const auto& texture:textures){if(texture.name=="hires")high=texture.width==1024&&texture.height==16&&texture.pixels[0]==250;if(texture.name=="{mask")mask=texture.pixels[0]==255&&texture.pixels[1023]==250;}expect(high&&mask,"folders52_full_palette_mask");
     expect(textures[0].name.size()<=15&&textures[1].name.size()<=15&&textures[0].name!=textures[1].name,"folders52_unique_names");
     expect(std::string(q1Wads).find(target.u8string())!=std::string::npos||std::string(q1Wads).find(target.generic_u8string())!=std::string::npos,"folders52_registered_wad");
-    auto build=documentPath("folder-test/compiler");std::filesystem::create_directories(build);auto staged=q1CompilerWads(build);expect(staged.find("_ftebroom-wads/")==0,"folders52_compiler_staging");
+    auto build=documentPath("folder-test/compiler");std::filesystem::create_directories(build);auto staged=q1CompilerWads(build);expect(staged=="textures.wad","folders52_compiler_staging");
     if(std::string(mode)=="folders52check"){textureFolderQueue=textureFolders;textureFolderNext();}else{
       expect(std::filesystem::exists(target.u8string()+".previous"),"folders52_backup");textureFolderCancel=true;bool cancelled=false;try{textureFolderCompile(std::filesystem::u8path(textureFolderSource),textureFolderColors);}catch(...){cancelled=true;}expect(cancelled,"folders52_cancel");textureFolderCancel=false;
     }
@@ -722,7 +753,7 @@ static void testDesktop(){
 
    auto converted=ftebroom::quake1::wad(q1Read(folder/"converted.wad"));expect(converted.size()==2&&converted[0].width==512&&converted[0].height==512,"real_jpg_png_converted");
 
-   auto build=folder/"compiler";std::filesystem::create_directories(build);auto wads=q1CompilerWads(build);expect(wads.find(u8"Рабочий")==std::string::npos&&wads.find("_ftebroom-wads/")==0,"compiler_ascii_wads");
+   auto build=folder/"compiler";std::filesystem::create_directories(build);auto wads=q1CompilerWads(build);expect(wads.find(u8"Рабочий")==std::string::npos&&wads=="textures.wad","compiler_ascii_wads");
 
    auto map=ftebroom::quake1::map(q1Read(documentPath("maps/build-fixture.map")),false,wads);
 

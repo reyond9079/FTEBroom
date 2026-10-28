@@ -64,6 +64,7 @@ static void modFileImportMap(const std::filesystem::path& path,float x,float y) 
   files->Write(handle,bytes.data(),static_cast<int>(bytes.size()));files->Close(handle);
   command(("ftebroom_import_file 0 "+std::to_string(x)+" "+std::to_string(y)+"\n").c_str());
 }
+static void lmpShow(const std::filesystem::path& path);
 #include "ftebroom_asset_tools.h"
 #include "ftebroom_sound_editor.h"
 #include "ftebroom_image_viewer.h"
@@ -222,7 +223,7 @@ static void modFilesTree(const std::filesystem::path& folder,std::filesystem::pa
       bool expanded=ImGui::TreeNodeEx("node",flags,"%s%s",archive?(ftebroom::pak::zipFile(path)?"[PK3] ":"[PAK] "):"",path.filename().u8string().c_str());
       if(ImGui::IsItemClicked()&&!ImGui::IsItemToggledOpen()&&entry.first)navigate=path;
       if(ImGui::IsItemHovered()&&ImGui::IsMouseDoubleClicked(0)&&!entry.first) {
-        if(entityLower(path.extension().u8string())==".lmp")paletteShow(path);else if(modelFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
+        if(entityLower(path.extension().u8string())==".lmp")lmpShow(path);else if(modelViewableFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
       }
       if(entry.first&&expanded){modFilesTree(path,navigate,depth+1,budget);ImGui::TreePop();}ImGui::PopID();
     }
@@ -299,15 +300,15 @@ static void modFilesPanel() {
         if(col)ImGui::SameLine();ImGui::PushID(i);auto p=ImGui::GetCursorScreenPos();
         if(ImGui::Selectable("##file",false,ImGuiSelectableFlags_AllowDoubleClick,{modFilesGrid?tileSize+8:ImGui::GetContentRegionAvail().x,rowHeight-ImGui::GetStyle().ItemSpacing.y})&&directory)navigate=path;
         if(ImGui::IsItemHovered()&&ImGui::IsMouseDoubleClicked(0)&&!directory) {
-          if(entityLower(path.extension().u8string())==".lmp")paletteShow(path);else if(modelFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
+          if(entityLower(path.extension().u8string())==".lmp")lmpShow(path);else if(modelViewableFile(path))modelEditorShow(modFileModelPath(path));else if(soundFile(path))soundOpen(path);else if(imageFile(path))imageViewerShow(path);else if(entityLower(path.extension().u8string())==".map")modFileOpenMap(path);else if(modFileText(path))modFilesEdit(path);
         }
         if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",label.c_str());
         if(ImGui::BeginDragDropSource()){auto value=path.u8string();ImGui::SetDragDropPayload("FTEBROOM_MOD_FILE",value.c_str(),value.size()+1);ImGui::TextUnformatted(label.c_str());ImGui::EndDragDropSource();}
         if(directory)modFilesTarget(path);
         if(ImGui::BeginPopupContextItem("file_actions")) {
-          if(!directory&&entityLower(path.extension().u8string())==".lmp"&&ImGui::MenuItem("Open palette viewer"))paletteShow(path);
+          if(!directory&&entityLower(path.extension().u8string())==".lmp"&&ImGui::MenuItem("Open LMP viewer"))lmpShow(path);
           if(directory&&!wadBrowseFolder(path)&&ImGui::MenuItem("New WAD..."))newWadShow(path);
-          if(!directory&&modelFile(path)&&ImGui::MenuItem("Open in model editor"))modelEditorShow(modFileModelPath(path));
+          if(!directory&&modelViewableFile(path)&&ImGui::MenuItem("Open in model editor"))modelEditorShow(modFileModelPath(path));
           if(!directory&&modelFile(path)&&ImGui::MenuItem("Convert..."))modelConverterShow(modFileModelPath(path));
           if(ImGui::MenuItem("Copy")){modFilesClipboard=path;modFilesCut=false;}
           ImGui::BeginDisabled(wadBrowseMember(path));

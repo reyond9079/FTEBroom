@@ -293,7 +293,7 @@ static void documentSaveFinished()
     // Stage beside the destination so replacement remains atomic across drives.
     auto adjacent = target;
     adjacent += ".ftebroom-" + std::to_string(saveSerial) + ".tmp";
-    if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path()):q1WadList(),true);
+    if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(source),savingExport?false:q1MapFormat==0,savingExport?q1CompilerWads(target.parent_path(),q1Read(source)):q1WadList(),true);
       std::ofstream output(adjacent,std::ios::binary);output<<(savingExport?converted:documentMetadata(converted));output.close();if(!output)throw std::runtime_error("Cannot write Quake map.");}
     else {std::ofstream output(adjacent,std::ios::binary);auto bytes=q1Read(source);output<<(savingExport?bytes:documentMetadata(bytes));output.close();if(!output)throw std::runtime_error("Cannot write map.");}
 #ifdef _WIN32

@@ -25,6 +25,8 @@ static double modelViewerClock=0;
 static bool modelFile(const std::filesystem::path& path) {
   auto ext=entityLower(path.extension().u8string());return ext==".mdl"||ext==".md3"||ext==".md2"||ext==".iqm"||ext==".md5mesh"||ext==".mdx"||ext==".zym"||ext==".dpm"||ext==".psk"||ext==".obj";
 }
+static bool modelViewableFile(const std::filesystem::path& path){return modelFile(path)||entityLower(path.extension().u8string())==".bsp";}
+static bool modelViewerIsBsp(){return entityLower(std::filesystem::u8path(modelViewerPath).extension().u8string())==".bsp";}
 static void modelViewerLoad(const std::string& path) {
   modelEditorActive=false;cvars->SetFloat("ftebroom_modeleditor_active",0);
   modelViewerPath=path;modelViewerOpen=true;modelViewerPlay=false;modelViewerSequence=modelViewerPose=0;modelViewerClock=0;modelViewerZoom=1;
@@ -48,6 +50,8 @@ static void modelViewerPanel() {
     if(modelEditorActive){modelEditorMenus();ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,1);auto bg=ImGui::GetStyle().Colors[ImGuiCol_WindowBg];ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(std::min(1.f,bg.x+.08f),std::min(1.f,bg.y+.08f),std::min(1.f,bg.z+.08f),1));ImGui::BeginTable("Model editor layout",2,ImGuiTableFlags_Resizable|ImGuiTableFlags_BordersInnerV);ImGui::TableSetupColumn("Preview",ImGuiTableColumnFlags_WidthStretch);ImGui::TableSetupColumn("Inspector",ImGuiTableColumnFlags_WidthFixed,285*uiScale());ImGui::TableNextRow();ImGui::TableSetColumnIndex(1);ImGui::BeginChild("Model inspector",{0,0},ImGuiChildFlags_Borders);modelEditorInspector();ImGui::EndChild();ImGui::TableSetColumnIndex(0);ImGui::BeginChild("Model preview");}
     ImGui::TextWrapped("%s",modelViewerPath.c_str());
     if(!modelEditorActive&&ImGui::Button("Convert..."))modelConverterShow(modelViewerPath);
+    int poses=1;
+    if(!modelViewerIsBsp()){
     int skins=std::clamp(int(cvars->GetFloat("ftebroom_modelviewer_skins")),1,256);
     char skinName[256]={};cvars->GetString("ftebroom_modelviewer_skinname",skinName,sizeof skinName);
     auto selectedSkin=std::string("Skin ")+std::to_string(modelViewerSkin)+(*skinName?std::string(" — ")+skinName:"");
@@ -84,7 +88,7 @@ static void modelViewerPanel() {
     }catch(const std::exception& e){ImGui::TextWrapped("%s",e.what());}
     if(cvars->GetFloat("ftebroom_modelviewer_count")<=0)ImGui::TextWrapped("Loading model, or model unavailable. Check its file and referenced resources.");
     int sequences=std::max(1,(int)cvars->GetFloat("ftebroom_modelviewer_count"));
-    int poses=std::max(1,(int)cvars->GetFloat("ftebroom_modelviewer_poses"));
+    poses=std::max(1,(int)cvars->GetFloat("ftebroom_modelviewer_poses"));
     float duration=cvars->GetFloat("ftebroom_modelviewer_duration");
     char name[256]={};cvars->GetString("ftebroom_modelviewer_name",name,sizeof name);
     if(ImGui::SliderInt(poses>1?"Animation":"Frame",&modelViewerSequence,0,sequences-1)){modelViewerClock=0;modelViewerPose=0;modelViewerPlay=false;}
@@ -102,6 +106,7 @@ static void modelViewerPanel() {
     ImGui::BeginDisabled(!bones);ImGui::Checkbox("Show bones",&modelViewerBones);
     if(bones){ImGui::SameLine();ImGui::SetNextItemWidth(180);ImGui::SliderInt("Bone",&modelViewerBone,1,bones);cvars->GetString("ftebroom_modelviewer_bonename",name,sizeof name);ImGui::Text("%s",name);}ImGui::EndDisabled();
     if(!bones)ImGui::TextDisabled("No skeletal bones (vertex-animated/static model).");
+    }else ImGui::TextDisabled("BSP preview — static geometry");
     ImGui::TextDisabled("LMB: orbit | RMB + WASD / QX: fly | MMB: pan | Wheel: zoom");
     auto size=ImGui::GetContentRegionAvail();size.x=std::max(64.f,size.x);size.y=std::max(64.f,size.y);
     auto& image=modelViewerImage;if(!image)image=draw->LoadImageShader("ftebroom/modelviewer-image","{\n program default2d\n {\n map $rt:ftebroom_modelviewer\n rgbgen vertex\n alphagen vertex\n }\n }");

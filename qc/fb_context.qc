@@ -60,10 +60,11 @@ float fb_context_command()
     if(argv(0)=="ftebroom_terrain_position") {vector point=fb_entity_drop_position("func_model",[stof(argv(1)),stof(argv(2)),0]);cvar_set("ftebroom_terrain_origin",vtos(point));return TRUE;}
     if(argv(0)=="ftebroom_terrain_create") {fb_terrain_create(stov(argv(1)),argv(2));return TRUE;}
     if(argv(0)=="ftebroom_model_drop") {
-        string model=strzone(argv(1));vector modelPixel=[stof(argv(2)),stof(argv(3)),0];
-        vector modelPosition=fb_entity_drop_position("func_model",modelPixel);
+        string model=strzone(argv(1)),modelClass="func_model";if(argv(4)=="misc_model")modelClass="misc_model";
+        vector modelPixel=[stof(argv(2)),stof(argv(3)),0];
+        vector modelPosition=fb_entity_drop_position(modelClass,modelPixel);
         for(int axis=0;axis<3;axis++)if(!fb_geom_finite(modelPosition[axis])||fabs(modelPosition[axis])>autocvar_ftebroom_world_bound){strunzone(model);return TRUE;}
-        fb_tx_begin("Import model");fb_entity_create("func_model",FALSE,modelPosition);
+        fb_tx_begin("Import model");fb_entity_create(modelClass,FALSE,modelPosition);
         fb_entity_property("set","model",model);fb_tx_commit();strunzone(model);return TRUE;
     }
     if(argv(0)=="ftebroom_entity_drop"){

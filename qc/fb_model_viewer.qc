@@ -47,39 +47,39 @@ void fb_modelviewer_draw()
         if(fb_modelviewer_skeleton){skel_delete(fb_modelviewer_skeleton);fb_modelviewer_skeleton=0;}
         return;
     }
-    string path=cvar_string("ftebroom_modelviewer_path");
+    string path=cvar_string("ftebroom_modelviewer_path");int bsp=strtolower(substring(path,max(0,strlen(path)-4),-1))==".bsp";
     if(strcmp(path,fb_modelviewer_path) || !fb_modelviewer_entity) {
         if(fb_modelviewer_entity)remove(fb_modelviewer_entity);
         if(fb_modelviewer_skeleton)skel_delete(fb_modelviewer_skeleton);
         fb_modelviewer_entity=spawn();setmodel(fb_modelviewer_entity,path);
         fb_modelviewer_skinmodel=0;
         strunzone(fb_modelviewer_path);fb_modelviewer_path=strzone(path);
-        fb_modelviewer_skeleton=skel_create(fb_modelviewer_entity.modelindex);
+        fb_modelviewer_skeleton=0;if(!bsp)fb_modelviewer_skeleton=skel_create(fb_modelviewer_entity.modelindex);
     }
     entity item=fb_modelviewer_entity;float model=item.modelindex;
     float editing=cvar("ftebroom_modeleditor_active");
-    if(editing&&!cvar("ftebroom_modeleditor_meshes"))editor_model_meshmeta(model);
+    if(editing&&!bsp&&!cvar("ftebroom_modeleditor_meshes"))editor_model_meshmeta(model);
     if(model!=fb_modelviewer_skinmodel) {
         fb_modelviewer_skinmodel=model;
         int skinCount=0;
-        while(skinCount<256 && skintoname(model,skinCount)!="")skinCount++;
+        while(!bsp&&skinCount<256 && skintoname(model,skinCount)!="")skinCount++;
         skinCount=max(max(1,skinCount),cvar("ftebroom_modelviewer_embeddedskins"));
         cvar_set("ftebroom_modelviewer_skins",ftos(skinCount));
         for(int skinIndex=0;skinIndex<skinCount;skinIndex++)
             cvar_set(strcat("ftebroom_modelviewer_skin_name_",ftos(skinIndex)),skintoname(model,skinIndex));
     }
     item.skin=max(0,cvar("ftebroom_modelviewer_skin"));
-    cvar_set("ftebroom_modelviewer_skinname",skintoname(model,item.skin));
+    cvar_set("ftebroom_modelviewer_skinname",bsp?"":skintoname(model,item.skin));
     string customSkin=cvar_string("ftebroom_modelviewer_customskin");
-    if(strcmp(customSkin,fb_modelviewer_customskin)) {
+    if(!bsp&&strcmp(customSkin,fb_modelviewer_customskin)) {
         setcustomskin(item,customSkin);
         strunzone(fb_modelviewer_customskin);fb_modelviewer_customskin=strzone(customSkin);
     }
-    cvar_set("ftebroom_modelviewer_count",ftos(modelframecount(model)));
-    int sequence=bound(0,cvar("ftebroom_modelviewer_sequence"),max(0,modelframecount(model)-1));
+    cvar_set("ftebroom_modelviewer_count",ftos(bsp?1:modelframecount(model)));
+    int sequence=bound(0,cvar("ftebroom_modelviewer_sequence"),max(0,(bsp?1:modelframecount(model))-1));
     vector info=editor_model_info(model,sequence,0);
     cvar_set("ftebroom_modelviewer_poses",ftos(info_x));cvar_set("ftebroom_modelviewer_duration",ftos(info_y));
-    cvar_set("ftebroom_modelviewer_name",frametoname(model,sequence));
+    cvar_set("ftebroom_modelviewer_name",bsp?"Static BSP":frametoname(model,sequence));
     float bones=fb_modelviewer_skeleton?skel_get_numbones(fb_modelviewer_skeleton):0;
     cvar_set("ftebroom_modelviewer_bones",ftos(bones));
     int selectedBone=bound(1,cvar("ftebroom_modelviewer_bone"),max(1,bones));
@@ -102,7 +102,7 @@ void fb_modelviewer_draw()
     if(player){setproperty(VF_FOVX,90);setproperty(VF_FOVY,atan(size_y/size_x)*360/M_PI);setproperty(VF_MINDIST,.1);}
     drawfill('0 0 0',size,'0.08 0.09 0.11',1,0);item.effects=EF_FULLBRIGHT;
     if(editing)fb_modeleditor_guides(eye);
-    if(editing&&cvar("ftebroom_modeleditor_count")>0){
+    if(editing&&!bsp&&cvar("ftebroom_modeleditor_count")>0){
         item.renderflags=0;item.scale=1;setorigin(item,'0 0 0');item.angles='0 0 0';
         editor_model_drawsurface(item,-1,cvar("ftebroom_modeleditor_display"));
         item.renderflags=0;setorigin(item,'0 0 0');item.angles='0 0 0';

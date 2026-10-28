@@ -324,7 +324,7 @@ static void runTick()
       if(runIsWorkingMap(target))throw std::runtime_error("Export Map must use a build copy, not the working map.");
       std::filesystem::create_directories(target.parent_path());
       std::filesystem::copy_file(documentPath("data/export-map.map"),target,std::filesystem::copy_options::overwrite_existing);
-      if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(target),false,q1CompilerWads(target.parent_path()));
+      if(gameProfile==2){auto converted=ftebroom::quake1::map(q1Read(target),false,q1CompilerWads(target.parent_path(),q1Read(target)));
         for(const auto& texture:ftebroom::quake1::mapTextures(converted))if(!materials.count("textures/"+texture))throw std::runtime_error("Missing Quake texture '"+texture+"'. Add its WAD in Game / resources.");
         std::ofstream output(target,std::ios::binary);output<<converted;output.close();if(!output)throw std::runtime_error("Cannot write Quake build snapshot.");}
       if(runExportHook)runExportHook(target);

@@ -143,7 +143,7 @@ static void importDialog(){
   if(!drop.folder.empty()){if(modelImportSource(drop.path))modelImportEnqueue(drop.path,drop.folder);else modFileCopy(drop.path,drop.folder);continue;}
   auto folder=modFileRoot()/"models"/"imported";modFileValidate(folder);std::filesystem::create_directories(folder);
   auto target=modFileCopy(drop.path,folder);mountAssets();
-  if(drop.scene){auto relative=target.lexically_relative(modFileRoot()).generic_u8string();command(("ftebroom_model_drop "+organizationQuote(relative)+" "+std::to_string(drop.point.x)+" "+std::to_string(drop.point.y)+"\n").c_str());}
+  if(drop.scene){auto relative=target.lexically_relative(modFileRoot()).generic_u8string();command(("ftebroom_model_drop "+organizationQuote(relative)+" "+std::to_string(drop.point.x)+" "+std::to_string(drop.point.y)+" "+organizationQuote(gameProfile==0?"misc_model":"func_model")+"\n").c_str());}
   importNotice="Model copied to "+target.u8string();
  }catch(const std::exception& e){importError=e.what();}desktopFileDrops.clear();
  if(!desktopDrops.empty())selectMaterialTab=true;

@@ -8,7 +8,7 @@ static void publishMaterialTags()
     if (name.rfind("textures/", 0) == 0)
       name = name.substr(9);
     out << std::quoted(name) << ' ' << item.second.tags << ' '
-        << std::quoted(item.second.preview) << '\n';
+        << std::quoted(item.second.preview) << ' ' << item.second.opacity << ' ' << item.second.masked << ' ' << std::quoted(item.second.blend) << ' ' << std::quoted(item.second.alphaTest) << '\n';
   }
   const auto content=out.str();
   const auto scope=std::to_string(gameProfile)+":"+std::string(baseq3)+":"+gameRuntime();

@@ -3,6 +3,7 @@
 #include "ftebroom_quake_palette.h"
 #include "ftebroom_map_wads.h"
 #include "ftebroom_wad_cache.h"
+#include "ftebroom_compiler_wad.h"
 static std::string q1Palette(){
   size_t size=0;auto data=(char*)files->LoadFile("gfx/palette.lmp",&size);
   if(!data)return ftebroom::defaultQuakePalette();
@@ -64,19 +65,17 @@ static std::string q1WadList() {
   return list;
 }
 // Compiler input uses ASCII relative paths, independent of external Unicode names.
-static std::string q1CompilerWads(const std::filesystem::path& folder) {
-  q1FindWads(true);
-  auto directory=folder/"_ftebroom-wads";std::filesystem::create_directories(directory);
-  std::string list;int index=0;
-  // qbsp resolves the first matching texture; the editor gives the last WAD priority.
-  for(auto it=q1WadPaths().rbegin();it!=q1WadPaths().rend();++it) {
-    auto relative="_ftebroom-wads/wad-"+std::to_string(index++)+".wad";
-    auto bytes=q1Read(*it);auto target=folder/relative;
-    std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();
-    if(!output)throw std::runtime_error("Cannot stage WAD for the compiler.");
-    if(!list.empty())list+=';';list+=relative;
-  }
-  return list;
+static std::string q1CompilerWads(const std::filesystem::path& folder,const std::string& source={}) {
+  q1FindWads(true);std::filesystem::create_directories(folder);std::set<std::string> wanted;
+  if(source.empty()){for(const auto& material:q1MaterialWad)wanted.insert(material.first);}
+  else for(auto name:ftebroom::quake1::mapTextures(source))wanted.insert(name);
+  std::set<std::string> owners;bool unresolved=false;
+  for(const auto& name:wanted){auto found=q1MaterialWad.find(name);if(found==q1MaterialWad.end())unresolved=true;else owners.insert(found->second);}
+  std::vector<std::string> archives;
+  for(const auto& path:q1WadPaths()){auto label=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();if(unresolved||owners.count(label))archives.push_back(q1Read(path));}
+  auto bytes=ftebroom::quake1::compilerWad(archives,wanted);auto target=folder/"textures.wad";
+  std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();
+  if(!output)throw std::runtime_error("Cannot stage WAD for the compiler.");return "textures.wad";
 }
 static bool q1DiscoverWads(const std::string& source,const std::filesystem::path& map) {
   q1FindWads();

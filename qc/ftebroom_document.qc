@@ -1,3 +1,4 @@
+int fb_delete_document(int first,int last,int redo);
 int fb_batch_document(int first,int last,int redo);
 void fb_lines_remap(int model,int oldid,int newid);
 void fb_visibility_remap(int model,int oldid,int newid);
@@ -337,6 +338,7 @@ void fb_document_tick()
             // QC boolean operators can evaluate both operands. Never invoke a
             // mutating fallback until its range and ownership are eligible.
             int updated=fb_batch_document(first,last,redo);
+            if(!updated)updated=fb_delete_document(first,last,redo);
             if(!updated)if(incremental)if(fb_incremental_enabled())updated=fb_incremental_apply(first,last,redo);
             if(updated)fb_incremental_revision=revision;
             else if(worldOnly)fb_document_rebuild_world_geometry();else fb_document_rebuild();
