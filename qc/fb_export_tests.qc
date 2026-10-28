@@ -3,6 +3,15 @@ void fb_export_expect(int ok,string label){print(strcat(ok?"FTEBROOM_EXPORT_PASS
 int fb_export_testcommand()
 {
     if(argv(0)!="ftebroom_test_export" || !cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="bsp90"){
+        fb_tool_deactivate();brush_deselectall();
+        fb_createbox('16 32 48','64 64 64');brush_deselectall();
+        int id90=fb_createbox('160 320 480','64 64 64');brush_deselectall();brushface_select(1,id90,6);
+        int before90=history,count90=selectedbrushcount;
+        fb_export_expect(fb_export_selected_bsp(),"bsp90_export_selected");
+        fb_export_expect(history==before90&&selectedbrushcount==count90&&selectedbrushes[0].id==id90,"bsp90_no_document_or_selection_changes");
+        brush_deselectall();fb_export_expect(!fb_export_selected_bsp(),"bsp90_empty_selection_rejected");brushface_select(1,id90,6);return TRUE;
+    }
     fb_tool_deactivate();int marker=history;
     fb_export_expect(fb_trace_count==5 && fb_trace_portal_count==1,"diagnostic_files_loaded");
     for(int p=0;p<5;p++)fb_trace_step(1);

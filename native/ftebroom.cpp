@@ -356,6 +356,7 @@ static bool terrainCreateWindow;
 #include "ftebroom_mod_files.h"
 #include "ftebroom_desktop.h"
 #include "ftebroom_update.h"
+#include "ftebroom_bsp_model.h"
 // Actions may focus the entity inspector.
 #include "ftebroom_generators.h"
 #include "ftebroom_settle.h"
@@ -547,7 +548,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 89");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 90");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1117,6 +1118,7 @@ static void panel(float w, float h)
   issuesPanel();
   runPanel();
   buildPanel();
+  bspModelPanel();
   ImGui::EndDisabled();
   buildOverlay();
   modControlsPanel();
@@ -1203,7 +1205,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 89");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 90");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();

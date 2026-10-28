@@ -80,6 +80,14 @@
     "gesture": ""
   },
   {
+    "id": "Menu/File/Export selected BSP model...",
+    "label": "Export selected BSP model...",
+    "keys": "",
+    "context": "CtxAny",
+    "command": "ftebroom_ui exportbspmodel",
+    "gesture": ""
+  },
+  {
     "id": "Menu/File/Load Point File...",
     "label": "Load Point File...",
     "keys": "",

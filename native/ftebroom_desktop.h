@@ -149,6 +149,7 @@ static void importDialog(){
  if(!desktopDrops.empty())selectMaterialTab=true;
  for(const auto& path:desktopDrops)try{auto ext=path.extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);if(ext==".wad")importAddWads({path});else if(gameProfile==2){importImages.push_back(path);importRequest=true;}else throw std::runtime_error("Image-to-WAD import requires the Quake 1 profile.");}catch(const std::exception& e){importError=e.what();}desktopDrops.clear();
  if(importRequest){importWindow=true;importRequest=false;}
+ if(!newWadCreated.empty()){std::snprintf(importWad,sizeof importWad,"%s",newWadCreated.u8string().c_str());newWadCreated.clear();}
  if(!importWindow)return;
  ImGui::SetNextWindowSize({640*uiScale(),360*uiScale()},ImGuiCond_FirstUseEver);
  if(ImGui::Begin("Import image into WAD",&importWindow,ImGuiWindowFlags_NoCollapse)){
@@ -163,6 +164,7 @@ static void importDialog(){
 #ifdef _WIN32
    if(ImGui::Button("Choose / create WAD...")){auto paths=importPick(true);if(!paths.empty())std::snprintf(importWad,sizeof importWad,"%s",paths[0].u8string().c_str());}
 #endif
+   if(ImGui::Button("New WAD..."))newWadShow(*importWad?std::filesystem::u8path(importWad).parent_path():documentDefaultFolder(),true);
    ImGui::TextWrapped("Resizes to power-of-two dimensions (16-512), converts to the loaded Quake palette and creates four mip levels. Alpha is composited over black. Existing names are never overwritten.");
    if(!importError.empty())ImGui::TextWrapped("%s",importError.c_str());
    if(ImGui::Button("Import")){try{importSaveImage();importError.clear();if(importImages.empty())importWindow=false;}catch(const std::exception& e){importError=e.what();}}

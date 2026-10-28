@@ -280,6 +280,8 @@ static void executeAction(const Action& a, bool down = true)
       selectMapTab = true;
     else if (name == "exportmap")
       exportRequest = true;
+    else if (name == "exportbspmodel")
+      bspModelShow();
     else if (name == "exportobj")
       objRequest = true;
     else if (name == "loadpoints" || name == "loadportals")

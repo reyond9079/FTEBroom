@@ -2,18 +2,18 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 89: large entity drag crash fix and reusable WAD previews.** [Fixes, loading investigation and checks](docs/loading-and-drag-alpha89.md) · [Direct QC queries and selection FPS](docs/fixes-alpha88.md) · [Optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 90: export selected brushes as BSP models with paintable UV atlases, create WADs, and inspect packed Quake palettes.** [Usage and checks](docs/asset-tools-alpha90.md) · [Fixes, loading investigation and checks](docs/loading-and-drag-alpha89.md) · [Direct QC queries and selection FPS](docs/fixes-alpha88.md) · [Optimization plan](docs/performance-plan.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.89/ReyondBroom-0.5.0-alpha.89-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.89/ReyondBroom-0.5.0-alpha.89-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.90/ReyondBroom-0.5.0-alpha.90-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.90/ReyondBroom-0.5.0-alpha.90-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.89**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.89/ReyondBroom-0.5.0-alpha.89-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.90**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.90/ReyondBroom-0.5.0-alpha.90-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake III Arena and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 

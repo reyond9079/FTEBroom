@@ -72,7 +72,7 @@ static void modPreview();
 static void buildBegin()
 {
   if(documentTerrain){buildMessage="FTE Engine terrain uses MAP plus section files; BSP compilation is unavailable for this document.";return;}
-  if(runActive || buildRunning)return;
+  if(runActive || runExclusive || buildRunning)return;
   if(documentFile.empty()){buildMessage="Save the map once before building.";return;}
   if(assetsLoading){buildMessage="Wait for game resources to finish loading before building.";return;}
   buildMessage.clear();runLoad();buildLoadSettings();gameProfileLoad();

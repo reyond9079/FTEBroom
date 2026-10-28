@@ -9,6 +9,17 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="bsp90export"){
+    auto target=std::filesystem::u8path(root)/"selected90.bsp";std::snprintf(bspModelDestination,sizeof bspModelDestination,"%s",target.u8string().c_str());bspModelAtlas=true;bspModelShow();bspModelBegin();expect(bspModelBusy,"bsp90_async_started");
+  }
+  if(std::string(mode)=="bsp90check"){
+    expect(!bspModelBusy&&!runHadError&&std::filesystem::exists(std::filesystem::u8path(root)/"selected90.bsp"),"bsp90_compiled");
+    expect(std::filesystem::exists(std::filesystem::u8path(root)/"selected90-atlas/atlas0.tga")&&std::filesystem::exists(std::filesystem::u8path(root)/"selected90-atlas/uv0.tga"),"bsp90_painting_files");
+    core->Print(("BSP90_RESULT "+bspModelMessage+"\n").c_str());
+    newWadShow(std::filesystem::u8path(root));std::snprintf(newWadName,sizeof newWadName,"new90.wad");newWadCreate();auto bytes=q1Read(std::filesystem::u8path(root)/"new90.wad");expect(bytes.size()==12&&ftebroom::quake1::wad(bytes).empty(),"wad90_valid_empty_archive");
+    bool rejected=false;try{newWadCreate();}catch(...){rejected=true;}expect(rejected&&q1Read(std::filesystem::u8path(root)/"new90.wad")==bytes,"wad90_no_overwrite");newWadOpen=false;
+    paletteShow(std::filesystem::u8path(root)/"palette90.pak/gfx/palette.lmp");expect(paletteError.empty()&&paletteBytes.size()==768,"palette90_pak_read");paletteOpen=false;
+  }
   if(std::string(mode)=="map75check"){
     expect(gameProfile==2&&!assetsLoading&&!setupNeeded&&assetError.empty(),"map75_resources_ready");
     expect(!documentFile.empty()&&documentError.empty()&&!documentUntitled,"map75_external_document_open");

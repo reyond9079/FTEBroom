@@ -8,6 +8,7 @@ add("Menu/File/Reload Material Collections", "Reload Material Collections", CtxA
 add("Menu/File/Reload Entity Definitions", "Reload Entity Definitions", CtxAny, "", "ftebroom_definitions", "");
 add("Menu/Edit/Preferences...", "Preferences...", CtxAny, "", "ftebroom_ui preferences", "");
 add("Menu/File/Export Map...", "Export Map...", CtxAny, "", "ftebroom_ui exportmap", "");
+add("Menu/File/Export selected BSP model...", "Export selected BSP model...", CtxAny, "", "ftebroom_ui exportbspmodel", "");
 add("Menu/File/Export OBJ...", "Export OBJ...", CtxAny, "", "ftebroom_ui exportobj", "");
 add("Menu/File/Load Point File...", "Load Point File...", CtxAny, "", "ftebroom_ui loadpoints", "");
 add("Menu/File/Reload Point File", "Reload Point File", CtxAny, "", "ftebroom_ui reloadpoints", "");

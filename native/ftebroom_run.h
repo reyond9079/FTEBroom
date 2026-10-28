@@ -14,6 +14,7 @@ static std::vector<RunProfile> runProfiles;
 static std::map<std::string,std::string> runVariables;
 static RunProfile runningProfile,lastRunProfile;
 static std::map<std::string,std::string> activeVariables;
+static bool runExclusive=false;
 static bool runWindow,runActive,runExportWaiting,runHadError,runHaveLast;
 static int runSelected,runStep;
 static std::string runLog,runError;
@@ -83,14 +84,14 @@ static void runLoad()
 #ifndef _WIN32
     bundled.replace_extension();
 #endif
-    if(std::filesystem::exists(bundled))runVariables["q3map2"]=bundled.u8string();
+    if(std::filesystem::exists(bundled))runVariables["q3map2"]=std::filesystem::absolute(bundled).lexically_normal().u8string();
   }
   for(const char* name:{"qbsp","vis","light"})if(runVariables[name].empty()) {
     auto bundled=documentPath("ftebroom.cfg").parent_path().parent_path()/"tools/ericw"/(std::string(name)+".exe");
 #ifndef _WIN32
     bundled.replace_extension();
 #endif
-    if(std::filesystem::exists(bundled))runVariables[name]=bundled.u8string();
+    if(std::filesystem::exists(bundled))runVariables[name]=std::filesystem::absolute(bundled).lexically_normal().u8string();
   }
 
 }
@@ -151,9 +152,11 @@ static std::wstring runWide(const std::string& text)
   std::wstring out(count,0);MultiByteToWideChar(CP_UTF8,0,text.data(),(int)text.size(),out.data(),count);return out;
 }
 #endif
-static void runStartProcess(const std::string& executable,const std::string& arguments,const std::filesystem::path& working)
+static void runStartProcess(std::string executable,const std::string& arguments,const std::filesystem::path& working)
 {
   if(executable.empty())throw std::runtime_error("Set the executable path in the profile's tool variables.");
+  auto configuredExecutable=std::filesystem::u8path(executable);
+  if(configuredExecutable.is_relative()&&configuredExecutable.has_parent_path())executable=std::filesystem::absolute(configuredExecutable).lexically_normal().u8string();
 #ifdef _WIN32
   SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};HANDLE writer=nullptr;
   if(!CreatePipe(&runPipe,&writer,&security,0))throw std::runtime_error("Cannot create compiler output pipe.");
@@ -199,12 +202,12 @@ static void runStartProcess(const std::string& executable,const std::string& arg
 }
 static void runBegin(const RunProfile& profile)
 {
-  if(runActive)return;
+  if(runActive||runExclusive)return;
   runWindow=true;runError.clear();runHadError=false;runLog.clear();runStep=0;
   if(gameProfile==2 && std::any_of(profile.tasks.begin(),profile.tasks.end(),[](const RunTask& task){return task.kind==1 && task.source.find("q3map2")!=std::string::npos;})){
     runError="q3map2 cannot compile Quake 1 maps. Use Build / Setup build for the Quake 1 BSP, VIS and LIGHT stages.";runHadError=true;return;
   }
-  if(documentFile.empty()){runError="Save the map before running a profile.";return;}
+  if(documentFile.empty() && profile.name!="Export selected BSP model"){runError="Save the map before running a profile.";return;}
   try
   {
     activeVariables=runVariables;
@@ -331,7 +334,7 @@ static void runTick()
     if(!runningProfile.tasks[runStep].enabled){runAppend("Skipped disabled step "+std::to_string(++runStep)+"\n");return;}
     const auto& task=runningProfile.tasks[runStep];auto source=runExpand(task.source),destination=runExpand(task.destination);
     runAppend("Step "+std::to_string(runStep+1)+": "+source+" "+destination+"\n");
-    if(task.kind==0){cvars->SetFloat("ftebroom_export_status",0);command("ftebroom_export_map\n");runExportWaiting=true;return;}
+    if(task.kind==0){cvars->SetFloat("ftebroom_export_status",0);command(task.destination=="@selected-brushes"?"ftebroom_export_selected_bsp\n":"ftebroom_export_map\n");runExportWaiting=true;return;}
     if(task.kind==1){runStartProcess(source,destination,std::filesystem::u8path(activeVariables["WORK_DIR_PATH"]));return;}
     runFileTask(task.kind,source,destination);
     ++runStep;
