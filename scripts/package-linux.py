@@ -69,7 +69,7 @@ for path in list(src.glob('*.md'))+list(src.glob('*LICENSE.txt')):
 shutil.copy2(src/'docs/linux.md',root/'START-LINUX.md')
 tracked = subprocess.check_output(['git','ls-files','-z'],cwd=src).decode().split('\0')
 for name in filter(None,tracked):
-    if name.startswith('tools/'):
+    if name.startswith(('tools/q3map2/', 'tools/ericw/', 'tools/audio/')):
         continue
     target=root/'sources/ftebroom'/name
     target.parent.mkdir(parents=True,exist_ok=True)
