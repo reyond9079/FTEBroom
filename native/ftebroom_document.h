@@ -171,16 +171,21 @@ static void documentProceed()
   {
     try
     {
+      const auto prepareStarted=std::chrono::steady_clock::now();
       pendingDocumentFile = std::filesystem::u8path(next.substr(1));
-      documentSelectProfile(q1Read(pendingDocumentFile));
-      if(gameProfile==2){std::string member;std::filesystem::path archive;ftebroom::pak::split(pendingDocumentFile,archive,member);bool changed=archive!=q1DocumentPak;q1DocumentPak=archive;auto source=q1Read(pendingDocumentFile);q1MapFormat=ftebroom::quake1::valveMap(source)?1:0;if(q1DiscoverWads(source,pendingDocumentFile)||changed){gameProfileSave();mountAssets();}}
+      // Keep one immutable input snapshot for metadata, WAD resolution and staging.
+      const auto source=q1Read(pendingDocumentFile);
+      profileLoad("map_read",prepareStarted);
+      documentSelectProfile(source);
+      if(gameProfile==2){std::string member;std::filesystem::path archive;ftebroom::pak::split(pendingDocumentFile,archive,member);bool changed=archive!=q1DocumentPak;q1DocumentPak=archive;q1MapFormat=ftebroom::quake1::valveMap(source)?1:0;if(q1DiscoverWads(source,pendingDocumentFile)||changed){gameProfileSave();mountAssets();}}
       pendingDocumentAlias =
         "_ftebroom_open_"
         + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())
         + "_" + std::to_string(++saveSerial);
-      {auto bytes=q1Read(pendingDocumentFile);std::ofstream out(documentPath("maps/"+pendingDocumentAlias+".map"),std::ios::binary);out<<bytes;out.close();if(!out)throw std::runtime_error("Cannot stage map from file/archive.");}
+      {std::ofstream out(documentPath("maps/"+pendingDocumentAlias+".map"),std::ios::binary);out<<source;out.close();if(!out)throw std::runtime_error("Cannot stage map from file/archive.");}
       if(documentTerrain)terrainCopySections(pendingDocumentFile.parent_path()/pendingDocumentFile.stem(),documentPath("maps/"+pendingDocumentAlias));
       cvars->SetFloat("ftebroom_terrain_dirty",0);cvars->SetFloat("ftebroom_terrain_document",documentTerrain);cvars->SetFloat("ftebroom_terrain_edit",documentTerrain);
+      profileLoad("map_resources_and_staging",prepareStarted);
       action(("mapedit maps/" + pendingDocumentAlias + ".map\n").c_str());
     }
     catch (const std::exception& error)

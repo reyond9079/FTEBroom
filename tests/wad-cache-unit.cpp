@@ -17,6 +17,19 @@ int main(int argc,char** argv){
   auto stamp=std::filesystem::last_write_time(path);bytes[52]=1;write();std::filesystem::last_write_time(path,stamp+std::chrono::seconds(2));
   auto third=cache.load(path,read);assert(third!=first&&reads==2&&third->at(0).pixels[0]==1&&first->at(0).pixels[0]==0);
   std::string palette(768,0);auto key=textureCacheKey(third->at(0),palette);palette[0]=1;assert(textureCacheKey(third->at(0),palette)!=key);assert(textureCacheKey(first->at(0),std::string(768,0))!=key);
+  auto image=root/"verified.tga";{std::ofstream out(image,std::ios::binary);out<<"image";}
+  WadImageCache images;std::string palette2(768,0);
+  assert(!images.unchanged(image,third,0,palette2));images.validated(image,third,0,palette2);
+  assert(images.unchanged(image,third,0,palette2));
+  assert(!images.unchanged(image,{},0,palette2));
+  assert(!images.unchanged(image,first,0,palette2));
+  assert(!images.unchanged(image,third,1,palette2));
+  assert(!images.unchanged(image,third,0,palette));
+  auto imageStamp=std::filesystem::last_write_time(image);std::filesystem::last_write_time(image,imageStamp+std::chrono::seconds(2));
+  assert(!images.unchanged(image,third,0,palette2));images.validated(image,third,0,palette2);
+  {std::ofstream out(image,std::ios::binary);out<<"changed size";}assert(!images.unchanged(image,third,0,palette2));
+  std::filesystem::remove(image);assert(!images.unchanged(image,third,0,palette2));
+  images.prune();
   bytes.resize(2);write();bool rejected=false;try{cache.load(path,read);}catch(...){rejected=true;}assert(rejected);
-  std::cout<<"PASS decoded WAD reuse, canonical paths, changed resources, immutable references, invalidation and palette/pixel disk identities\n";
+  std::cout<<"PASS decoded WAD reuse, canonical paths, changed resources, immutable references, image metadata/source/palette invalidation and palette/pixel disk identities\n";
 }

@@ -1,3 +1,4 @@
+vector *fb_move89_origins;int *fb_move89_ids;int fb_move89_count,fb_move89_history,fb_move89_epoch;
 vector() ftebroom_cached_mesh_stats=#0:ftebroom_cached_mesh_stats;
 float fb_benchmark_start,fb_benchmark_frames;
 #include "fb_bevel_extended_tests.qc"
@@ -14,6 +15,9 @@ void fb_fullbench_tick()
 {
     static int started;
     if(!cvar("ftebroom_skip_setup") || !cvar("ftebroom_fullbench")){started=FALSE;return;}
+    if(cvar("ftebroom_fullbench_qa")==13){
+        if(!started && fb_node_count>=2 && strstrofs(cvar_string("mapname"),"_ftebroom_open",0)>=0){started=TRUE;localcmd("in 2 exec profile82-stages.cfg\n");}return;
+    }
     if(cvar("ftebroom_fullbench_qa")==10){
         if(started || fb_node_count<2)return;
         started=TRUE;localcmd("in 8 ftebroom_camera_restore 800 -512 256 20 90 0 90\nin 10 ftebroom_test_generators startup83\nin 12 ftebroom_test_generators layout83\nin 14 screenshot startup83.png\nin 15 quit force\n");return;
@@ -63,6 +67,40 @@ void fb_fullbench_tick()
 int fb_generators_testcommand()
 {
     if(argv(0)!="ftebroom_test_generators"||!cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="preview89"){
+        fb_transform_expect(fb_transform_capture(),"preview89_capture");
+        fb_transform_preview=TRUE;fb_transform_delta='16 0 0';
+        print(sprintf("RB_PREVIEW89 begin count=%i\n",fb_transform_count));return TRUE;
+    }
+    if(argv(1)=="preview89check"){
+        int ok89=fb_transform_preview && fb_transform_count>0 && fb_transform_count==fb_selected_entity_count && fb_transform_point_count==fb_selected_entity_count;
+        for(int i=0;i<fb_transform_count;i++){
+            fb_transform_item_t *item89=&fb_transform_items[i];
+            if(!fb_transform_replaces(item89->model,item89->id) || fb_entity_origin(item89->id)!=item89->origin)ok89=FALSE;
+        }
+        if(fb_transform_replaces(0,-1) || fb_transform_replaces(0,fb_transform_entity_capacity) || fb_transform_replaces(1,1))ok89=FALSE;
+        fb_transform_expect(ok89,"preview89_all_points_indexed_originals_unchanged");
+        fb_transform_expect(checkbuiltin(ftebroom_preview_boxes),"preview89_native_batch_available");return TRUE;
+    }
+    if(argv(1)=="cancel89"){fb_transform_clear();print("RB_PREVIEW89 cancelled\n");return TRUE;}
+    if(argv(1)=="move89"){
+        memfree(fb_move89_origins);memfree(fb_move89_ids);fb_move89_count=fb_selected_entity_count;
+        fb_move89_origins=memalloc(max(1,fb_move89_count)*sizeof(vector));fb_move89_ids=memalloc(max(1,fb_move89_count)*sizeof(int));
+        for(int i=0;i<fb_move89_count;i++){fb_move89_ids[i]=fb_selected_entities[i];fb_move89_origins[i]=fb_entity_origin(fb_selected_entities[i]);}
+        fb_move89_history=history;fb_move89_epoch=fb_grid_geometry_epoch;
+        float started89=gettime(1);fb_move_numeric('16 0 0');fb_document_tick();
+        fb_transform_expect(fb_grid_geometry_epoch==fb_move89_epoch,"move89_retains_brush_geometry");
+        print(sprintf("RB_MOVE89 commit_ms=%g entities=%i\n",(gettime(1)-started89)*1000,fb_selected_entity_count));return TRUE;
+    }
+    if(argv(1)=="undo89" || argv(1)=="redo89" || argv(1)=="check89"){
+        int redo89=argv(1)=="redo89",undo89=argv(1)=="undo89";if(undo89)brush_undo();else if(redo89)brush_redo();
+        fb_document_tick();int valid89=fb_move89_count>0 && fb_selected_entity_count==fb_move89_count && fb_grid_geometry_epoch==fb_move89_epoch;
+        if(undo89 && history!=fb_move89_history)valid89=FALSE;
+        if(redo89 && history<=fb_move89_history)valid89=FALSE;
+        vector delta89=undo89?'0 0 0':'16 0 0';
+        for(int i=0;i<fb_move89_count;i++)if(vlen(fb_entity_origin(fb_move89_ids[i])-fb_move89_origins[i]-delta89)>.001)valid89=FALSE;
+        fb_transform_expect(valid89,redo89?"move89_redo_all_origins":(undo89?"move89_undo_all_origins":"move89_exact_all_origins"));return TRUE;
+    }
     if(argv(1)=="pointcolors88"){
         fb_point_render_prepare();int errors88=0,checked88=0;
         int words88=sizeof(trisoup_simple_vert_t)/sizeof(int);int *saved88=memalloc(32*sizeof(trisoup_simple_vert_t));

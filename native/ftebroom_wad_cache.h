@@ -28,6 +28,33 @@ public:
     return textures;
   }
 };
+// A disk image is trusted only after byte validation/write, while its immutable
+// decoded source, palette and on-disk metadata are unchanged. Weak ownership
+// preserves the decoded WAD cache's memory limit and detects resource reloads.
+class WadImageCache {
+  struct Entry {
+    std::weak_ptr<const std::vector<Texture>> owner;
+    size_t index;std::string palette;uintmax_t size;
+    std::filesystem::file_time_type modified;
+  };
+  std::map<std::filesystem::path,Entry> entries;
+public:
+  void prune(){for(auto it=entries.begin();it!=entries.end();)if(it->second.owner.expired())it=entries.erase(it);else ++it;}
+  bool unchanged(const std::filesystem::path& path,const std::shared_ptr<const std::vector<Texture>>& owner,size_t index,const std::string& palette) const {
+    if(!owner)return false;
+    auto found=entries.find(path);if(found==entries.end())return false;
+    const auto& entry=found->second;
+    if(entry.owner.lock()!=owner || entry.index!=index || entry.palette!=palette)return false;
+    std::error_code ec;auto size=std::filesystem::file_size(path,ec);if(ec || size!=entry.size)return false;
+    auto modified=std::filesystem::last_write_time(path,ec);return !ec && modified==entry.modified;
+  }
+  void validated(const std::filesystem::path& path,const std::shared_ptr<const std::vector<Texture>>& owner,size_t index,const std::string& palette){
+    std::error_code ec;auto size=std::filesystem::file_size(path,ec);if(ec)return;
+    auto modified=std::filesystem::last_write_time(path,ec);if(ec)return;
+    if(entries.size()>=16384){prune();if(entries.size()>=16384)entries.clear();}
+    entries.insert_or_assign(path,Entry{owner,index,palette,size,modified});
+  }
+};
 // Versioned content identity. Disk hits are compared byte-for-byte before reuse.
 inline std::string textureCacheKey(const Texture& t,const std::string& palette) {
   uint64_t hash=14695981039346656037ull;

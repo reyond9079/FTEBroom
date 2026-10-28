@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // ReyondBroom: Dear ImGui frontend for FTE's native csaddon brush editor.
 #include <cstdint>
+#include <chrono>
 #ifdef _WIN32
 #define VARGS __cdecl
 #else
@@ -36,6 +37,12 @@ static plugcmdfuncs_t* commands;
 static plugcvarfuncs_t* cvars;
 static plug2dfuncs_t* draw;
 static pluginputfuncs_t* input;
+static void profileLoad(const char* stage,std::chrono::steady_clock::time_point start)
+{
+  if(!cvars->GetFloat("ftebroom_profile_commit"))return;
+  const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+  core->Print((std::string("RB_LOAD89 ")+stage+" ms="+std::to_string(ms)+"\n").c_str());
+}
 static qhandle_t atlas;
 static quintptr_t lastTime;
 static int mouseKeys[5], wheelUp, wheelDown;
@@ -540,7 +547,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 88");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 89");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1196,7 +1203,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 88");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 89");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();

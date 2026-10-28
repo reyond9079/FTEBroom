@@ -15,6 +15,13 @@ typedef struct {
 fb_transform_item_t *fb_transform_items;
 int fb_transform_count,fb_transform_preview,fb_transform_duplicate;
 vector fb_transform_delta;
+int fb_transform_capture_epoch,fb_transform_bounds_valid;vector fb_transform_bounds_min,fb_transform_bounds_max;
+// Immutable capture membership: point IDs are dense, brush IDs are per model.
+int *fb_transform_entity_members;int fb_transform_entity_capacity,fb_transform_geometry_count;
+hashtable fb_transform_brush_members;
+vector *fb_transform_point_boxes;int fb_transform_point_count;
+int *fb_transform_model_ids;int fb_transform_model_count;
+int(vector *boxes,int count,vector delta) ftebroom_preview_boxes=#0:ftebroom_preview_boxes;
 vector fb_transform_nudge_axis(int axis,int view,vector angles)
 {
     if(view) {
@@ -37,12 +44,17 @@ vector fb_transform_nudge_axis(int axis,int view,vector angles)
 }
 void fb_transform_clear()
 {
+    fb_transform_capture_epoch++;fb_transform_bounds_valid=FALSE;
     for(int i=0;i<fb_transform_count;i++) {
         fb_transform_item_t *item=&fb_transform_items[i];
         if(item->faces) for(int f=0;f<item->count;f++) strunzone(item->faces[f].shadername);
         if(item->points) strunzone(item->patch.shadername);
         memfree(item->faces);memfree(item->points);
     }
+    memfree(fb_transform_entity_members);fb_transform_entity_members=__NULL__;fb_transform_entity_capacity=0;
+    if(fb_transform_brush_members)hash_destroytab(fb_transform_brush_members);fb_transform_brush_members=(hashtable)0;
+    memfree(fb_transform_point_boxes);fb_transform_point_boxes=__NULL__;fb_transform_point_count=0;
+    memfree(fb_transform_model_ids);fb_transform_model_ids=__NULL__;fb_transform_model_count=0;fb_transform_geometry_count=0;
     memfree(fb_transform_items);fb_transform_items=__NULL__;fb_transform_count=0;fb_transform_preview=FALSE;fb_transform_duplicate=FALSE;
 }
 int fb_transform_capture()
@@ -72,12 +84,32 @@ int fb_transform_capture()
         if(brush_getfacepoints(item->model,item->id,0,bounds,2)!=2) {fb_transform_clear();return FALSE;}
         item->low=bounds[0];item->high=bounds[1];
     }
+    fb_transform_geometry_count=fb_transform_count;
+    if(fb_transform_geometry_count>256){
+        fb_transform_brush_members=hash_createtab(fb_transform_geometry_count,EV_INTEGER);
+        for(int b=0;b<fb_transform_geometry_count;b++)fb_transform_brush_members[sprintf("%i:%i",fb_transform_items[b].model,fb_transform_items[b].id)]=1i;
+    }
+    if(fb_selected_entity_count){
+        fb_transform_entity_capacity=terrain_edit(TEREDIT_ENT_COUNT);
+        fb_transform_entity_members=memalloc(max(1,fb_transform_entity_capacity)*sizeof(int));
+        fb_transform_point_boxes=memalloc(fb_selected_entity_count*3*sizeof(vector));
+        fb_transform_model_ids=memalloc(fb_selected_entity_count*sizeof(int));
+    }
     for(int e=0;e<fb_selected_entity_count;e++) {
         int id=fb_selected_entities[e];
         if(!fb_entity_bounds(id,bounds)) {fb_transform_clear();return FALSE;}
         fb_transform_item_t *item=&fb_transform_items[fb_transform_count++];
         item->id=id;item->kind=FB_NODE_ENTITY;item->origin=fb_entity_origin(id);
         item->low=bounds[0];item->high=bounds[1];
+        if(id>=0 && id<fb_transform_entity_capacity)fb_transform_entity_members[id]=TRUE;
+        fb_transform_point_boxes[fb_transform_point_count*3]=item->low;
+        fb_transform_point_boxes[fb_transform_point_count*3+1]=item->high;
+        fb_transform_point_boxes[fb_transform_point_count*3+2]='1 0.5 0';fb_transform_point_count++;
+        if(fb_entity_has_model(id))fb_transform_model_ids[fb_transform_model_count++]=id;
+    }
+    for(int i=0;i<fb_transform_count;i++){
+        if(!fb_transform_bounds_valid){fb_transform_bounds_min=fb_transform_items[i].low;fb_transform_bounds_max=fb_transform_items[i].high;fb_transform_bounds_valid=TRUE;}
+        else for(int a=0;a<3;a++){fb_transform_bounds_min[a]=min(fb_transform_bounds_min[a],fb_transform_items[i].low[a]);fb_transform_bounds_max[a]=max(fb_transform_bounds_max[a],fb_transform_items[i].high[a]);}
     }
     fb_transform_delta='0 0 0';return fb_transform_count>0;
 }
@@ -140,8 +172,13 @@ void fb_transform_commit(vector delta)
 int fb_transform_replaces(int model,int id)
 {
     if(!fb_transform_preview || fb_transform_duplicate) return FALSE;
-    for(int i=0;i<fb_transform_count;i++)
-        if(fb_transform_items[i].model==model && fb_transform_items[i].id==id) return TRUE;
+    if(!model){
+        if(id<0 || id>=fb_transform_entity_capacity)return FALSE;
+        return fb_transform_entity_members[id];
+    }
+    if(fb_transform_brush_members)return (int)fb_transform_brush_members[sprintf("%i:%i",model,id)]!=0;
+    for(int i=0;i<fb_transform_geometry_count;i++)
+        if(fb_transform_items[i].model==model && fb_transform_items[i].id==id)return TRUE;
     return FALSE;
 }
 void fb_transform_draw()
@@ -149,7 +186,12 @@ void fb_transform_draw()
     if(!fb_transform_preview) return;
     if(fb_affine_preview_active) {fb_affine_draw();return;}
     shaderforname("ftebroom/movepatch","{\ncull none\n{\nmap $whiteimage\nrgbgen vertex\nalphagen vertex\nblendfunc blend\n}\n}");
-    for(int i=0;i<fb_transform_count;i++) {
+    int batched=FALSE;
+    if(fb_transform_point_count>256 && cvar("ftebroom_native_selection_box") && checkbuiltin(ftebroom_preview_boxes))
+        batched=ftebroom_preview_boxes(fb_transform_point_boxes,fb_transform_point_count,fb_transform_delta)==fb_transform_point_count;
+    if(batched && !cvar("ca_brush_view") && cvar("ftebroom_show_models"))
+        for(int model=0;model<fb_transform_model_count;model++)fb_entity_draw_instance(fb_transform_model_ids[model],fb_transform_delta,'1 0 0','0 1 0','0 0 1');
+    for(int i=0;i<(batched?fb_transform_geometry_count:fb_transform_count);i++) {
         fb_transform_item_t *item=&fb_transform_items[i];
         if(item->kind==FB_NODE_BRUSH) {
             if(fb_extrude_active) if(fb_extrude_draw_parts(i)) continue;

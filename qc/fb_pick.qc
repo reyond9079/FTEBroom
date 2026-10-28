@@ -274,11 +274,12 @@ void fb_pick_draw_entities_uncached(int labelsOnly)
                 if(groupDepth+groupRadius<0 || fabs(groupDelta*right)>groupDepth*tx+groupRadius*(1+tx)+labelMargin || fabs(groupDelta*up)>groupDepth*ty+groupRadius*(1+ty)+labelMargin){entry+=63;continue;}
             }
         }
-        int node=fb_point_nodes[entry];fb_node_t item=fb_nodes[node];
+        int node=fb_point_nodes[entry];
+        if(fb_transform_replaces(0,fb_nodes[node].id))continue;
+        fb_node_t item=fb_nodes[node];
         if(!fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         if(substring(item.fields["model"],0,1)=="*") continue;
         if(!fb_entity_bounds(item.id,bounds)) continue;
-        if(fb_transform_replaces(0,item.id)) continue;
         // Cull complete bounds before building corners or tracing labels. No distance limit.
         if(!ortho && !fb_entity_has_model(item.id)) {
             vector delta=(bounds[0]+bounds[1])*.5-eye;

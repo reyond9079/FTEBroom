@@ -87,17 +87,31 @@ static bool q1DiscoverWads(const std::string& source,const std::filesystem::path
 
 }
 static void q1IndexAssets() {
+  const auto started=std::chrono::steady_clock::now();
   q1FindWads();
   for(auto handle:q1ShaderHandles)draw->UnloadImage(handle);q1ShaderHandles.clear();q1MaterialWad.clear();q1MaterialDimensions.clear();
   auto palette=q1Palette();
-  std::map<std::string,ftebroom::quake1::Texture> textures;
+  using TextureOwner=std::shared_ptr<const std::vector<ftebroom::quake1::Texture>>;
+  struct IndexedTexture {ftebroom::quake1::Texture texture;std::weak_ptr<const std::vector<ftebroom::quake1::Texture>> owner;size_t index;};
+  std::map<std::string,IndexedTexture> textures;
   static ftebroom::quake1::WadCache decoded;
-  for(const auto& path:q1WadPaths()){auto archive=decoded.load(path,q1Read);for(const auto& tex:*archive){q1MaterialWad[tex.name]=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();textures[tex.name]=tex;}}
-  // TrenchBroom's marker represents an unassigned surface, not a missing WAD.
-  // Supply its editor appearance without changing the material stored in MAP.
+  static ftebroom::quake1::WadImageCache images;images.prune();
+  for(const auto& path:q1WadPaths()){
+    auto archive=decoded.load(path,q1Read);
+    for(size_t i=0;i<archive->size();i++){
+      const auto& tex=(*archive)[i];
+      q1MaterialWad[tex.name]=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();
+      textures[tex.name]={tex,archive,i};
+    }
+  }
+  // Retain only winning pixels, not entire source archives through texture
+  // references. Weak source ownership preserves the decoded cache memory bound.
   if(!textures.count("__tb_empty")) {
     auto grey=textures.find("fb_grey");
-    if(grey!=textures.end()){auto empty=grey->second;empty.name="__tb_empty";textures.emplace(empty.name,std::move(empty));}
+    if(grey!=textures.end()){
+      auto empty=grey->second;empty.texture.name="__tb_empty";
+      textures["__tb_empty"]=std::move(empty);
+    }
   }
   char writable[4096]={};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,writable,sizeof writable))throw std::runtime_error("No writable editor cache.");
   auto editor=std::filesystem::u8path(writable).parent_path();
@@ -105,18 +119,22 @@ static void q1IndexAssets() {
   std::filesystem::create_directories(editor/"scripts");
   std::ofstream shaderFile(editor/"scripts/ftebroom-quake1.shader");
   for(const auto& pair:textures) {
-    const auto& t=pair.second;auto identity=ftebroom::quake1::textureCacheKey(t,palette),encoded=identity;
+    const auto& t=pair.second.texture;auto owner=pair.second.owner.lock();auto identity=ftebroom::quake1::textureCacheKey(t,palette),encoded=identity;
     q1MaterialDimensions[t.name]={int(t.width),int(t.height)};
-    auto bytes=ftebroom::quake1::tga(t,palette);auto destination=cache/(encoded+".tga");
-    bool unchanged=false;unsigned collision=0;
-    while(std::filesystem::exists(destination)){
-      try{unchanged=q1Read(destination)==bytes;}catch(...){}
-      if(unchanged)break;
-      // A damaged entry or hash collision must not replace another live image.
-      encoded=identity+"-"+std::to_string(++collision);destination=cache/(encoded+".tga");
+    auto destination=cache/(encoded+".tga");
+    bool unchanged=images.unchanged(destination,owner,pair.second.index,palette);
+    if(!unchanged){
+      auto bytes=ftebroom::quake1::tga(t,palette);unsigned collision=0;
+      while(std::filesystem::exists(destination)){
+        try{unchanged=q1Read(destination)==bytes;}catch(...){}
+        if(unchanged)break;
+        // Keep the byte comparison for new sources, corruption and collisions.
+        encoded=identity+"-"+std::to_string(++collision);destination=cache/(encoded+".tga");
+      }
+      if(!unchanged){auto temporary=destination;temporary+=".tmp";std::ofstream out(temporary,std::ios::binary);out.write(bytes.data(),bytes.size());out.close();if(!out)throw std::runtime_error("Cannot write Quake texture cache.");std::filesystem::rename(temporary,destination);}
+      if(owner)images.validated(destination,owner,pair.second.index,palette);
     }
     auto image="textures/_ftebroom_q1/"+encoded+".tga";
-    if(!unchanged){auto temporary=destination;temporary+=".tmp";std::ofstream out(temporary,std::ios::binary);out.write(bytes.data(),bytes.size());out.close();if(!out)throw std::runtime_error("Cannot write Quake texture cache.");std::filesystem::rename(temporary,destination);}
     int tags=t.name[0]=='*'?32:0;if(t.name.rfind("sky",0)==0)tags|=512;
     auto material="textures/"+t.name;
     auto script="{\n{\nmap "+image+"\nrgbgen vertex\nalphagen vertex\n"+(t.name[0]=='{'?std::string("alphafunc GE128\ndepthwrite\n"):std::string{})+"}\n}";
@@ -125,4 +143,5 @@ static void q1IndexAssets() {
   }
   shaderFile.close();command("fs_restart\nftebroom_reload_palette\nftebroom_reload_asset_models\n");
   cvars->SetString("ca_newbrushtexture","fb_grey");
+  profileLoad("quake1_material_index",started);
 }

@@ -37,7 +37,7 @@ float fb_transform_testcommand()
         vector pixel=project((movedBounds[0]+movedBounds[1])*0.5);pixel_z=0;
         cvar_set("ftebroom_ctrl","0");cvar_set("ftebroom_shift","0");cvar_set("ca_brush_view","0");
         fb_begin(pixel,1,0);fb_update(pixel+'0 -16 0',1,0);
-        fb_transform_expect(fb_transform_preview && fb_transform_count==3 && fb_transform_delta_z==32,"three_object_alt_preview");
+        fb_transform_expect(fb_transform_preview && fb_transform_count==3 && fb_transform_delta_z>0 && fb_transform_delta_x==0 && fb_transform_delta_y==0 && fabs(fb_transform_delta_z/fb_grid()-rint(fb_transform_delta_z/fb_grid()))<.001,"three_object_alt_preview_snapped");
         fb_cancel();fb_transform_expect(history==before && selectedbrushcount==3,"multi_cancel_no_history");
     } else if(argv(1)=="mixed") {
         fb_document_tick();fb_selection_clear();

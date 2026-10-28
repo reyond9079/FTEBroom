@@ -141,8 +141,11 @@ void fb_incremental_materials(int first,int last,int redo)
 int fb_incremental_apply(int first,int last,int redo)
 {
     // Validate the entire transaction before changing any retained ownership.
-    if(!fb_container_cache || !fb_grid_first || !fb_render_first || !fb_filter_tags || !fb_render_access || !fb_grid_brush_bounds || fb_grid_built_epoch!=fb_grid_geometry_epoch || last-first>4096 || fb_incremental_brush_count>2048)return FALSE;
-    static int ids[4096],models[4096],entities[4096];int count=0,entityCount=0,valid=TRUE;
+    if(!fb_container_cache || !fb_grid_first || !fb_render_first || !fb_filter_tags || !fb_render_access || !fb_grid_brush_bounds || fb_grid_built_epoch!=fb_grid_geometry_epoch || fb_incremental_brush_count>2048)return FALSE;
+    static int ids[4096],models[4096];static int *entities;static int entityCapacity;
+    int records=last-first;if(records<=0 || records>1000000)return FALSE;
+    if(entityCapacity<records){memfree(entities);entityCapacity=records;entities=memalloc(entityCapacity*sizeof(int));}
+    int count=0,entityCount=0,valid=TRUE;
     hashtable seen=hash_createtab(max(64,(last-first)*2),EV_INTEGER);
     for(int r=first;r<last;r++){
         history_t *h=&historyring[r&(historyring_length-1)];
@@ -153,10 +156,25 @@ int fb_incremental_apply(int first,int last,int redo)
         }
         if(h->kind!=HIST_GEOMETRY || h->patchdata || !h->brushdata){valid=FALSE;break;}
         string brushKey=sprintf("b%i:%i",h->brushmodel,h->id);
-        if(!(int)seen[brushKey]){seen[brushKey]=1i;ids[count]=h->id;models[count++]=h->brushmodel;}
+        if(!(int)seen[brushKey]){if(count>=4096){valid=FALSE;break;}seen[brushKey]=1i;ids[count]=h->id;models[count++]=h->brushmodel;}
     }
     hash_destroytab(seen);if(!valid)return FALSE;
-    if((!count && !entityCount) || fb_node_count+count+entityCount>=fb_node_capacity || fb_incremental_brush_count+count>2048)return FALSE;
+    int existingOnly=FALSE;
+    if(records>4096){
+        // Large point/group property transactions need no brush rebuild or new
+        // node slots. Keep large creates/deletes and brush-owner changes on the
+        // established fallback, validated before touching retained caches.
+        if(count || !entityCount)return FALSE;
+        hashtable existing=hash_createtab(max(64,fb_node_count),EV_INTEGER);
+        for(int node=0;node<fb_node_count;node++)if(node!=1 && fb_nodes[node].kind>=0 && fb_nodes[node].kind<FB_NODE_BRUSH){
+            if(substring(fb_nodes[node].fields["model"],0,1)=="*")continue;
+            existing[itos(fb_nodes[node].id)]=1i;
+        }
+        existingOnly=TRUE;
+        for(int e=0;e<entityCount;e++)if(!(int)existing[itos(entities[e])] || terrain_edit(TEREDIT_ENT_GET,entities[e])==""){existingOnly=FALSE;break;}
+        hash_destroytab(existing);if(!existingOnly)return FALSE;
+    }
+    if((!count && !entityCount) || (!existingOnly && fb_node_count+count+entityCount>=fb_node_capacity) || fb_incremental_brush_count+count>2048)return FALSE;
     for(int i=0;i<count;i++){
         int faces=brush_get(models[i],ids[i],__NULL__,0,__NULL__);
         if(faces>64 || patch_getcp(models[i],ids[i],__NULL__,0,__NULL__)>0)return FALSE;

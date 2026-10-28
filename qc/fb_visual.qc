@@ -48,9 +48,9 @@ void fb_visual_prepare()
             for(int p=0;p<count;p++) fb_visual_expand(points[p]);
         }
     }
-    for(int e=0;e<fb_selected_entity_count;e++) if(fb_entity_bounds(fb_selected_entities[e],bounds)) {
-        if(fb_transform_replaces(0,fb_selected_entities[e])) continue;
-        fb_visual_expand(bounds[0]);fb_visual_expand(bounds[1]);
+    for(int e=0;e<fb_selected_entity_count;e++) {
+        if(fb_transform_replaces(0,fb_selected_entities[e]))continue;
+        if(fb_entity_bounds(fb_selected_entities[e],bounds)){fb_visual_expand(bounds[0]);fb_visual_expand(bounds[1]);}
     }
         if(cacheable){selection=fb_selection_epoch;geometry=fb_grid_geometry_epoch;edits=fb_incremental_epoch;entities=fb_entity_render_epoch;valid=fb_visual_has_bounds;low=fb_visual_min;high=fb_visual_max;}
         else selection=-1;
@@ -60,7 +60,9 @@ void fb_visual_prepare()
         fb_visual_expand(fb_boxcenter-fb_boxsize*0.5);fb_visual_expand(fb_boxcenter+fb_boxsize*0.5);
     }
     if(fb_transform_preview && !fb_transform_duplicate) {
-        for(int t=0;t<fb_transform_count;t++) {
+        if(!fb_affine_preview_active && !fb_extrude_active && fb_transform_bounds_valid){
+            fb_visual_expand(fb_transform_bounds_min+fb_transform_delta);fb_visual_expand(fb_transform_bounds_max+fb_transform_delta);
+        }else for(int t=0;t<fb_transform_count;t++) {
             if(fb_affine_preview_active) {
                 fb_transform_item_t *item=&fb_transform_items[t];
                 if(item->kind==FB_NODE_BRUSH) {
@@ -378,9 +380,22 @@ void fb_visual_draw()
             int node=fb_visual_candidates[entry];if(fb_nodes[node].kind!=FB_NODE_ENTITY)geometryCandidates[geometryCount++]=node;
         }
     }
-    int candidates=nativePointBoxes?geometryCount:fb_visual_candidate_count;
+    // Moving point originals are excluded once per capture, including locked
+    // point candidates that are not part of the gesture and must stay visible.
+    static int *originalCandidates;static int originalCapacity,originalCount,originalEpoch=-1,originalCapture=-1;
+    int movingPoints=fb_transform_preview && !fb_transform_duplicate;
+    if(movingPoints && (originalEpoch!=fb_visual_candidate_epoch || originalCapture!=fb_transform_capture_epoch)){
+        originalEpoch=fb_visual_candidate_epoch;originalCapture=fb_transform_capture_epoch;originalCount=0;
+        if(originalCapacity<fb_visual_candidate_count){memfree(originalCandidates);originalCapacity=max(64,fb_visual_candidate_count);originalCandidates=memalloc(originalCapacity*sizeof(int));}
+        for(int entry=0;entry<fb_visual_candidate_count;entry++){
+            int node=fb_visual_candidates[entry];
+            if(fb_nodes[node].kind==FB_NODE_ENTITY && fb_transform_replaces(0,fb_nodes[node].id))continue;
+            originalCandidates[originalCount++]=node;
+        }
+    }
+    int candidates=nativePointBoxes?geometryCount:(movingPoints?originalCount:fb_visual_candidate_count);
     for(int candidate=0;candidate<candidates;candidate++) {
-        int node=nativePointBoxes?geometryCandidates[candidate]:fb_visual_candidates[candidate];
+        int node=nativePointBoxes?geometryCandidates[candidate]:(movingPoints?originalCandidates[candidate]:fb_visual_candidates[candidate]);
         fb_node_t item=fb_nodes[node];
         if(!fb_selection_leaf(node) || !fb_render_allowed(node,FB_PICK_LOCKED)) continue;
         int selected=0,locked=fb_visual_locked(node),hover=FALSE;
