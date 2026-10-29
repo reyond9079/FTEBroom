@@ -30,6 +30,13 @@ The selected game/mod directory is normalized and saved, including paths outside
 the editor installation and paths containing spaces. Invalid paths keep the
 wizard open and show an error naming the selected game.
 
+**Play mod** starts player control by default. Half-Life / Counter-Strike uses
+first-person view with viewmodels enabled; the embedded Windows preview still
+offers **Free camera** for inspection. Click the viewport to capture controls,
+and press Escape for the preview controls menu. The editor uses its own scaled
+cursor images instead of inheriting a tiny game cursor; native Linux cursor
+shapes continue to follow the desktop cursor theme, with scaled image fallbacks.
+
 For Quake 1, select **LibreQuake** to download the pinned v0.09-beta mod, or
 **Choose my own mod** and **Browse...** to select a directory. Downloads run outside
 the UI thread, report progress, validate SHA-256, and extract only inside the

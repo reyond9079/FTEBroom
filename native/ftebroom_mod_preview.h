@@ -63,13 +63,13 @@ static void modPreview()
     std::string previewSwitch="-ftebroom-preview ";
 #endif
     std::string args=previewSwitch+"-noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" "+gameSwitch+"-game "+modQuote(mod.filename().u8string())+
-      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set r_drawviewmodel 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+set forceqmenu 1 +exec quake.rc +set r_fullbright 0 +set r_vertexlight 0 +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+"+map "+name;
+      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set ftebroom_preview_play 1 +set r_drawviewmodel 1 +set chase_active 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+set forceqmenu 1 +exec quake.rc +set r_fullbright 0 +set r_vertexlight 0 +set pm_thirdPerson 0 +set r_showViewModels 1 +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+"+map "+name;
     if(cvars->GetFloat("ftebroom_skip_setup"))args+=" +set ftebroom_preview_trace 1";
     RunProfile preview{std::string(gameProfileName())+": mod preview",root.u8string(),true,{{1,embeddedEngine.u8string(),args}}};
     runBegin(preview);runWindow=false;
     if(!runActive){modEmbedEnd();throw std::runtime_error(runError);}
 #ifdef _WIN32
-    buildMessage="Choose Free camera to inspect, or Play mod to control the player.";
+    buildMessage="Play mod: click the viewport to control the player. Escape opens mod controls.";
 #else
     buildMessage="FreeHL / FreeCS is running in a separate window. Close it to return to editing.";
 #endif

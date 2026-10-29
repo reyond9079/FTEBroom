@@ -49,6 +49,7 @@ static int mouseKeys[5], wheelUp, wheelDown;
 static bool ready;
 static bool modEmbedded;
 #include "ftebroom_qc_bridge.h"
+#include "ftebroom_cursor.h"
 #include "ftebroom_linux_platform.h"
 static std::string crashCommands;
 static void command(const char* text)
@@ -256,6 +257,7 @@ static void initialize()
   uiStyle();
   uploadFontAtlas();
   unsigned char* pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
+  uiCursorInitialize(fontFiles,io.Fonts,pixels,w,h);
 #ifndef _WIN32
   linuxPlatformInitialize(fontFiles,io.Fonts,pixels,w,h);
 #endif
@@ -548,7 +550,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 96");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 97");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1205,7 +1207,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 96");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 97");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1235,9 +1237,7 @@ static void panel(float w, float h)
 #ifndef _WIN32
   linuxPlatformTestPanel();
 #endif
-#ifndef _WIN32
-  linuxCursorUpdate(sceneLook||modelEditCameraCaptured,uiScale());
-#endif
+  uiCursorUpdate(sceneLook||modelEditCameraCaptured||modCaptured,uiScale());
   render();
   modEmbedTick(w,h);
   uiSaveLayout();

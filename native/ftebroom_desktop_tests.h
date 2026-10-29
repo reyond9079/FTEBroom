@@ -9,6 +9,27 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="cursor97"){
+    cameraEnd();modelEditorCameraEnd(true);ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);uiCursorUpdate(false,1.f);
+    expect(!uiCursorNames[ImGuiMouseCursor_Arrow].empty()&&!ImGui::GetIO().MouseDrawCursor,"cursor97_single_explicit_cursor");
+  }
+  if(std::string(mode)=="cursor97check"){
+#ifdef _WIN32
+    ICONINFO info{};BITMAP bitmap{};int height=0;
+    if(GetIconInfo(GetCursor(),&info)){if(GetObject(info.hbmColor?info.hbmColor:info.hbmMask,sizeof bitmap,&bitmap))height=info.hbmColor?bitmap.bmHeight:bitmap.bmHeight/2;if(info.hbmColor)DeleteObject(info.hbmColor);if(info.hbmMask)DeleteObject(info.hbmMask);}
+    expect(height>=28,"cursor97_visible_hardware_size");core->Print(("RB97_CURSOR_HEIGHT "+std::to_string(height)+"\n").c_str());
+#else
+    expect(uiCursorShape(ImGuiMouseCursor_Arrow)==1&&!uiCursorNames[ImGuiMouseCursor_Arrow].empty(),"cursor97_native_shape_and_scaled_fallback");
+#endif
+  }
+  if(std::string(mode)=="play97check"){
+    expect(runActive&&runLog.find("ftebroom_preview_player ")!=std::string::npos,"play97_player_camera_default");
+    expect(runLog.find("+set ftebroom_preview_play 1")!=std::string::npos&&runLog.find("+set pm_thirdPerson 0 +set r_showViewModels 1")!=std::string::npos,"play97_half_life_first_person");
+#ifdef _WIN32
+    expect(modEmbedded&&modPlay,"play97_embedded_play_selected");
+    modSetPlay(false);expect(!modPlay&&!modCaptured,"play97_free_camera_available");modSetPlay(true);
+#endif
+  }
   if(std::string(mode)=="setup96q2fields"||std::string(mode)=="setup96hlfields"){
     recentWindow=false;setupInitialized=true;setupNeeded=false;gameProfileLocked=false;firstSetupStep=4;gameProfile=std::string(mode)=="setup96hlfields"?4:3;frame();frame();
   }

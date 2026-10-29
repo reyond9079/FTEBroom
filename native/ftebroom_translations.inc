@@ -297,6 +297,8 @@
 {"Setup build","Параметры сборки...","Kompilieren...","Compiler...","编译设置...","ビルド設定...","Compilar..."},
 {"Show BSP","Показать BSP","BSP anzeigen","Afficher le BSP","显示 BSP","BSP を表示","Mostrar BSP"},
 {"Preview mod","Предпросмотр мода","Mod-Vorschau","Aperçu du mod","预览模组","MODプレビュー","Vista previa del mod"},
+{"Play mod","Играть в мод","Mod spielen","Jouer au mod","游玩模组","MODをプレイ","Jugar al mod"},
+{"Free camera","Свободная камера","Freie Kamera","Caméra libre","自由相机","フリーカメラ","Cámara libre"},
 {"Map editing","Редактирование карты","Kartenbearbeitung","Édition de carte","地图编辑","マップ編集","Edición de mapa"},
 {"Model viewer","Просмотр модели","Modellbetrachter","Visionneuse de modèle","模型查看器","モデルビューアー","Visor de modelos"},
 {"Sound editor","Редактор звука","Audioeditor","Éditeur audio","声音编辑器","サウンドエディター","Editor de sonido"},

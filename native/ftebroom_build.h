@@ -238,8 +238,8 @@ static void buildToolbar(bool inlineTools=false)
     else {ImGui::BeginDisabled(buildResult.empty()||(buildResultDocument!=documentFile || buildResultProfile!=gameProfile)||buildRunning);
       if(compileButton("Show BSP",2))buildShow();ImGui::EndDisabled();}
     gameProfileLoad();
-    if(gameProfile!=0&&gameProfile!=3){next("Preview mod");ImGui::BeginDisabled(runActive||buildRunning||buildResult.empty()||(buildResultDocument!=documentFile || buildResultProfile!=gameProfile));
-      if(compileButton("Preview mod",3))modPreview();ImGui::EndDisabled();}
+    if(gameProfile!=0&&gameProfile!=3){next("Play mod");ImGui::BeginDisabled(runActive||buildRunning||buildResult.empty()||(buildResultDocument!=documentFile || buildResultProfile!=gameProfile));
+      if(compileButton("Play mod",3))modPreview();ImGui::EndDisabled();}
     ImGui::PopStyleVar();
 }
 static void buildOverlay()

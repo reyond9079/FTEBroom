@@ -5,7 +5,7 @@ static float modSavedFPS;
 static double modLastSend,modPendingSince;
 static uint64_t modAckCount;
 static bool modAwaiting;
-static bool modPlay,modCaptured,modMenuOpen,modLoading;
+static bool modPlay=true,modCaptured,modMenuOpen,modLoading;
 static uint64_t modSentAcks;
 static int modControlCapture=-1;
 static void modControlsApply();
@@ -78,7 +78,7 @@ static void modEmbedBegin()
   modSavedFPS=cvars->GetFloat("cl_maxfps");if(modSavedFPS<=0 || modSavedFPS>60)cvars->SetFloat("cl_maxfps",60);
   modChild=nullptr;modAwaiting=false;modAckCount=runControlAcks;modLastSend=0;modEmbedded=true;
   modLoading=true;modSentAcks=runControlAcks;
-  modLastWindow.clear();modLastCamera.clear();modReleaseInput();modControlsApply();
+  modLastWindow.clear();modSetPlay(true);modControlsApply();
   cvars->SetFloat("ftebroom_mod_preview",1);
 #else
   throw std::runtime_error("Embedded mod preview currently requires Windows.");
@@ -122,7 +122,8 @@ static void modEmbedTick(float width,float height)
   std::snprintf(line,sizeof line,"vid_recenter %d %d %d %d %llx %d\n",x,y,w,h,(unsigned long long)(uintptr_t)modHost,covered?0:1);
   if(modLastWindow!=line){modLastWindow=line;control+="viewsize 120\n";control+=line;}
   std::snprintf(line,sizeof line,"set ftebroom_preview_play %d\nset r_drawviewmodel %d\nset ftebroom_preview_camera \"%g %g %g %g %g %g %g\"\n",modPlay?1:0,modPlay?1:0,values[0],values[1],values[2],values[3],values[4],values[5],values[6]);
-  if(modLastCamera!=line){modLastCamera=line;control+=line;}
+  if(modLastCamera!=line){modLastCamera=line;control+=line;
+    if(gameProfile==4)control+=std::string("set chase_active 0\nset pm_thirdPerson 0\nset r_showViewModels ")+(modPlay?"1\n":"0\n");}
   control+=modInputQueue;modInputQueue.clear();
   if(modCaptured && (modMouseX || modMouseY)){
     std::snprintf(line,sizeof line,"ftebroom_preview_input mouse %g %g\n",std::clamp(modMouseX,-8192.f,8192.f),std::clamp(modMouseY,-8192.f,8192.f));control+=line;
