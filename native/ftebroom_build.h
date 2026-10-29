@@ -10,8 +10,7 @@ static bool modCompilePending=false;
 static int buildContentRevision=-1,buildResultContentRevision=-1;
 static uint64_t buildGeneration=0,buildResultGeneration=0;
 static int buildCurrentContentRevision(){
-  std::string value;int revision=-1;
-  if(qcQuery(4,0,value)&&std::sscanf(value.c_str(),"RBMAP1 %d",&revision)==1)return revision;
+  // Treat unverified history changes conservatively, including restored sessions.
   return (int)cvars->GetFloat("ftebroom_revision");
 }
 static double buildStarted;

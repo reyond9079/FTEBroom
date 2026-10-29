@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Keep the editor VM alive while the actual mod runs in a separate process.
 #include "ftebroom_embed.h"
+#include "ftebroom_raw_preview.h"
 static bool modChoiceOpen=false,modRawExporting=false;
 static std::filesystem::path modRawDocument;
 static int modRawProfile;
@@ -140,7 +141,9 @@ static void modPreviewTick(){
     if(status!=1)throw std::runtime_error("Cannot export the current MAP for Play mod.");
     auto stamp=std::chrono::high_resolution_clock::now().time_since_epoch().count();
     auto source=documentPath("data/mod-preview")/std::to_string(stamp)/"current.map";std::filesystem::create_directories(source.parent_path());
-    std::filesystem::copy_file(documentPath("data/export-map.map"),source);
+    auto bytes=ftebroom::rawPreviewMap(q1Read(documentPath("data/export-map.map")));
+    std::ofstream output(source,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();
+    if(!output)throw std::runtime_error("Cannot write the MAP preview snapshot.");
     modRawExporting=runExclusive=gameProfileLocked=false;modLaunch(source,true);
   }catch(const std::exception& e){modRawExporting=runExclusive=gameProfileLocked=false;buildMessage=e.what();}
 }
