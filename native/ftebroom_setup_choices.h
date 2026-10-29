@@ -32,9 +32,18 @@ static void setupGameChoices() {
   }
 }
 static bool setupModBrowseOpen=false;
+static int setupModBrowseProfile=2;
+static ImVec2 setupModBrowseUseCenter;
 static char setupModBrowsePath[4096]{};
 static std::string setupModBrowseScanned,setupModBrowseError;
 static std::vector<std::filesystem::path> setupModDirectories;
+static void setupModBrowseStart(int profile) {
+  setupModBrowseProfile=profile;
+  const char* value=profile==3?q2Mod:profile==4?hlMod:q1Mod;
+  auto path=*value?std::filesystem::u8path(value):settingsPath().parent_path();
+  std::snprintf(setupModBrowsePath,sizeof setupModBrowsePath,"%s",path.u8string().c_str());
+  setupModBrowseOpen=true;setupModBrowseScanned.clear();
+}
 static void setupModBrowse() {
   if(!setupModBrowseOpen)return;
   if(!ImGui::IsPopupOpen("Choose mod directory"))ImGui::OpenPopup("Choose mod directory");
@@ -50,7 +59,8 @@ static void setupModBrowse() {
     ImGui::BeginChild("Mod folders",{0,-85*uiScale()},ImGuiChildFlags_Borders);
     ImGuiListClipper clip;clip.Begin(setupModDirectories.size());while(clip.Step())for(int i=clip.DisplayStart;i<clip.DisplayEnd;i++)if(ImGui::Selectable(setupModDirectories[i].filename().u8string().c_str(),false,ImGuiSelectableFlags_NoAutoClosePopups))std::snprintf(setupModBrowsePath,sizeof setupModBrowsePath,"%s",setupModDirectories[i].u8string().c_str());
     ImGui::EndChild();
-    if(ImGui::Button("Use this folder")){try{auto path=std::filesystem::absolute(std::filesystem::u8path(setupModBrowsePath));if(!std::filesystem::is_directory(path))throw std::runtime_error("Choose an existing directory.");auto text=path.u8string();if(text.size()>=sizeof q1Mod)throw std::runtime_error("Directory path is too long.");std::snprintf(q1Mod,sizeof q1Mod,"%s",text.c_str());q1UseLibre=false;setupModBrowseOpen=false;}catch(const std::exception& e){setupModBrowseError=e.what();}}
+    if(ImGui::Button("Use this folder")){try{auto path=std::filesystem::absolute(std::filesystem::u8path(setupModBrowsePath));if(!std::filesystem::is_directory(path))throw std::runtime_error("Choose an existing directory.");auto text=path.u8string();if(text.size()>=sizeof q1Mod)throw std::runtime_error("Directory path is too long.");auto target=setupModBrowseProfile==3?q2Mod:setupModBrowseProfile==4?hlMod:q1Mod;std::snprintf(target,1024,"%s",text.c_str());if(setupModBrowseProfile==2)q1UseLibre=false;setupModBrowseOpen=false;}catch(const std::exception& e){setupModBrowseError=e.what();}}
+    {auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();setupModBrowseUseCenter={(a.x+b.x)*.5f,(a.y+b.y)*.5f};}
     ImGui::SameLine();if(ImGui::Button("Cancel##mod"))setupModBrowseOpen=false;
     if(!setupModBrowseError.empty())ImGui::TextWrapped("%s",setupModBrowseError.c_str());
     if(!setupModBrowseOpen)ImGui::CloseCurrentPopup();ImGui::EndPopup();
@@ -68,7 +78,7 @@ static void setupQuakeModFields() {
   if(setupModChoice==0 && !libreError.empty())ImGui::TextWrapped("%s",libreError.c_str());
   if(setupModChoice==1) {
     ImGui::SetNextItemWidth(-110*uiScale());ImGui::InputText("##moddirectory",q1Mod,sizeof q1Mod);ImGui::SameLine();
-    if(ImGui::Button("Browse...##mod")){auto path=*q1Mod?std::filesystem::u8path(q1Mod):settingsPath().parent_path();std::snprintf(setupModBrowsePath,sizeof setupModBrowsePath,"%s",path.u8string().c_str());setupModBrowseOpen=true;setupModBrowseScanned.clear();}
+    if(ImGui::Button("Browse...##mod"))setupModBrowseStart(2);
     ImGui::TextWrapped("Choose the game or mod folder. If it contains id1, that folder is selected automatically. Otherwise the selected folder is used as the mod. A sibling id1 supplies base assets for a custom mod, with mod overrides. Mapping uses the standard Quake palette when the mod has no palette. Playing an expansion such as AD still requires the base game.");
   }
   if(ImGui::CollapsingHeader("Advanced settings")){

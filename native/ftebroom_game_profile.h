@@ -92,14 +92,20 @@ static void gameProfileFields(bool wizard=false)
     setupQuakeModFields();
   }
   if(gameProfile==3||gameProfile==4){
-    auto path=gameProfile==3?q2Mod:hlMod;ImGui::InputText(gameProfile==3?"Quake II mod directory":"Half-Life mod directory",path,1024);
-    ImGui::TextWrapped(gameProfile==3?"Choose baseq2 or a mod directory. A sibling baseq2 supplies base resources. PAK archives and WAL textures are supported.":"Choose valve for Half-Life or cstrike for Counter-Strike 1.5. A sibling valve supplies base resources. WAD3 textures retain their own palettes.");
+    auto path=gameProfile==3?q2Mod:hlMod;
+    ImGui::TextUnformatted(gameProfile==3?"Quake II game / mod folder (required)":"Half-Life game / mod folder (required)");
+    ImGui::SetNextItemWidth(std::max(100.f,ImGui::GetContentRegionAvail().x-110*uiScale()));
+    ImGui::InputText("##legacyModDirectory",path,1024);ImGui::SameLine();
+    if(ImGui::Button("Browse...##legacyMod"))setupModBrowseStart(gameProfile);
+    ImGui::TextWrapped(gameProfile==3?"Choose the Quake II installation, baseq2, or a mod folder. An installation root selects baseq2 automatically. A sibling baseq2 supplies base resources. PAK archives and WAL textures are supported.":"Choose the Half-Life installation, valve, or cstrike. An installation root selects valve for FreeHL or cstrike for FreeCS. A sibling valve supplies base resources. WAD3 textures retain their own palettes.");
     if(gameProfile==4){ImGui::Combo("Game runtime",&hlRuntime,"FreeHL (Half-Life)\0FreeCS (Counter-Strike 1.5)\0");ImGui::TextWrapped("Runtime installation adds a separate ReyondBroom package. Original game files are not replaced. Retail assets are required; arbitrary DLL mods are not supported by FreeHL/FreeCS.");}
     if(ImGui::CollapsingHeader("Advanced settings")){
       ImGui::InputText("Entity definitions (optional .fgd / .def / .ent)",gameProfile==3?q2Definitions:hlDefinitions,1024);
       if(gameProfile==4)ImGui::InputTextMultiline("Additional WAD3 archives (optional, one path per line)",hlWads,sizeof hlWads,{0,60*uiScale()});
       ImGui::TextUnformatted(gameProfile==3?"MAP: Valve 220 with Q2 surface flags | BSP: IBSP 38":"MAP: Valve 220 | BSP: GoldSrc 30");
     }
+    ImGui::TextWrapped(gameProfile==3?"Compiler: bundled ericw-tools for Quake II. No compiler path is required here. Configure stages later in Setup compile.":"Compiler: bundled SDHLT (CSG, BSP, VIS and RAD). No compiler path is required here. Keep LIGHT / RAD enabled for lightmaps; configure stages later in Setup compile.");
+    setupModBrowse();
   }
   if(gameProfile==1) {
     ImGui::InputText("Runtime mod directory (optional for mapping)",gameMod,sizeof gameMod);

@@ -9,6 +9,28 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="setup96q2fields"||std::string(mode)=="setup96hlfields"){
+    recentWindow=false;setupInitialized=true;setupNeeded=false;gameProfileLocked=false;firstSetupStep=4;gameProfile=std::string(mode)=="setup96hlfields"?4:3;frame();frame();
+  }
+  if(std::string(mode)=="setup96q2"||std::string(mode)=="setup96hl"){
+    bool hl=std::string(mode)=="setup96hl";
+    recentWindow=false;setupInitialized=true;setupNeeded=false;gameProfileLocked=false;firstSetupStep=3;
+    auto click=[&](ImVec2 p){event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);frame();};
+    frame();frame();click(setupGameCenters[hl?3:1]);expect(gameProfile==(hl?4:3),"setup96_game_row");
+    firstSetupStep=4;frame();frame();auto window=ImGui::FindWindowByName("First-time setup");expect(window&&window->Active,"setup96_resource_step");
+    char path[4096]{};cvars->GetString(hl?"ftebroom_test_mod":"ftebroom_test_import_root",path,sizeof path);
+    setupModBrowseStart(gameProfile);std::snprintf(setupModBrowsePath,sizeof setupModBrowsePath,"%s",path);frame();frame();
+    auto picker=ImGui::FindWindowByName("Choose mod directory");expect(picker&&picker->Active,"setup96_folder_browser");
+    click(setupModBrowseUseCenter);expect(!setupModBrowseOpen&&std::string(hl?hlMod:q2Mod)==path,"setup96_folder_browser_target");
+    frame();frame();click(setupLoadCenter);expect(firstSetupStep==5&&assetsLoading,"setup96_load_from_wizard");
+  }
+  if(std::string(mode)=="setup96ready"){
+    expect(!assetsLoading&&!setupNeeded&&assetError.empty(),"setup96_resources_ready");
+    expect(entityDefinitions.count(gameProfile==4?"monster_scientist":"monster_soldier")&&materials.count("textures/fb_grey"),"setup96_game_resources");
+    expect(cvars->GetFloat("ftebroom_classic_map")&&!cvars->GetFloat("ftebroom_allow_engine_terrain"),"setup96_classic_tools");
+    std::ifstream saved(settingsPath().parent_path()/"reyondbroom-legacy-games.txt");std::string q2,hl;saved>>std::quoted(q2)>>std::quoted(hl);
+    auto actual=std::filesystem::u8path(gameProfile==4?hlMod:q2Mod);expect((gameProfile==4?hl:q2)==actual.generic_u8string()&&actual.filename()==(gameProfile==4?"valve":"baseq2"),"setup96_normalized_path_saved");
+  }
   if(std::string(mode)=="hl95retail"){
     gameProfile=4;char mod[4096]={};cvars->GetString("ftebroom_test_mod",mod,sizeof mod);std::snprintf(hlMod,sizeof hlMod,"%s",mod);hlRuntime=0;gamePreviewAfterBuild=false;gameProfileSave();expect(mountAssets(),"hl95_retail_mount");documentRequest("@"+(std::filesystem::u8path(root)/"hl/maps/room.map").u8string());
   }
@@ -399,7 +421,7 @@ static void testDesktop(){
   if(std::string(mode)=="setup61") {
     recentWindow=false;setupInitialized=true;setupNeeded=false;gameProfileLocked=false;firstSetupStep=3;
     auto click=[&](ImVec2 p){event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);frame();};
-    frame();frame();const int profiles[]={2,0,1};
+    frame();frame();const int profiles[]={2,3,0};
     for(int i=0;i<3;i++){click(setupGameCenters[i]);expect(gameProfile==profiles[i],"setup61_game_choice");}
     click(setupGameCenters[0]);firstSetupStep=4;frame();frame();
     click(setupModCenters[0]);expect(setupModChoice==0,"setup61_libre_choice");

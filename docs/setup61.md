@@ -3,12 +3,32 @@
 On Windows, start **ReyondBroom.exe** directly. It is a GUI executable: it starts the
 bundled engine without CMD, sets the installation directory, and passes the editor
 startup options. Shortcuts can use any working directory; Unicode/spaces are
-preserved. Keep it beside fteqw64.exe and the rest of the extracted distribution.
+preserved. Keep the complete extracted distribution together.
 The legacy CMD entry point forwards to this executable.
 
 The first-time wizard keeps the same window size for Language, Interface size, Theme, Game and
-Mod/resources. Choose Quake 1, Quake III Arena or FTE Custom game using the large
+Mod/resources. Choose Quake 1, Quake II, Quake III Arena, Half-Life or FTE Custom game using the large
 game rows. Quake III and custom FTE games retain their existing resource settings.
+
+For **Quake II**, use **Browse...** to select the installation root, `baseq2`, or
+a mod directory. An installation root resolves to `baseq2`; a mod also reads a
+sibling `baseq2`, with mod resources taking precedence. WAL textures and PAK
+archives are loaded. Bundled ericw-tools compile IBSP 38; no compiler path is
+required during setup. Optional entity definitions are under **Advanced settings**.
+
+For **Half-Life**, select the installation root or `valve` and choose **FreeHL**.
+For Counter-Strike 1.5, select `cstrike` (or the installation root) and choose
+**FreeCS**. A sibling `valve` supplies base resources. The folder is required;
+WAD3 archives and entity definitions are optional overrides under **Advanced
+settings**. WAD palettes are read from each texture. Bundled SDHLT compiles
+GoldSrc BSP 30; enable LIGHT / RAD in **Setup compile** for lightmaps. The runtime
+is installed as a separately named editor package; original game files are not
+replaced. FreeHL/FreeCS requires retail resources and does not execute arbitrary
+GoldSrc mod DLLs.
+
+The selected game/mod directory is normalized and saved, including paths outside
+the editor installation and paths containing spaces. Invalid paths keep the
+wizard open and show an error naming the selected game.
 
 For Quake 1, select **LibreQuake** to download the pinned v0.09-beta mod, or
 **Choose my own mod** and **Browse...** to select a directory. Downloads run outside

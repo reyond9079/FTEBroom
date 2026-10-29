@@ -189,7 +189,12 @@ static bool mountAssets()
       std::snprintf(baseq3,sizeof baseq3,"%s",selected.c_str());
       if(!gameProfileSave())throw std::runtime_error("Cannot save the resource configuration.");
     }
-    if(gameProfile>=3){auto root=std::filesystem::u8path(gameProfile==3?q2Mod:hlMod);auto child=root/(gameProfile==3?"baseq2":hlRuntime?"cstrike":"valve");if(std::filesystem::is_directory(child))std::snprintf(gameProfile==3?q2Mod:hlMod,1024,"%s",child.u8string().c_str());}
+    if(gameProfile>=3){
+      auto selected=ftebroom::legacyResourceDirectory(gameProfile==3?q2Mod:hlMod,gameProfile,hlRuntime).generic_u8string();
+      if(selected.size()>=sizeof q2Mod||selected.size()>=sizeof baseq3)throw std::runtime_error("The game resource path is too long.");
+      std::snprintf(gameProfile==3?q2Mod:hlMod,1024,"%s",selected.c_str());
+      if(!gameProfileSave())throw std::runtime_error("Cannot save the resource configuration.");
+    }
     if(gameProfile==4)halfLifeInstallRuntime();
     if(gameProfile>=3)std::snprintf(baseq3,sizeof baseq3,"%s",gameProfile==3?q2Mod:hlMod);
     if(!gameWad()){
@@ -284,7 +289,7 @@ static bool projectLoadRequested(bool clicked)
   }
   return gameProfileSave()&&mountAssets();
 }
-static ImVec2 setupFinishCenter;
+static ImVec2 setupFinishCenter,setupLoadCenter;
 static void projectSetup()
 {
   libreTick();
@@ -346,7 +351,10 @@ static void projectSetup()
       ImGui::BeginDisabled(assetsLoading||gameProfileLocked||libreBusy());
       if(firstSetupStep<4) {
         if(ImGui::Button("Next",{buttonWidth,0})){uiSaveAppearance();++firstSetupStep;}
-      } else if(firstSetupStep==4) loadRequested=ImGui::Button("Load resources and start",{buttonWidth,0});
+      } else if(firstSetupStep==4) {
+        loadRequested=ImGui::Button("Load resources and start",{buttonWidth,0});
+        auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();setupLoadCenter={(a.x+b.x)*.5f,(a.y+b.y)*.5f};
+      }
       else {
         bool finish=ImGui::Button("Start editing",{buttonWidth,0});
         auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();

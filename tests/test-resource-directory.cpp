@@ -19,5 +19,18 @@ int main(){
  for(auto path:{std::string(),std::string("\"\""),(root/"missing").u8string(),(root/"file").u8string()}){
   bool failed=false;try{resolve(path);}catch(const std::exception&){failed=true;}assert(failed);
  }
+ auto q2=root/"Quake II",hl=root/"Half-Life";
+ fs::create_directories(q2/"baseq2");fs::create_directories(hl/"valve");fs::create_directories(hl/"cstrike");
+ assert(ftebroom::legacyResourceDirectory(q2.u8string(),3)==q2/"baseq2");
+ assert(ftebroom::legacyResourceDirectory((q2/"baseq2").u8string(),3)==q2/"baseq2");
+ assert(ftebroom::legacyResourceDirectory(" \""+hl.u8string()+"\" \r\n",4,0)==hl/"valve");
+ assert(ftebroom::legacyResourceDirectory(hl.u8string(),4,1)==hl/"cstrike");
+ assert(ftebroom::legacyResourceDirectory((hl/"cstrike").u8string(),4,1)==hl/"cstrike");
+ for(int profile:{3,4}){
+   assert(ftebroom::legacyResourceDirectory((mod/"").u8string(),profile)==mod);
+   for(auto path:{std::string(),std::string("\"\""),(root/"missing").u8string(),(root/"file").u8string()}){
+     bool failed=false;try{ftebroom::legacyResourceDirectory(path,profile);}catch(const std::exception& e){failed=std::string(e.what()).find(profile==3?"Quake II":"Half-Life")!=std::string::npos;}assert(failed);
+   }
+ }
  fs::remove_all(root);std::cout<<"PASS: id1, game root, custom mod, quotes, spaces, case, trailing separators and invalid paths\n";
 }
