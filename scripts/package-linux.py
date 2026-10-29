@@ -22,6 +22,7 @@ if not (a.deps/'plugins/rubble/rubble.so').is_file():
     raise RuntimeError('Build bundled plugins with scripts/build-plugins.py first')
 shutil.copytree(a.deps/'plugins',root/'plugins')
 for source, name in [
+    (a.deps/'gpu-light', 'tools/gpu-light/gpu-light'),
     (a.deps/('fteqw/engine/release-sdl2/fteqw-glsdl2_64' if a.sdl2 else 'fteqw/engine/release-linux/fteqw-gl64'), 'fteqw-gl64'),
     (a.deps/'fteplug_ftebroom_amd64.so', 'fteplug_ftebroom_amd64.so'),
     (a.deps/'fteplug_reyondpreview_amd64.so', 'tools/runtimes/fteplug_reyondpreview_amd64.so'),
@@ -36,6 +37,7 @@ for source, name in [
     shutil.copy2(source, target)
     subprocess.run(['strip', str(target)], check=True)
     target.chmod(0o755)
+shutil.copy2(src/'tools/gpu-light/SDL2-LICENSE.txt',root/'tools/gpu-light/SDL2-LICENSE.txt')
 if b'ftebroom_reload_asset_models' not in (root/'fteqw-gl64').read_bytes():
     raise RuntimeError('Rebuild the engine with model-resource-reload.patch before packaging')
 if b'indexed brush queries enabled' not in (root/'fteqw-gl64').read_bytes():

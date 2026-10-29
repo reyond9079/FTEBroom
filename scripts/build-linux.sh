@@ -46,4 +46,6 @@ if [ ! -f "$deps/wl-clipboard/build/build.ninja" ]; then
 fi
 ninja -C "$deps/wl-clipboard/build"
 python3 "$src/scripts/build-plugins.py" --output "$deps/plugins"
+# Build the isolated experimental OpenGL baker.
+bash "$src/scripts/build-gpu-light.sh" "$deps/gpu-light"
 python3 "$src/scripts/package-linux.py" --deps "$deps" --output "$src/out/linux" --version 0.5.0-alpha.83

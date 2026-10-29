@@ -53,6 +53,7 @@ shutil.copy2(source / "scripts/Launch-ReyondBroom.cmd", root / "Launch-ReyondBro
 shutil.copytree(source / "tools/q3map2", root / "tools/q3map2")
 shutil.copytree(source / "tools/ericw", root / "tools/ericw")
 shutil.copytree(source / "tools/audio", root / "tools/audio")
+shutil.copytree(bundle / "tools/gpu-light", root / "tools/gpu-light")
 runpy.run_path(str(source / 'scripts/package-legacy-games.py'))['bundle'](source,root,'Windows-x64')
 if not (root / "tools/audio/ffmpeg.exe").is_file():
     raise RuntimeError("Build the audio helper with scripts/build-audio.sh first")

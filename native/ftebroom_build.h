@@ -2,6 +2,8 @@
 // Build jobs use immutable snapshots beside the source map; previews use a local cache.
 static bool buildWindow,buildRunning,buildGeometry=true,buildVis=true,buildLight=true;
 static bool buildWasPreview;
+static bool gpuBakeRunning=false;
+static std::filesystem::path gpuBakeOutput,gpuBakeDocument;
 static std::string buildMessage,buildResultModel,buildPendingModel;
 static std::filesystem::path buildResult,buildPending,buildDocument,buildResultDocument;
 static int buildRevision,buildResultRevision,buildResultProfile=-1;
@@ -51,7 +53,7 @@ static void buildRestoreHistory(){
     if(!(input>>profile>>std::quoted(document)>>std::quoted(result))||profile!=gameProfile||document!=documentFile.generic_u8string())return;
     auto path=std::filesystem::u8path(result);if(!std::filesystem::is_regular_file(path)||!buildValidBsp(path))return;
     buildResult=path;buildResultDocument=documentFile;buildResultProfile=profile;buildResultRevision=-1;buildResultContentRevision=-1;buildResultGeneration=0;buildResultSourceMap.clear();
-    buildResultModel="maps/ftebroom-build/"+path.parent_path().filename().u8string()+"/snapshot.bsp";
+    buildResultModel="maps/ftebroom-build/"+path.parent_path().filename().u8string()+"/"+path.filename().u8string();
   }catch(const std::exception& e){core->Print((std::string("ReyondBroom: cannot restore build history: ")+e.what()+"\n").c_str());}
 }
 static void buildExported(const std::filesystem::path& path)
@@ -168,6 +170,12 @@ static void buildBegin()
 static void buildTick()
 {
   if(buildWasPreview && !modEmbedded && !cvars->GetFloat("ftebroom_bsp_preview"))buildRestoreLayout();
+  if(gpuBakeRunning&&!runActive){
+    gpuBakeRunning=false;gameProfileLocked=false;
+    if(gpuBakeDocument!=documentFile){buildMessage="Map changed during GPU bake; output saved without replacing the current preview.";}
+    else if(runHadError||!std::filesystem::exists(gpuBakeOutput)){buildMessage=runHadError?runError:"GPU bake cancelled; previous BSP retained.";}
+    else{buildResult=gpuBakeOutput;buildResultModel="maps/ftebroom-build/"+buildResult.parent_path().filename().u8string()+"/"+buildResult.filename().u8string();buildSaveHistory();buildMessage="GPU bake complete (experimental neutral-surface bounce).";buildShow();}
+  }
   if(!buildRunning||runActive)return;
   buildRunning=false;gameProfileLocked=false;runExportHook=nullptr;runStageHook=nullptr;
   bool playAfterBuild=modCompilePending;modCompilePending=false;
@@ -208,6 +216,25 @@ static void buildPanel()
     if(ImGui::CollapsingHeader("Advanced compiler arguments")) {
       if(gameProfile==4)runText("CSG arguments",buildCsgArguments);runText("BSP arguments",buildArguments[0]);runText("VIS arguments",buildArguments[1]);runText("LIGHT arguments",buildArguments[2]);
       ImGui::TextWrapped("Extra arguments before the input filename. Example LIGHT: -fast -samples 3 -bounce 2. Passed directly to the selected compiler, not a command shell.");
+    }
+    if(gameProfile==2&&ImGui::CollapsingHeader("Experimental GPU lighting")){
+      static int rays=32;ImGui::SliderInt("One-bounce rays",&rays,0,64);
+      ImGui::TextWrapped("Small static BSP29/BSP2 maps only. Compile Geometry first; VIS and LIGHT may be disabled. Neutral 55%% reflectance, ordinary point lights, no moving brush models. 0 rays = direct light only. Output is a separate BSP/LIT pair; existing files are retained.");
+      ImGui::BeginDisabled(buildResult.empty()||buildResultDocument!=documentFile||buildResultProfile!=gameProfile);
+      if(ImGui::Button("Bake lighting on GPU")){
+        try{
+          auto helper=documentPath("ftebroom.cfg").parent_path().parent_path()/"tools/gpu-light";
+#ifdef _WIN32
+          helper/="gpu-light.exe";
+#else
+          helper/="gpu-light";
+#endif
+          gpuBakeOutput=buildResult.parent_path()/("gpu-"+std::to_string(std::chrono::system_clock::now().time_since_epoch().count())+".bsp");
+          std::ostringstream args;args<<std::quoted(buildResult.u8string())<<' '<<std::quoted(gpuBakeOutput.u8string())<<' '<<rays;
+          runExportHook=nullptr;runStageHook=nullptr;
+          runBegin({"Experimental GPU light bake",buildResult.parent_path().u8string(),false,{{1,helper.u8string(),args.str()}}});gpuBakeRunning=runActive;gpuBakeDocument=documentFile;gameProfileLocked=runActive;
+        }catch(const std::exception& e){buildMessage=e.what();}
+      }ImGui::EndDisabled();
     }
     if(ImGui::Button("Compile"))buildBegin();ImGui::EndDisabled();
     ImGui::SameLine();if(ImGui::Button("Full log / advanced profiles"))runWindow=true;

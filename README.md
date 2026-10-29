@@ -7,13 +7,13 @@
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.100/ReyondBroom-0.5.0-alpha.100-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.100/ReyondBroom-0.5.0-alpha.100-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.101/ReyondBroom-0.5.0-alpha.101-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.101/ReyondBroom-0.5.0-alpha.101-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.100**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.100/ReyondBroom-0.5.0-alpha.100-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.101**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.101/ReyondBroom-0.5.0-alpha.101-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 
@@ -79,3 +79,5 @@ The MAP writer uses Valve 220 texture axes and Quake 3 patch data. q3map2 is bun
 Install Python 3, Git, PowerShell and MSYS2 at `C:/msys64`, with MinGW64 GCC/G++/make/zlib/libpng/libjpeg-turbo and standard MSYS tools. Run `scripts/build-windows.ps1`. The script fetches pinned FTE/ImGui sources, applies all engine patches and builds the engine, addon and plugin into `out/ReyondBroom-Windows-x64`.
 
 See [architecture](ARCHITECTURE.md), [verification](TESTING.md), [shortcuts](docs/shortcuts.md) and [third-party notices](THIRD-PARTY.md). The combined editor includes GPL-3.0-or-later adaptations; original notices are retained. ImGui is MIT. Binary packages include corresponding source and upstream licenses. Preserve these when redistributing.
+
+Experimental small-map GPU lighting: [usage, measurements and limitations](docs/gpu-lighting101.md).
