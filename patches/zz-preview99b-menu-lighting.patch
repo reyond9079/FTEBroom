@@ -1,0 +1,126 @@
+--- a/engine/gl/gl_rlight.c
++++ b/engine/gl/gl_rlight.c
+@@ -2323,12 +2323,14 @@
+ int ftebroom_preview_lights_inrange, ftebroom_preview_lights_culled;
+ static int rb_preview_lighting = -1, rb_preview_raw;
+ static float rb_preview_distance;
++static float rb_preview_radius=1, rb_preview_energy=1, rb_preview_ambient, rb_preview_baked;
++static qboolean rb_preview_tuning_changed;
+ static char rb_preview_light_source[MAX_QPATH], rb_preview_source_world[MAX_QPATH], rb_preview_last_world[MAX_QPATH];
+ static qboolean rb_preview_light_pending;
+ static int rb_preview_imported;
+ static void R_FTEBroomPreviewLighting_f(void)
+ {
+-    float distance;
++    float distance, radius=1, energy=1, ambient=0, baked=0;
+     int enabled, raw, i;
+     const char *source;
+     if (!COM_CheckParm("-ftebroom-preview")) return;
+@@ -2351,12 +2353,18 @@
+             r_shadow_realtime_world_lightmaps.value, Cvar_VariableValue("r_fullbright"));fflush(stdout);
+         return;
+     }
+-    if (Cmd_Argc() != 5) {Con_Printf("Usage: ftebroom_preview_lighting enabled distance raw source\n");return;}
++    if (Cmd_Argc() != 5 && Cmd_Argc() != 9) {Con_Printf("Usage: ftebroom_preview_lighting enabled distance raw source [radius energy ambient baked]\n");return;}
++    if (Cmd_Argc() == 9) {
++        radius=atof(Cmd_Argv(5));energy=atof(Cmd_Argv(6));ambient=atof(Cmd_Argv(7));baked=atof(Cmd_Argv(8));
++        if (!(radius>=.25f && radius<=4 && energy>=0 && energy<=4 && ambient>=0 && ambient<=1 && baked>=0 && baked<=1)) return;
++    }
+     enabled = !!atoi(Cmd_Argv(1));distance = atof(Cmd_Argv(2));raw = !!atoi(Cmd_Argv(3));source = Cmd_Argv(4);
+     if (!(distance >= 0 && distance <= 65536) || strlen(source) >= sizeof(rb_preview_light_source) || strchr(source, ':') || strstr(source, "..") || (*source && strncmp(source, "maps/", 5))) return;
+-    if (rb_preview_lighting == enabled && rb_preview_raw == raw && rb_preview_distance == distance && !strcmp(source, rb_preview_light_source)) return;
++    rb_preview_tuning_changed |= rb_preview_radius!=radius || rb_preview_energy!=energy || rb_preview_ambient!=ambient || rb_preview_baked!=baked;
++    if (!rb_preview_tuning_changed && rb_preview_lighting == enabled && rb_preview_raw == raw && rb_preview_distance == distance && !strcmp(source, rb_preview_light_source)) return;
+     if (strcmp(source, rb_preview_light_source)) *rb_preview_source_world = 0;
+     rb_preview_lighting = enabled;rb_preview_distance = distance;rb_preview_raw = raw;
++    rb_preview_radius=radius;rb_preview_energy=energy;rb_preview_ambient=ambient;rb_preview_baked=baked;
+     Q_strncpyz(rb_preview_light_source, source, sizeof(rb_preview_light_source));rb_preview_light_pending = true;
+ }
+ void R_FTEBroomPreviewLightingUpdate(void)
+@@ -2365,29 +2373,39 @@
+     qboolean rebuild;
+     void *bytes = NULL;
+     if (rb_preview_lighting < 0 || !cl.worldmodel || cls.state != ca_active) return;
+-    rebuild = applied != rb_preview_lighting || strcmp(rb_preview_last_world, cl.worldmodel->name);
++    rebuild = rb_preview_tuning_changed || applied != rb_preview_lighting || strcmp(rb_preview_last_world, cl.worldmodel->name);
+     if (!rb_preview_light_pending && !rebuild) return;
+-    rb_preview_light_pending = false;
++    rb_preview_light_pending = false;rb_preview_tuning_changed=false;
+     if (!*rb_preview_source_world) Q_strncpyz(rb_preview_source_world, cl.worldmodel->name, sizeof(rb_preview_source_world));
+     ftebroom_preview_light_distance = rb_preview_lighting ? rb_preview_distance : 0;
+     Cvar_SetValue(&r_shadow_realtime_world, rb_preview_lighting);
+-    Cvar_SetValue(&r_shadow_realtime_world_lightmaps, rb_preview_lighting ? 0 : 1);
++    Cvar_SetValue(&r_shadow_realtime_world_lightmaps, rb_preview_lighting ? (rb_preview_raw?0:rb_preview_baked) : 1);
+     Cvar_SetValue(Cvar_FindVar("r_fullbright"), rb_preview_lighting ? 0 : rb_preview_raw);
+     if (rb_preview_lighting && rebuild) {
+         rtlights_first = rtlights_max = RTL_FIRST;
+         /* The immutable source includes ordinary lights stripped by compilers. */
+         if (*rb_preview_light_source && !strcmp(rb_preview_source_world, cl.worldmodel->name)) FS_LoadFile(rb_preview_light_source, &bytes);
++        /* Keep the user's ordinary importer defaults unchanged. */
++        float oldradius=r_editlights_import_radius.value, oldambient=r_editlights_import_ambient.value;
++        float olddiffuse=r_editlights_import_diffuse.value, oldspecular=r_editlights_import_specular.value;
++        r_editlights_import_radius.value=rb_preview_radius;
++        r_editlights_import_ambient.value=rb_preview_ambient;
++        r_editlights_import_diffuse.value=1-rb_preview_ambient;
++        r_editlights_import_specular.value=0;
+         R_ImportRTLights(bytes ? bytes : Mod_GetEntitiesString(cl.worldmodel), 2);
++        r_editlights_import_radius.value=oldradius;r_editlights_import_ambient.value=oldambient;
++        r_editlights_import_diffuse.value=olddiffuse;r_editlights_import_specular.value=oldspecular;
++        {int i;for(i=RTL_FIRST;i<rtlights_max;i++)VectorScale(cl_dlights[i].color,rb_preview_energy,cl_dlights[i].color);}
+         if (bytes) FS_FreeFile(bytes);
+         rb_preview_imported = rtlights_max - RTL_FIRST;
+-        r_shadow_realtime_world_lightmaps_force = 0;
++        r_shadow_realtime_world_lightmaps_force = rb_preview_raw?0:rb_preview_baked;
+         /* Prevent the renderer from replacing the explicit import with BSP-only data. */
+         r_shadow_realtime_world_importlightentitiesfrommap.modified = false;
+         Cvar_SetValue(Cvar_FindVar("r_shadow_realtime_world_shadows"), 1);
+         Cvar_SetValue(Cvar_FindVar("r_shadow_shadowmapping"), 1);
+     } else if (!rb_preview_lighting) r_shadow_realtime_world_lightmaps_force = -1;
+     applied = rb_preview_lighting;Q_strncpyz(rb_preview_last_world, cl.worldmodel->name, sizeof(rb_preview_last_world));
+-    printf("ftebroom_preview_lighting_applied rtl=%i imported=%i distance=%g lightmaps=%g fullbright=%g\n", applied, rb_preview_imported, ftebroom_preview_light_distance, r_shadow_realtime_world_lightmaps.value, Cvar_VariableValue("r_fullbright"));fflush(stdout);
++    printf("ftebroom_preview_lighting_applied rtl=%i imported=%i distance=%g lightmaps=%g fullbright=%g radius=%g energy=%g ambient=%g baked=%g\n", applied, rb_preview_imported, ftebroom_preview_light_distance, r_shadow_realtime_world_lightmaps.value, Cvar_VariableValue("r_fullbright"),rb_preview_radius,rb_preview_energy,rb_preview_ambient,rb_preview_raw?0:rb_preview_baked);fflush(stdout);
+ }
+ 
+ static char *r_editlights_current_specular(void)
+--- a/engine/client/menu.c
++++ b/engine/client/menu.c
+@@ -367,7 +367,12 @@
+ ================
+ */
+ void M_ToggleMenu_f (void)
+-{	
++{
++    /* The isolated editor preview owns its Escape menu, including CSQC games. */
++    if (COM_CheckParm("-ftebroom-preview") && Cmd_Exists("reyond_preview_menu")) {
++        Cbuf_AddText("reyond_preview_menu\n", RESTRICT_LOCAL);return;
++    }
++	
+ 	if (topmenu)
+ 	{
+ 		Key_Dest_Add(kdm_menu);
+--- a/engine/client/keys.c
++++ b/engine/client/keys.c
+@@ -2966,6 +2966,11 @@
+ 		}
+ 	}
+ 
++    /* Preview controls must also be reachable in mods that consume Escape. */
++    if (key == K_ESCAPE && !shift_down && !Key_Dest_Has(~kdm_game) && COM_CheckParm("-ftebroom-preview") && Cmd_Exists("reyond_preview_menu")) {
++        if (down) Cbuf_AddText("reyond_preview_menu\n", RESTRICT_LOCAL);
++        return;
++    }
+ 	//yes, csqc is allowed to steal the escape key (unless shift).
+ 	//it is blocked from blocking backtick (unless shift).
+ 	if ((key != '`'||shift_down) && (!down || key != K_ESCAPE || (!Key_Dest_Has(~kdm_game) && !shift_down)) &&
+--- a/engine/client/m_download.c
++++ b/engine/client/m_download.c
+@@ -2160,7 +2160,8 @@
+ 	{
+ 		char qhash[16];
+ 		// The standalone editor ships a raw ELF plugin, not a self-extracting ZIP.
+-		if (!(COM_CheckParm("-ftebroom-child-processes") && !strcmp(name, "fteplug_ftebroom_amd64.so")))
++		if (!((COM_CheckParm("-ftebroom-child-processes") && !strcmp(name, "fteplug_ftebroom_amd64.so")) ||
++              (COM_CheckParm("-ftebroom-preview") && !strcmp(name, "fteplug_reyondpreview_amd64.so"))))
+ 			metainfo = PM_GetMetaTextFromFile(f, name, qhash, sizeof(qhash));
+ 		VFS_CLOSE(f);
+ 	}

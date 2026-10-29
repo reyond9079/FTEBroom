@@ -42,9 +42,6 @@ static std::string modQuote(const std::string& text)
 }
 static void modValidate()
 {
-#ifndef _WIN32
-  if(gameProfile!=4)throw std::runtime_error("Embedded mod preview is currently Windows-only. Use BSP preview or launch your game separately with a Run task.");
-#endif
   auto mod=std::filesystem::u8path(gameRuntime());
   if(!std::filesystem::is_regular_file(runBundledEngine()))throw std::runtime_error("The bundled preview engine is missing.");
   if(!std::filesystem::is_directory(mod) || (gameProfile!=4 && !std::filesystem::is_regular_file(mod/"progs.dat") && !std::filesystem::is_regular_file(mod/"pak0.pak")))throw std::runtime_error("The runtime mod directory must contain progs.dat.");
@@ -91,12 +88,18 @@ static void modLaunch(const std::filesystem::path& source,bool raw)
 #endif
     auto embeddedEngine=runBundledEngine();
 #ifndef _WIN32
-    if(gameProfile==4){
+    {
       // An engine beside the editor's default.fmf/installed.lst can inherit
       // the editor installation even with -basedir. Isolate its binary path.
       auto isolated=root/"engine"/embeddedEngine.filename();std::filesystem::create_directories(isolated.parent_path());
       std::filesystem::copy_file(embeddedEngine,isolated,std::filesystem::copy_options::overwrite_existing);
       std::filesystem::permissions(isolated,std::filesystem::perms::owner_exec|std::filesystem::perms::group_exec|std::filesystem::perms::others_exec,std::filesystem::perm_options::add);
+      auto menu=runBundledEngine().parent_path()/"fteplug_reyondpreview_amd64.so";
+      if(!std::filesystem::is_regular_file(menu))throw std::runtime_error("The Linux preview-menu module is missing. Reinstall the complete editor archive.");
+      std::filesystem::copy_file(menu,isolated.parent_path()/menu.filename(),std::filesystem::copy_options::overwrite_existing);
+      auto fontHome=home/mod.filename()/"reyond-preview";std::filesystem::create_directories(fontHome);
+      std::filesystem::copy_file(documentPath("fonts/FTEBroom-CJK.otf"),fontHome/"menu.otf",std::filesystem::copy_options::overwrite_existing);
+      runPreviewSettings=modPreviewReadSettings;
       embeddedEngine=isolated;
     }
 #endif
@@ -109,6 +112,12 @@ static void modLaunch(const std::filesystem::path& source,bool raw)
     std::string args=previewSwitch+"-noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" "+gameSwitch+"-game "+modQuote(mod.filename().u8string())+
       " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set ftebroom_preview_play 1 +set r_drawviewmodel 1 +set chase_active 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+set forceqmenu 1 +exec quake.rc +set r_fullbright ")+(raw?"1":"0")+std::string(" +set r_vertexlight 0 +set pm_thirdPerson 0 +set r_showViewModels 1 +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+(raw?std::string("+set r_fullbright 1 "):std::string())+"+map "+(raw?modQuote("maps/"+name+".map"):name);
     args+=" +"+modLightingCommand();
+#ifndef _WIN32
+    modControlsLoad();
+    args+=" +plug_load reyondpreview +reyond_preview_config "+std::to_string(modLightingRTL?1:0)+" "+std::to_string(modLightingDistance)+" "+std::to_string(raw?1:0)+" "+modQuote(modLightingSource)+" "+std::to_string(modLighting.radius)+" "+std::to_string(modLighting.energy)+" "+std::to_string(modLighting.ambient)+" "+std::to_string(modLighting.baked)+" "+std::to_string(modSensitivity)+" "+std::to_string(modInvertMouse?1:0);
+    for(const auto& b:modControls)args+=" "+std::to_string(b.key);
+    args+=" "+std::to_string(uiLanguage);
+#endif
     if(cvars->GetFloat("ftebroom_skip_setup"))args+=" +set ftebroom_preview_trace 1";
     RunProfile preview{std::string(gameProfileName())+": mod preview",root.u8string(),true,{{1,embeddedEngine.u8string(),args}}};
     runBegin(preview);runWindow=false;
@@ -116,7 +125,7 @@ static void modLaunch(const std::filesystem::path& source,bool raw)
 #ifdef _WIN32
     buildMessage="Play mod: click the viewport to control the player. Escape opens mod controls.";
 #else
-    buildMessage="FreeHL / FreeCS is running in a separate window. Close it to return to editing.";
+    buildMessage="Play mod is running in a separate window. Escape opens controls and lighting; Exit mod preview returns to editing.";
 #endif
   }catch(const std::exception& error){modEmbedEnd();buildMessage=error.what();}
 }
@@ -147,6 +156,9 @@ static void modPreviewChoose(int choice){
   }catch(const std::exception& e){buildMessage=e.what();}
 }
 static void modPreviewTick(){
+#ifndef _WIN32
+  if(!runActive)runPreviewSettings=nullptr;
+#endif
   if(!modRawExporting)return;
   try{
     if(documentFile!=modRawDocument||gameProfile!=modRawProfile)throw std::runtime_error("The active map changed while preparing the preview. Start Play mod again.");

@@ -1,5 +1,7 @@
 # Mod preview: native realtime lighting
 
+For current cross-platform controls and lightmap-like presets, see [alpha.100](mod-lighting100.md).
+
 In embedded mod preview, press **Escape**, then open **Lighting**. Enable
 **FTE-native RTL instead of lightmaps** to replace baked lightmap contribution
 with FTE's world realtime lights and realtime shadows. Disable it to return to

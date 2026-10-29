@@ -26,8 +26,11 @@ default to these binaries and remain editable. Sound editing uses the installed
   inspection, builds and the internal file manager are available.
 - Linux external WAD drag-and-drop is supported on Wayland and X11. Image-to-WAD
   conversion and native Windows file pickers remain Windows integrations.
-- Embedded child-window **Preview mod** is currently Windows-only. Native Linux
-  BSP inspection works; launch a game separately with an explicit Run task.
+- **Preview mod** opens an isolated game window on Linux. Escape opens the
+  in-process ImGui controls and lighting menu; Continue/Escape resumes play, and
+  Exit mod preview returns to editing. Native and SDL2 packages retain their
+  respective engine backend. Windows retains embedded child-window preview.
+  See [lighting presets and checks](mod-lighting100.md).
 - Automatic Linux updates require Python 3 and install after exit, retaining settings
   and rollback files. Alpha 39 and older require a manual upgrade to alpha 40.
   The LibreQuake installer remains Windows-only; download LibreQuake from the

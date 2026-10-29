@@ -303,3 +303,11 @@ This affects labels only, never geometry, entity models, bounds or texture detai
 
 See [alpha.83 performance and validation](performance-alpha83.md) for large-map
 navigation measurements and the startup brush / mixed-case WAD fixes.
+
+## Mod preview lighting
+
+In Play mod, press **Escape → Lighting** on Windows or Linux. Choose Lightmap-like
+for a compiled BSP, Soft RTL only for uncompiled MAP, or Native RTL. Reach,
+brightness, directional fill, baked contribution and distance apply live and are
+saved separately for BSP and raw MAP. Linux uses an isolated game window with
+its own ImGui menu. [Workflow, limits and checks](mod-lighting100.md).

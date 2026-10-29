@@ -353,3 +353,11 @@
 {"Lighting","Освещение","Beleuchtung","Éclairage","照明","照明","Iluminación"},
 {"FTE-native RTL instead of lightmaps","RTL-свет FTE вместо лайтмап","FTE-RTL statt Lightmaps","RTL FTE au lieu des lightmaps","FTE 实时照明替代光照贴图","ライトマップの代わりに FTE RTL","RTL de FTE en lugar de lightmaps"},
 {"RTL distance (map units)","Дальность RTL (единицы карты)","RTL-Reichweite (Karteneinheiten)","Distance RTL (unités de carte)","实时灯光距离（地图单位）","RTL 距離（マップ単位）","Distancia RTL (unidades del mapa)"},
+
+{"Lightmap-like","Как лайтмапа","Lightmap-ähnlich","Proche de la lightmap","接近光照贴图","ライトマップ風","Similar a lightmap"},
+{"Soft RTL only","Только мягкий RTL","Nur weiches RTL","RTL doux uniquement","仅柔和实时光","柔らかい RTL のみ","Solo RTL suave"},
+{"Native RTL","Обычный RTL","Natives RTL","RTL natif","原生实时光","標準 RTL","RTL nativo"},
+{"Light reach","Радиус света","Lichtreichweite","Portée de la lumière","光照范围","光の到達距離","Alcance de luz"},
+{"RTL brightness","Яркость RTL","RTL-Helligkeit","Luminosité RTL","实时光亮度","RTL の明るさ","Brillo RTL"},
+{"Directional fill","Заполнение направлений","Richtungsfüllung","Remplissage directionnel","方向填充","方向補間","Relleno direccional"},
+{"Baked light contribution","Вклад запечённого света","Anteil gebackenen Lichts","Contribution de lumière précalculée","烘焙光照贡献","ベイク光の寄与","Aporte de luz precalculada"},

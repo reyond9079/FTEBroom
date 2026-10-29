@@ -26,6 +26,7 @@ make -B -C "$deps/fteqw/engine" -j4 CPUOPTIMIZATIONS=-O3 DEPCC= DEPCXX= BASE_DIR
 make -B -C "$deps/fteqw/engine/qclib" -j4 R_qcc CC=gcc BASE_CFLAGS=-DQCCONLY BASE_LDFLAGS='-s -lz'
 "$deps/fteqw/engine/qclib/fteqcc.bin" -src "$src/qc" -srcfile csaddon.src -max_globals 262144 -max_strings 4194304
 g++ -std=c++17 -O2 -shared -fPIC -pthread -I"$deps/bullet3-3.25/src" -I"$deps/fteqw/plugins" -I"$deps/imgui" "$src/native/ftebroom.cpp" "$deps/imgui/imgui.cpp" "$deps/imgui/imgui_draw.cpp" "$deps/imgui/imgui_tables.cpp" "$deps/imgui/imgui_widgets.cpp" "$deps/bullet-build/src/BulletDynamics/libBulletDynamics.a" "$deps/bullet-build/src/BulletCollision/libBulletCollision.a" "$deps/bullet-build/src/LinearMath/libLinearMath.a" -lz -ldl -o "$deps/fteplug_ftebroom_amd64.so"
+g++ -std=c++17 -O2 -shared -fPIC -Wl,-z,defs -I"$deps/fteqw/plugins" -I"$deps/imgui" "$src/native/reyond_preview_menu.cpp" "$deps/imgui/imgui.cpp" "$deps/imgui/imgui_draw.cpp" "$deps/imgui/imgui_tables.cpp" "$deps/imgui/imgui_widgets.cpp" -o "$deps/fteplug_reyondpreview_amd64.so"
 mkdir -p "$deps/compilers"
 python3 "$src/scripts/fetch-q3map2-source.py"
 unzip -qo "$src/tools/q3map2/netradiant-custom-20260114-source.zip" -d "$deps/compilers"

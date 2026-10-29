@@ -24,7 +24,8 @@ shutil.copytree(a.deps/'plugins',root/'plugins')
 for source, name in [
     (a.deps/('fteqw/engine/release-sdl2/fteqw-glsdl2_64' if a.sdl2 else 'fteqw/engine/release-linux/fteqw-gl64'), 'fteqw-gl64'),
     (a.deps/'fteplug_ftebroom_amd64.so', 'fteplug_ftebroom_amd64.so'),
-    (a.deps/'fteqw/engine/release-linux/fteqw-gl64', 'tools/runtimes/fteqw-preview64'),
+    (a.deps/'fteplug_reyondpreview_amd64.so', 'tools/runtimes/fteplug_reyondpreview_amd64.so'),
+    (a.deps/('fteqw/engine/release-sdl2/fteqw-glsdl2_64' if a.sdl2 else 'fteqw/engine/release-linux/fteqw-gl64'), 'tools/runtimes/fteqw-preview64'),
     (a.deps/'compilers/netradiant-custom-20260114/install/q3map2.x86_64', 'tools/q3map2/q3map2'),
     *[(a.deps/f'compilers/ericw-build/{tool}/{tool}', f'tools/ericw/{tool}') for tool in ('qbsp','vis','light')],
     (a.deps/'compilers/embree-build/libembree.so.2.17.7', 'tools/ericw/libembree.so.2'),

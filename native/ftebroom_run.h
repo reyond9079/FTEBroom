@@ -26,9 +26,17 @@ static HANDLE runProcess,runPipe,runJob,runInput;
 #else
 static pid_t runProcess=-1;static int runPipe=-1;
 #endif
+static void (*runPreviewSettings)(const std::string&)=nullptr;
 static void runAppend(const std::string& text)
 {
   auto previous=runLog.size();runLog+=text;
+  if(runPreviewSettings){
+    size_t at=previous>512?previous-512:0;
+    while((at=runLog.find("reyond_preview_settings ",at))!=std::string::npos){
+      auto end=runLog.find('\n',at);if(end==std::string::npos)break;
+      if(end>=previous&&end-at<512)runPreviewSettings(runLog.substr(at+24,end-at-24));at=end+1;
+    }
+  }
   for(size_t at=previous>32?previous-32:0;(at=runLog.find("ftebroom_camera_ack",at))!=std::string::npos;at+=18)
     if(at+18>previous)++runControlAcks;
   if(runLog.size()>4*1024*1024)runLog.erase(0,runLog.size()-4*1024*1024);
@@ -41,7 +49,7 @@ static std::filesystem::path runBundledEngine()
   return std::filesystem::is_regular_file(engine)?engine:root/"fteqw64.exe";
 #else
   auto preview=root/"tools/runtimes/fteqw-preview64";
-  if(gameProfile==4&&std::filesystem::is_regular_file(preview))return preview;
+  if(std::filesystem::is_regular_file(preview))return preview;
   return root/"fteqw-gl64";
 #endif
 }

@@ -9,6 +9,19 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+#ifndef _WIN32
+  if(std::string(mode)=="rtl100protocol"){
+    modLightingRaw=false;runPreviewSettings=modPreviewReadSettings;
+    runAppend("reyond_preview_set");
+    runAppend("tings 1 512 1.3 0.35 0.2 0.7 4 1 119 115 97 100 32 49 50 51 114 99\n");
+    expect(modLightingRTL&&modLightingDistance==512&&modLighting.baked==.7f&&modSensitivity==4&&modInvertMouse,"rtl100_fragmented_settings_received");
+    modLighting=PreviewLighting{};modLightingLoaded=false;modLightingLoad();
+    expect(modLightingRTL&&modLightingDistance==512&&modLighting.baked==.7f,"rtl100_child_settings_persisted");
+    modLightingRaw=true;modLightingLoad();
+    expect(modLighting.baked==0&&modLighting.energy==.8f,"rtl100_raw_has_independent_soft_defaults");
+    runPreviewSettings=nullptr;return;
+  }
+#endif
   static int rtl99Wait=0;
   if(std::string(mode)=="rtl99log"){core->Print(("RTL99_LOG\n"+runLog+"\n").c_str());return;}
   if(std::string(mode)=="rtl99launch"){
@@ -34,7 +47,7 @@ static void testDesktop(){
       auto p=modLightingToggleCenter;event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);frame();
       expect(modLightingRTL,"rtl99_checkbox_enabled");modMenuOpen=false;frame();command("in 5 ftebroom_test_desktop rtl99on\n");
     }else if(std::string(mode)=="rtl99on"){
-      expect(runLog.find("lightmaps=0 fullbright=0")!=std::string::npos,"rtl99_ordinary_light_imported_without_lightmap");
+      expect(runLog.find("lightmaps=0.7 fullbright=0")!=std::string::npos,"rtl100_ordinary_light_imported_with_baked_fill");
       modPlay=false;modLastCamera.clear();cvars->SetString("ftebroom_camera_state","0 -768 64 0 90 0 90");
       modLightingDistance=128;modLightingApply();modInputQueue+="in 1 ftebroom_preview_lighting\n";command("in 4 ftebroom_test_desktop rtl99near\n");
     }else if(std::string(mode)=="rtl99near"){

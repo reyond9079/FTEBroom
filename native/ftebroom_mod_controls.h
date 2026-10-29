@@ -8,21 +8,29 @@ static ModControl modControls[]={
 static bool modMenuDrawn=false;
 static std::vector<std::string> modAppliedKeys;
 static float modSensitivity=3;static bool modInvertMouse=false,modControlsLoaded=false;
-static bool modLightingRTL=false,modLightingLoaded=false,modLightingRaw=false;
-static float modLightingDistance=4096;
+#include "ftebroom_preview_lighting.h"
+static PreviewLighting modLighting;
+static bool& modLightingRTL=modLighting.enabled;
+static float& modLightingDistance=modLighting.distance;
+static bool modLightingLoaded=false,modLightingRaw=false;
+static bool modLightingSettingsRaw=false;
 static std::string modLightingSource;
 static ImVec2 modLightingToggleCenter;
+static const char* modLightingFile(){return modLightingRaw?"mod-lighting-raw.txt":"mod-lighting.txt";}
 static void modLightingLoad(){
-  if(modLightingLoaded)return;modLightingLoaded=true;
-  std::ifstream file(documentPath("mod-lighting.txt"));int enabled;float distance;
-  if(file>>enabled>>distance){modLightingRTL=enabled!=0;if(std::isfinite(distance))modLightingDistance=std::clamp(distance,0.f,65536.f);}
+  if(modLightingLoaded&&modLightingSettingsRaw==modLightingRaw)return;
+  auto enabled=modLighting.enabled;auto distance=modLighting.distance;
+  modLighting=PreviewLighting{};
+  if(modLightingRaw){modLighting.soft();modLighting.enabled=enabled;modLighting.distance=distance;}
+  modLightingLoaded=true;modLightingSettingsRaw=modLightingRaw;
+  std::ifstream file(documentPath(modLightingFile()));modLighting.read(file);
 }
 static std::string modLightingCommand(){
-  return "ftebroom_preview_lighting "+std::to_string(modLightingRTL?1:0)+" "+std::to_string(modLightingDistance)+" "+std::to_string(modLightingRaw?1:0)+" \""+modLightingSource+"\"";
+  return modLighting.command(modLightingRaw,modLightingSource);
 }
 static void modLightingApply(){
   modInputQueue+=modLightingCommand()+"\n";
-  std::ofstream file(documentPath("mod-lighting.txt"));file<<(modLightingRTL?1:0)<<' '<<modLightingDistance<<'\n';
+  std::ofstream file(documentPath(modLightingFile()));modLighting.write(file);file<<'\n';
 }
 static void modControlsLoad()
 {
@@ -60,15 +68,7 @@ static void modControlsPanel()
     ImGui::TextWrapped("Controls apply to this preview. Your mod files are unchanged.");
     ImGui::BeginChild("Preview settings",{0,-ImGui::GetFrameHeightWithSpacing()*3},ImGuiChildFlags_None);
     if(ImGui::CollapsingHeader("Lighting",ImGuiTreeNodeFlags_DefaultOpen)){
-      if(ImGui::Checkbox("FTE-native RTL instead of lightmaps",&modLightingRTL))modLightingApply();
-      {auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();modLightingToggleCenter={(a.x+b.x)*.5f,(a.y+b.y)*.5f};}
-      ImGui::BeginDisabled(!modLightingRTL);
-      if(ImGui::DragFloat("RTL distance (map units)",&modLightingDistance,64,0,65536,"%.0f",ImGuiSliderFlags_AlwaysClamp)){
-        if(!std::isfinite(modLightingDistance))modLightingDistance=4096;
-        modLightingApply();
-      }
-      ImGui::EndDisabled();
-      ImGui::TextWrapped("0 = unlimited. Lights fade over the last 20% of the range outside their influence. Ordinary map lights are imported automatically. Realtime shadows can cost more GPU time.");
+      if(previewLightingWidgets(modLighting,modLightingRaw,&modLightingToggleCenter))modLightingApply();
       ImGui::Separator();
     }
     ImGui::SliderFloat("Mouse sensitivity",&modSensitivity,.1f,20.f,"%.1f");ImGui::Checkbox("Invert mouse Y",&modInvertMouse);
@@ -86,3 +86,16 @@ static void modControlsPanel()
     ImGui::EndPopup();
   }
 }
+
+#ifndef _WIN32
+static void modPreviewReadSettings(const std::string& line){
+  std::istringstream in(line);PreviewLighting next;int enabled,invert;float sensitivity;int keys[10];
+  if(!(in>>enabled>>next.distance>>next.radius>>next.energy>>next.ambient>>next.baked>>sensitivity>>invert))return;
+  next.enabled=enabled!=0;next.clamp();if(!std::isfinite(sensitivity)||sensitivity<.1f||sensitivity>20)return;
+  for(auto& key:keys)if(!(in>>key)||key<=0||key>=1024)return;
+  modLighting=next;modLightingLoaded=true;modLightingSettingsRaw=modLightingRaw;modSensitivity=sensitivity;modInvertMouse=invert!=0;modControlsLoaded=true;
+  std::ofstream lighting(documentPath(modLightingFile()));next.write(lighting);lighting<<'\n';
+  std::ofstream controls(documentPath("mod-controls.txt"));controls<<sensitivity<<' '<<invert;
+  for(int i=0;i<10;i++){modControls[i].key=keys[i];controls<<' '<<keys[i];}controls<<'\n';
+}
+#endif
