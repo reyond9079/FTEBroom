@@ -1,0 +1,126 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -5978,7 +5978,7 @@
+ 		unsigned int lmblocksize = 512;//LMBLOCK_SIZE_MAX
+ 		hm->recalculatebrushlighting = false;
+ 
+-		if (!hm->relightcontext)
++		if (!hm->relightcontext && !hm->rb_gpu_baked)
+ 		{
+ 			for (numverts = 0, numindicies = 0, i = 0, br = hm->wbrushes; i < hm->numbrushes; i++, br++)
+ 			{
+@@ -6058,12 +6058,12 @@
+ 		}
+ 	}
+ 
+-	if (hm->relightcontext && !r_fullbright.ival)
++	if ((hm->relightcontext || hm->rb_gpu_baked) && !r_fullbright.ival)
+ 	for (i = 0, br = hm->wbrushes; i < hm->numbrushes; i++, br++)
+ 	{
+ 		for (j = 0; j < br->numplanes; j++)
+ 		{
+-			if (br->faces[j].relight && dorelight)
++			if (br->faces[j].relight && dorelight && !hm->rb_gpu_baked)
+ 			{
+ 				lightstyleindex_t styles[max(2,MAXCPULIGHTMAPS)] = {0,INVALID_LIGHTSTYLE};
+ 				int texsize[2] = {br->faces[j].lmextents[0]-1, br->faces[j].lmextents[1]-1};
+@@ -6244,6 +6244,8 @@
+ 
+ 	for (bt = hm->brushtextures; bt; bt = bt->next)
+ 	{
++        if(hm->rb_gpu_baked){const char *name=bt->shadername;if(!strncmp(name,"textures/",9))name+=9;
++            if(!Q_strcasecmp(name,"clip")||!Q_strcasecmp(name,"playerclip")||!Q_strcasecmp(name,"monsterclip")||!Q_strcasecmp(name,"skip")||!Q_strcasecmp(name,"hint")||!Q_strcasecmp(name,"trigger")||!Q_strcasecmp(name,"origin")||!Q_strcasecmp(name,"nodraw"))continue;}
+ 		if (!bt->shader)
+ 		{
+ #ifdef PACKAGE_TEXWAD
+@@ -6580,6 +6582,44 @@
+  if(total>capacity)return 0;
+  for(i=0;i<total;i++)for(k=0;k<3;k++)out[i][k]=vertices[side][i][k];
+  return total;
++}
++
++// MAP lightmaps use an immutable geometry signature, never persistent brush IDs.
++static unsigned long long RBGpuKey(brushes_t *b, unsigned int f) {
++ unsigned long long h=14695981039346656037ull;
++ for(int i=0;i<12;i++) {float v=i<4?b->planes[f][i]:b->faces[f].stdir[(i-4)/4][(i-4)%4];int n=(int)round(v*(i<3?1000.0: i==3?10.0:100.0));for(int j=0;j<4;j++){h^=(n>>(j*8))&255;h*=1099511628211ull;}}
++ for(int i=0;i<5;i++){int n=i<2?b->faces[f].lmbias[i]:i<4?b->faces[f].lmextents[i-2]:b->faces[f].lmscale;for(int j=0;j<4;j++){h^=(n>>(j*8))&255;h*=1099511628211ull;}}return h;
++}
++void QCBUILTIN PF_editor_gpu_snapshot(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals) {
++ const char *path=PR_GetStringOfs(prinst,OFS_PARM0);unsigned int total=0;G_INT(OFS_RETURN)=-1;
++ if(strncmp(path,"maps/ftebroom-build/",20)||strstr(path,"..")||strcmp(COM_GetFileExtension(path,NULL),".map"))return;
++ model_t *root=Mod_ForName(path,MLV_WARN);if(!root)return;if(root->loadstate==MLS_LOADING){G_INT(OFS_RETURN)=0;return;}if(root->loadstate!=MLS_LOADED||root->type!=mod_heightmap)return;
++ vfsfile_t *out=FS_OpenVFS("data/gpu-map.scene","wb",FS_GAMEONLY);if(!out)return;
++ VFS_WRITE(out,"RBGS103",8);VFS_WRITE(out,&total,4);
++ for(int m=0;m<root->numsubmodels;m++){model_t *mod=m?Mod_FindName(va("*%i:%s",m,root->name)):root;heightmap_t *hm=mod->terrain;if(!hm)continue;
++ for(unsigned int i=0;i<hm->numbrushes;i++){brushes_t *b=&hm->wbrushes[i];if(b->patch){Con_Printf("GPU MAP: patches are not yet supported\n");VFS_CLOSE(out);return;}
++ for(unsigned int f=0;f<b->numplanes;f++){struct brushface_s *face=&b->faces[f];if(face->numpoints<3||!face->lightdata)continue;
++ unsigned long long key=RBGpuKey(b,f);unsigned int n=face->numpoints,scale=face->lmscale,w=face->lmextents[0],h=face->lmextents[1],len=strlen(face->tex->shadername);
++ VFS_WRITE(out,&key,8);VFS_WRITE(out,&n,4);VFS_WRITE(out,b->planes[f],16);VFS_WRITE(out,face->stdir,32);VFS_WRITE(out,&scale,4);VFS_WRITE(out,face->lmbias,8);VFS_WRITE(out,&w,4);VFS_WRITE(out,&h,4);VFS_WRITE(out,&len,4);VFS_WRITE(out,face->tex->shadername,len);VFS_WRITE(out,face->points,n*sizeof(vec3_t));total++;
++ }
++
++ }}
++ VFS_SEEK(out,8);VFS_WRITE(out,&total,4);VFS_CLOSE(out);G_INT(OFS_RETURN)=total;Con_Printf("GPU MAP: snapshot exported %u faces without BSP\n",total);
++}
++typedef struct {unsigned long long key;unsigned int offset,size,next;} rbgpu_record_t;
++void Terr_GPULoadMap(model_t *mod) {
++ char path[MAX_QPATH];size_t size=0;COM_StripExtension(mod->name,path,sizeof(path));Q_strncatz(path,".rblm",sizeof(path));unsigned char *data=(unsigned char*)FS_LoadMallocFile(path,&size);if(!data)return;
++ if(size<12||size>512u*1024*1024||memcmp(data,"RBLM103",8)){BZ_Free(data);return;}
++ unsigned int count;memcpy(&count,data+8,4);if(count>1000000){BZ_Free(data);return;}
++ unsigned int cap=1;while(cap<count*2)cap*=2;unsigned int *table=BZ_Malloc(cap*4);memset(table,255,cap*4);rbgpu_record_t *records=BZ_Malloc(count*sizeof(*records));size_t at=12;unsigned int valid=0;
++ for(unsigned int i=0;i<count;i++){if(at+12>size)break;memcpy(&records[i].key,data+at,8);memcpy(&records[i].size,data+at+8,4);at+=12;if(records[i].size>size-at)break;records[i].offset=at;at+=records[i].size;unsigned int bucket=(unsigned int)(records[i].key^(records[i].key>>32))&(cap-1);records[i].next=table[bucket];table[bucket]=i;valid++;}
++ if(valid==count&&at==size){unsigned int matched=0,faces=0;
++ for(int modelIndex=0;modelIndex<mod->numsubmodels;modelIndex++){model_t *part=modelIndex?Mod_FindName(va("*%i:%s",modelIndex,mod->name)):mod;heightmap_t *hm=part->terrain;if(!hm)continue;
++ for(unsigned int i=0;i<hm->numbrushes;i++){brushes_t *b=&hm->wbrushes[i];for(unsigned int f=0;f<b->numplanes;f++){struct brushface_s *face=&b->faces[f];if(!face->lightdata)continue;faces++;unsigned long long key=RBGpuKey(b,f);if(Cvar_VariableValue("ftebroom_skip_setup")&&faces<7)Con_Printf("GPU_MAP_DEBUG key=%llu plane=%g,%g,%g,%g uv=%g,%g,%g,%g/%g,%g,%g,%g size=%u,%u bias=%i,%i scale=%i\n",key,b->planes[f][0],b->planes[f][1],b->planes[f][2],b->planes[f][3],face->stdir[0][0],face->stdir[0][1],face->stdir[0][2],face->stdir[0][3],face->stdir[1][0],face->stdir[1][1],face->stdir[1][2],face->stdir[1][3],face->lmextents[0],face->lmextents[1],face->lmbias[0],face->lmbias[1],face->lmscale);unsigned int bucket=(unsigned int)(key^(key>>32))&(cap-1);for(unsigned int k=table[bucket];k!=~0u;k=records[k].next)if(records[k].key==key&&records[k].size==(unsigned int)face->lmextents[0]*face->lmextents[1]*3){memcpy(face->lightdata,data+records[k].offset,records[k].size);face->relight=false;face->relit=true;matched++;break;}}}
++ hm->rb_gpu_baked=true;hm->recalculatebrushlighting=true;hm->entsdirty=false;
++ }Con_Printf("GPU MAP: loaded %u/%u face lightmaps from %s\n",matched,faces,path);
++ }else Con_Printf("GPU MAP: invalid sidecar ignored: %s\n",path);
++ BZ_Free(records);BZ_Free(table);BZ_Free(data);
+ }
+ static brushes_t *Terr_Brush_Insert(model_t *model, heightmap_t *hm, brushes_t *brush)
+ {
+@@ -9511,6 +9551,7 @@
+ 	}
+ #endif
+ 
++	Terr_GPULoadMap(mod);
+ 	validatelinks(&hm->recycle);
+ 	return true;
+ }
+--- a/engine/gl/gl_terrain.h
++++ b/engine/gl/gl_terrain.h
+@@ -433,6 +433,7 @@
+ 	struct llightinfo_s *lightthreadmem;
+ 	qboolean inheritedlightthreadmem;
+ 	qboolean recalculatebrushlighting;
++ qboolean rb_gpu_baked;
+ 	lmalloc_t brushlmalloc;
+ 	float brushlmscale;
+ 	unsigned int *brushlmremaps;
+--- a/engine/common/pr_common.h
++++ b/engine/common/pr_common.h
+@@ -1319,3 +1319,7 @@
+ void QCBUILTIN PF_ReyondBroom_BrushMove(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
+ 
+ void QCBUILTIN PF_ReyondBroom_BrushDeleteBatch(pubprogfuncs_t *vm, struct globalvars_s *pr_globals);
++
++void QCBUILTIN PF_editor_gpu_snapshot(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals);
++
++void Terr_GPULoadMap(model_t *mod);
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -4831,6 +4831,7 @@
+         COM_WorkerPartialSync(model, &model->loadstate, MLS_LOADING);
+     if (model->loadstate != MLS_LOADED || (model->type != mod_brush && model->type != mod_heightmap))
+         return;
++    if(model->type==mod_heightmap)Terr_GPULoadMap(model);
+     csqc_world.worldmodel = model;
+     cl.worldmodel = r_worldentity.model = model;
+     csqc_worldchanged = true;
+@@ -8766,6 +8767,7 @@
+ 	{"ftebroom_point_colors", PF_ReyondBroom_PointColors, 0},
+ 	{"ftebroom_brush_move", PF_ReyondBroom_BrushMove, 0},
+     {"ftebroom_brush_delete_batch", PF_ReyondBroom_BrushDeleteBatch, 0},
++	{"editor_gpu_snapshot", PF_editor_gpu_snapshot, 0},
+ 	{"brush_get",				PF_brush_get,			0},
+ 	{"brush_create",			PF_brush_create,		0},
+ 	{"brush_delete",			PF_brush_delete,		0},

@@ -9,6 +9,12 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="map103hide"){recentWindow=false;runWindow=false;buildWindow=false;}
+  if(std::string(mode)=="map103open"){
+    gameProfile=2;gameProfileSave();expect(mountAssets(),"map103_mount");char map[4096]{};cvars->GetString("ftebroom_test_map",map,sizeof map);documentRequest("@"+std::string(map));recentWindow=false;
+  }
+  if(std::string(mode)=="map103bake"){expect(!assetsLoading&&assetError.empty(),"map103_resources");mapGpuBegin((int)cvars->GetFloat("ftebroom_test_bounce_rays"));}
+  if(std::string(mode)=="map103status"){core->Print(("MAP103_STATUS running="+std::to_string(mapGpuRunning)+" result="+mapGpuResult.u8string()+" message="+mapGpuMessage+"\n").c_str());}
   if(std::string(mode)=="q2102load"){
     gameProfile=3;std::snprintf(q2Mod,sizeof q2Mod,"%s",root);gameProfileSave();
     expect(mountAssets(),"q2102_mount");

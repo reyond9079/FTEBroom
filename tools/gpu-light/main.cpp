@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Small-map GPU light baker. Input geometry is immutable; output is a new BSP/LIT pair.
+// Isolated GPU bakers: direct MAP surface lighting and a legacy small-BSP path.
 #define SDL_MAIN_HANDLED
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
 #include <SDL2/SDL_opengl_glext.h>
@@ -17,14 +22,23 @@
 #include <vector>
 using V=std::array<float,3>;
 V add(V a,V b){for(int i=0;i<3;i++)a[i]+=b[i];return a;} V mul(V a,float s){for(auto& x:a)x*=s;return a;} float dot(V a,V b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];} V cross(V a,V b){return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};}
-std::string load(std::filesystem::path p){std::ifstream f(p,std::ios::binary);if(!f)throw std::runtime_error("Cannot read input");return {std::istreambuf_iterator<char>(f),{}};}
+std::string load(std::filesystem::path p){std::ifstream f(p,std::ios::binary);if(!f)throw std::runtime_error("Cannot read input: "+p.u8string());return {std::istreambuf_iterator<char>(f),{}};}
 void range(const std::string& s,size_t at,size_t n){if(at>s.size()||n>s.size()-at)throw std::runtime_error("Invalid BSP bounds");}
 template<class T>T get(const std::string&s,size_t a){range(s,a,sizeof(T));T v;memcpy(&v,s.data()+a,sizeof v);return v;}
 template<class T>void put(std::string&s,size_t a,T v){range(s,a,sizeof v);memcpy(s.data()+a,&v,sizeof v);}
 V vec(const std::string&s,size_t a){V v{get<float>(s,a),get<float>(s,a+4),get<float>(s,a+8)};for(float x:v)if(!std::isfinite(x)||std::abs(x)>1000000)throw std::runtime_error("Invalid geometry value");return v;}
 void save(std::filesystem::path p,const std::string&s){std::ofstream f(p,std::ios::binary);f.write(s.data(),s.size());if(!f)throw std::runtime_error("Cannot write output");}
 #define GLFUN(type,name) auto name=(type)SDL_GL_GetProcAddress(#name);if(!name)throw std::runtime_error("Missing OpenGL function " #name)
+#include "map_bake.h"
 int main(int argc,char**argv){try{
+#ifdef _WIN32
+ int wideCount=0;auto wide=CommandLineToArgvW(GetCommandLineW(),&wideCount);if(!wide)throw std::runtime_error("Cannot read Unicode command line");
+ std::vector<std::string> utf8(wideCount);std::vector<char*> pointers;
+ for(int i=0;i<wideCount;i++){int n=WideCharToMultiByte(CP_UTF8,0,wide[i],-1,nullptr,0,nullptr,nullptr);if(n<1){LocalFree(wide);throw std::runtime_error("Invalid Unicode argument");}utf8[i].resize(n);WideCharToMultiByte(CP_UTF8,0,wide[i],-1,utf8[i].data(),n,nullptr,nullptr);utf8[i].pop_back();}
+ LocalFree(wide);for(auto& value:utf8)pointers.push_back(value.data());argc=wideCount;argv=pointers.data();
+#endif
+
+ if(argc>1&&std::string(argv[1])=="--map")return mapbake::bake(argc,argv);
  auto start=std::chrono::steady_clock::now();if(argc<3)throw std::runtime_error("Usage: gpu-light input.bsp output.bsp [bounce-rays 0..64]");
  auto input=std::filesystem::absolute(std::filesystem::u8path(argv[1])),output=std::filesystem::absolute(std::filesystem::u8path(argv[2]));if(input==output||std::filesystem::exists(output))throw std::runtime_error("Choose a NEW output BSP; existing files are never overwritten");
  auto litpath=output;litpath.replace_extension(".lit");if(std::filesystem::exists(litpath))throw std::runtime_error("Output LIT already exists");

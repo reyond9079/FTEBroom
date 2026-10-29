@@ -80,6 +80,11 @@ Copy-Item "$src/scripts/smoke-windows.ps1" "$bundle/scripts" -Force
 New-Item -ItemType Directory -Force "$bundle/tools" | Out-Null
 Copy-Item "$src/tools/q3map2" "$bundle/tools" -Recurse -Force
 Copy-Item "$src/tools/ericw" "$bundle/tools" -Recurse -Force
+# The MAP/BSP baker owns a separate SDL/OpenGL context and never blocks the editor UI.
+New-Item -ItemType Directory -Force "$bundle/tools/gpu-light" | Out-Null
+Run 'g++' @('-std=c++17', '-O2', "$src/tools/gpu-light/main.cpp", '-o', "$bundle/tools/gpu-light/gpu-light.exe", '-lSDL2', '-lopengl32', '-lshell32', '-static-libgcc', '-static-libstdc++')
+Copy-Item "$MinGW/SDL2.dll", "$MinGW/libwinpthread-1.dll", "$src/tools/gpu-light/SDL2-LICENSE.txt" "$bundle/tools/gpu-light" -Force
+
 if(!(Test-Path "$src/tools/audio/ffmpeg.exe")){throw 'Build the audio helper first: scripts/build-audio.sh'}
 Copy-Item "$src/tools/audio" "$bundle/tools" -Recurse -Force
 New-Item -ItemType Directory -Force "$bundle/sources/ftebroom" | Out-Null

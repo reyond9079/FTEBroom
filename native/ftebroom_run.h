@@ -19,6 +19,7 @@ static bool runWindow,runActive,runExportWaiting,runHadError,runHaveLast;
 static int runSelected,runStep;
 static std::string runLog,runError;
 static uint64_t runControlAcks;
+static bool (*runReadyHook)()=nullptr;
 static void (*runExportHook)(const std::filesystem::path&)=nullptr;
 static void (*runStageHook)()=nullptr;
 #ifdef _WIN32
@@ -318,6 +319,7 @@ static void runTick()
   if(!runActive)return;
   try
   {
+    if(runReadyHook&&!runReadyHook())return;
 #ifdef _WIN32
     if(runProcess)
     {
@@ -352,6 +354,7 @@ static void runTick()
       if(gameProfile==3){auto texture=target.parent_path()/"textures/fb_grey.wal";std::filesystem::create_directories(texture.parent_path());auto bytes=modelResource("textures/fb_grey.wal");std::ofstream f(texture,std::ios::binary);f.write(bytes.data(),bytes.size());if(bytes.empty()||!f)throw std::runtime_error("Cannot stage default Quake II material.");}
       if(runExportHook)runExportHook(target);
       runExportWaiting=false;++runStep;
+      if(runReadyHook)return;
     }
     if(runStep>=(int)runningProfile.tasks.size()){runActive=false;runAppend("Completed successfully.\n");return;}
     if(!runningProfile.tasks[runStep].enabled){runAppend("Skipped disabled step "+std::to_string(++runStep)+"\n");return;}

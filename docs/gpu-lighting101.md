@@ -1,4 +1,6 @@
-# Experimental GPU lighting (alpha.101)
+# Experimental GPU lighting on BSP (legacy prototype)
+
+For direct MAP baking without BSP, see [GPU lighting on MAP](gpu-map-lighting103.md). The older BSP workflow below remains available.
 
 Open **Setup compile > Experimental GPU lighting** in the Quake 1 profile. Compile Geometry first; VIS and LIGHT can be disabled. Choose 0 rays for direct lighting or 1–64 cosine-weighted hemisphere rays for one diffuse bounce, then **Bake lighting on GPU**. A separate BSP/LIT pair is generated and displayed automatically. The normal compiler remains available.
 

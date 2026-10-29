@@ -7,13 +7,13 @@
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.102/ReyondBroom-0.5.0-alpha.102-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.102/ReyondBroom-0.5.0-alpha.102-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.103/ReyondBroom-0.5.0-alpha.103-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.103/ReyondBroom-0.5.0-alpha.103-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.102**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.102/ReyondBroom-0.5.0-alpha.102-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.103**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.103/ReyondBroom-0.5.0-alpha.103-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 
@@ -81,3 +81,5 @@ Install Python 3, Git, PowerShell and MSYS2 at `C:/msys64`, with MinGW64 GCC/G++
 See [architecture](ARCHITECTURE.md), [verification](TESTING.md), [shortcuts](docs/shortcuts.md) and [third-party notices](THIRD-PARTY.md). The combined editor includes GPL-3.0-or-later adaptations; original notices are retained. ImGui is MIT. Binary packages include corresponding source and upstream licenses. Preserve these when redistributing.
 
 Experimental small-map GPU lighting: [usage, measurements and limitations](docs/gpu-lighting101.md).
+
+Experimental Quake 1 **GPU lighting directly on MAP**, with direct light and one diffuse bounce, no BSP/VIS compilation: [usage and limitations](docs/gpu-map-lighting103.md).

@@ -1,0 +1,26 @@
+R"GLSL(#version 330
+uniform sampler2D nodes,tris,faces,pos,norm,lamps,albedo,directmap;uniform int nl,rays,total,offset,bouncePass,shadowSamples,skyRoot;uniform vec3 minimum;out vec4 result;
+vec4 data(sampler2D t,int i){return texelFetch(t,ivec2(i%1024,i/1024),0);}
+vec4 surface(int face,vec3 p){vec4 u=data(faces,face*6),v=data(faces,face*6+1),rect=data(faces,face*6+2);ivec2 uv=ivec2(floor(vec2(dot(u.xyz,p)+u.w,dot(v.xyz,p)+v.w)));ivec2 dims=ivec2(rect.zw);uv=((uv%dims)+dims)%dims;return texelFetch(albedo,ivec2(rect.xy)+uv,0);}
+bool box(vec3 o,vec3 inv,vec3 lo,vec3 hi,float limit){vec3 a=(lo-o)*inv,b=(hi-o)*inv;vec3 mn=min(a,b),mx=max(a,b);return max(max(mn.x,mn.y),max(mn.z,0.))<=min(min(mx.x,mx.y),min(mx.z,limit));}
+bool trace(vec3 o,vec3 d,float limit,out vec3 hp,out vec3 hn,out int face,bool shadow,int root){int stack[48];int sp=1;stack[0]=root;float best=limit;face=-1;vec3 inv=1./(d+vec3(1e-20));while(sp>0){int index=stack[--sp];vec4 lo=data(nodes,index*2),hi=data(nodes,index*2+1);if(!box(o,inv,lo.xyz,hi.xyz,best))continue;if(lo.w>=0.){if(sp>45)break;stack[sp++]=int(hi.w);stack[sp++]=int(lo.w);continue;}int begin=int(-lo.w)-1,count=int(hi.w);for(int j=0;j<count;j++){int t=(begin+j)*3;vec4 av=data(tris,t);vec3 a=av.xyz,b=data(tris,t+1).xyz,c=data(tris,t+2).xyz,e=b-a,f=c-a,p=cross(d,f);float det=dot(e,p);if(abs(det)<1e-8)continue;vec3 v=o-a;float u=dot(v,p)/det;if(u<0.||u>1.)continue;vec3 q=cross(v,e);float vv=dot(d,q)/det;if(vv<0.||u+vv>1.)continue;float dist=dot(f,q)/det;if(dist<=.025||dist>=best)continue;int fi=int(av.w);vec4 flags=data(faces,fi*6+3);if(flags.x==1.&&surface(fi,o+d*dist).a<.5)continue;if(flags.y<.01)continue;best=dist;face=fi;hn=normalize(cross(e,f));if(dot(hn,d)>0.)hn=-hn;if(shadow&&flags.x!=2.&&flags.y>=.999){hp=o+d*dist;return true;}}}
+hp=o+d*best;return face>=0;}
+bool hit(vec3 o,vec3 d,float limit,out vec3 hp,out vec3 hn,out int face){return trace(o,d,limit,hp,hn,face,false,0);}
+vec3 transmission(vec3 p,vec3 dir,float dist,bool sun){
+if(sun&&skyRoot>=0){vec3 h,n;int f;if(!trace(p,dir,dist,h,n,f,false,skyRoot))return vec3(0);dist=length(h-p)-.12;sun=false;}
+vec3 tint=vec3(1);for(int pass=0;pass<12;pass++){vec3 h,n;int f;if(!trace(p,dir,dist,h,n,f,!sun,0))return tint;vec4 flags=data(faces,f*6+3);if(flags.x==2.)return sun?tint:vec3(0);if(flags.y>=.999)return vec3(0);tint*=mix(vec3(1),surface(f,h).rgb,flags.y)*(1.-flags.y);float travel=length(h-p)+.08;p=h+dir*.08;dist-=travel;if(dist<=0.)return tint;}return vec3(0);}
+vec3 direct(vec3 p,vec3 n){vec3 sum=vec3(0);for(int i=0;i<nl;i++){vec4 l=data(lamps,i*4),c=data(lamps,i*4+1),cone=data(lamps,i*4+2),params=data(lamps,i*4+3);vec3 delta=c.w<0.?l.xyz:l.xyz-p;float dist=c.w<0.?65536.:length(delta);if(dist<.01)continue;vec3 dir=c.w<0.?l.xyz:delta/dist;float d=dist*params.x,value=c.w<0.?l.w:max(0.,l.w-d);int mode=int(c.w);if(mode==1)value=l.w*128./max(d,1.);else if(mode==2)value=l.w*16384./max(d*d,1.);else if(mode==3)value=l.w;else if(mode==5)value=l.w*16384./max((d+128.)*(d+128.),1.);
+if(cone.w>=0.&&c.w>=0.){float angle=dot(-dir,cone.xyz);if(angle<cone.w)continue;if(params.z>cone.w)value*=clamp((angle-cone.w)/(params.z-cone.w),0.,1.);}
+value*=(1.-params.y)+params.y*max(0.,dot(n,dir));if(value<.01)continue;sum+=c.rgb*value*transmission(p,dir,dist-.12,c.w<0.);}return sum;}
+vec3 irradiance(int face,vec3 p){vec4 u=data(faces,face*6),v=data(faces,face*6+1),meta=data(faces,face*6+4),grid=data(faces,face*6+5);vec2 tc=clamp(vec2(dot(u.xyz,p)+u.w,dot(v.xyz,p)+v.w)/meta.w-grid.xy,vec2(0),meta.yz-1.);ivec2 lo=ivec2(floor(tc)),hi=min(lo+1,ivec2(meta.yz)-1);int first=int(meta.x),w=int(meta.y);vec3 a=data(directmap,first+lo.x+lo.y*w).rgb,b=data(directmap,first+hi.x+lo.y*w).rgb,c=data(directmap,first+lo.x+hi.y*w).rgb,d=data(directmap,first+hi.x+hi.y*w).rgb;return mix(mix(a,b,fract(tc.x)),mix(c,d,fract(tc.x)),fract(tc.y));}
+void main(){int id=offset+int(gl_FragCoord.x)+int(gl_FragCoord.y)*1024;if(id>=total){result=vec4(0);return;}vec3 p=data(pos,id).xyz,n=data(norm,id).xyz;
+vec3 energy;
+if(bouncePass==0){
+ int face=int(data(pos,id).w);vec4 meta=data(faces,face*6+4),u=data(faces,face*6),v=data(faces,face*6+1);int local=id-int(meta.x),x=local%int(meta.y),y=local/int(meta.y);int side=shadowSamples==16?4:shadowSamples==4?2:1;
+ if(x==0||y==0||x==int(meta.y)-1||y==int(meta.z)-1)side=1;
+ vec3 du=cross(v.xyz,n),dv=cross(n,u.xyz);float det=dot(u.xyz,du);energy=vec3(0);
+ for(int sy=0;sy<side;sy++)for(int sx=0;sx<side;sx++){vec2 shift=(vec2(sx,sy)+.5)/float(side)-.5;vec3 delta=(du*shift.x+dv*shift.y)*meta.w/det;vec3 samplePoint=p+delta,h,hn;int hitFace;float distance=length(delta);if(distance>.001&&hit(p,delta/distance,distance,h,hn,hitFace))samplePoint=p;energy+=direct(samplePoint,n)/float(side*side);}
+}else energy=data(directmap,id).rgb;
+if(bouncePass!=0){vec3 u=normalize(cross(n,abs(n.z)<.9?vec3(0,0,1):vec3(0,1,0))),v=cross(n,u);for(int i=0;i<rays;i++){float t=(float(i)+.5)/float(rays),angle=float(i)*2.39996323;vec3 dir=u*(sqrt(t)*cos(angle))+v*(sqrt(t)*sin(angle))+n*sqrt(1.-t),h,hn;int f;if(hit(p,dir,65536.,h,hn,f)&&data(faces,f*6+3).x<2.&&dot(hn,data(norm,int(data(faces,f*6+4).x)).xyz)>.5)energy+=irradiance(f,h)*surface(f,h).rgb*.55/float(rays);}}
+result=vec4(bouncePass==0&&rays>0?energy:max(energy,minimum),1);}
+)GLSL"

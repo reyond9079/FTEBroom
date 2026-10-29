@@ -1,3 +1,4 @@
+int(string path) editor_gpu_snapshot = #0:editor_gpu_snapshot;
 var float autocvar_ftebroom_grid_fade_start=512,autocvar_ftebroom_grid_fade_end=1024;
 int *fb_static_access;int fb_static_access_count,fb_static_preview_supported;
 void fb_static_preview_prepare();
@@ -636,6 +637,7 @@ float() ftebroom_command =
     if(fb_context_command())return TRUE;
     if(argv(0)=="ftebroom_tag") {fb_filter_tag(argv(1),stoi(argv(2)));return TRUE;}
     if(argv(0)=="ftebroom_export_selected_bsp") {fb_export_selected_bsp();return TRUE;}
+    if(argv(0)=="ftebroom_gpu_snapshot") {cvar_set("ftebroom_gpu_snapshot_status",itos(editor_gpu_snapshot(argv(1))));return TRUE;}
     if(argv(0)=="ftebroom_export_map") {fb_export_map();return TRUE;}
     if(argv(0)=="ftebroom_group") {fb_group_create(argv(1));return TRUE;}
     if(argv(0)=="ftebroom_organize") {fb_organize_action(argv(1),stoi(argv(2)),argv(3));return TRUE;}

@@ -3,6 +3,12 @@
 static bool buildWindow,buildRunning,buildGeometry=true,buildVis=true,buildLight=true;
 static bool buildWasPreview;
 static bool gpuBakeRunning=false;
+static bool mapGpuRunning=false,mapGpuSnapshotPending=false;
+static double mapGpuSnapshotStarted=0,mapGpuSnapshotPoll=0;
+static int mapGpuRevision=-1,mapGpuGeneration=0;
+static std::filesystem::path mapGpuFolder,mapGpuDocument,mapGpuResult,mapGpuResultDocument;
+static int mapGpuResultRevision=-1,mapGpuResultGeneration=-1,mapGpuResultProfile=-1;
+static std::string mapGpuMessage;
 static std::filesystem::path gpuBakeOutput,gpuBakeDocument;
 static std::string buildMessage,buildResultModel,buildPendingModel;
 static std::filesystem::path buildResult,buildPending,buildDocument,buildResultDocument;
@@ -97,6 +103,70 @@ static void buildShow()
     command(("fs_flush\nftebroom_bsp "+buildResultModel+"\n").c_str());
   }catch(const std::exception& error){buildMessage=error.what();buildRestoreLayout();}
 }
+static void mapGpuShow(){
+  if(mapGpuResult.empty()||mapGpuResultDocument!=documentFile||mapGpuResultProfile!=gameProfile)return;
+  if(mapGpuResultRevision!=buildCurrentContentRevision()||mapGpuResultGeneration!=(int)documentGeneration){mapGpuMessage="The map changed. Bake MAP lighting again before previewing.";return;}
+  try{
+    auto cache=documentPath("maps/ftebroom-build/"+mapGpuResult.parent_path().filename().u8string());std::filesystem::create_directories(cache);
+    std::filesystem::copy_file(mapGpuResult,cache/"snapshot.map",std::filesystem::copy_options::overwrite_existing);
+  }catch(const std::exception& e){mapGpuMessage=e.what();return;}
+  auto saved=buildResult;auto savedModel=buildResultModel;auto savedDocument=buildResultDocument;int savedProfile=buildResultProfile;
+  buildResult=mapGpuResult;buildResultDocument=documentFile;buildResultProfile=gameProfile;
+  buildResultModel="maps/ftebroom-build/"+mapGpuResult.parent_path().filename().u8string()+"/snapshot.map";
+  buildShow();buildResult=saved;buildResultModel=savedModel;buildResultDocument=savedDocument;buildResultProfile=savedProfile;
+}
+static std::string unityTexture(const MaterialEntry& material);
+static void mapGpuStageAssets(const std::filesystem::path& target){
+  if(documentFile!=mapGpuDocument)throw std::runtime_error("The active map changed during export.");
+  std::filesystem::copy_file(documentPath("data/gpu-map.scene"),target.parent_path()/"scene.rbgs");
+  std::ofstream manifest(target.parent_path()/"materials.txt");
+  std::filesystem::create_directories(target.parent_path()/"materials");int index=0;
+  std::set<std::string> used;auto scene=q1Read(target.parent_path()/"scene.rbgs");size_t at=12;
+  while(at<scene.size()){auto n=ftebroom::quake1::word(scene,at+8),length=ftebroom::quake1::word(scene,at+80);ftebroom::quake1::range(scene,at+84,length+uint64_t(n)*12);used.insert(scene.substr(at+84,length));at+=84+length+size_t(n)*12;}
+  for(const auto& pair:materials){const auto& m=pair.second;if(m.preview.empty()||(!used.count(m.name)&&!used.count(m.name.rfind("textures/",0)==0?m.name.substr(9):"textures/"+m.name)))continue;
+    auto tga=unityTexture(m);if(tga.empty())continue;
+    auto path=target.parent_path()/"materials"/(std::to_string(index++)+".tga");
+    std::ofstream image(path,std::ios::binary);image.write(tga.data(),tga.size());if(!image)throw std::runtime_error("Cannot stage GPU material.");
+    manifest<<std::quoted(m.name)<<' '<<std::quoted(path.generic_u8string())<<' '<<(m.masked||m.name.rfind("textures/{",0)==0||m.name.rfind("{",0)==0)<<' '<<m.opacity<<'\n';
+  }
+  if(!manifest)throw std::runtime_error("Cannot write GPU material manifest.");
+  mapGpuRevision=buildCurrentContentRevision();mapGpuGeneration=(int)documentGeneration;
+}
+static void mapGpuExported(const std::filesystem::path& target){
+  if(documentFile!=mapGpuDocument)throw std::runtime_error("The active map changed during export.");
+  auto relative="maps/ftebroom-build/"+mapGpuFolder.filename().u8string()+"/snapshot.map";
+  std::filesystem::create_directories(documentPath(relative).parent_path());std::filesystem::copy_file(target,documentPath(relative));
+  cvars->SetFloat("ftebroom_gpu_snapshot_status",0);mapGpuSnapshotPending=true;mapGpuSnapshotStarted=ImGui::GetTime();mapGpuSnapshotPoll=mapGpuSnapshotStarted;
+  command(("ftebroom_gpu_snapshot "+relative+"\n").c_str());
+}
+static bool mapGpuReady(){
+  if(!mapGpuSnapshotPending)return true;
+  int status=(int)cvars->GetFloat("ftebroom_gpu_snapshot_status");
+  if(status==0){if(ImGui::GetTime()-mapGpuSnapshotStarted>120)throw std::runtime_error("GPU MAP snapshot preparation timed out.");
+    if(ImGui::GetTime()-mapGpuSnapshotPoll>.2){mapGpuSnapshotPoll=ImGui::GetTime();command(("ftebroom_gpu_snapshot maps/ftebroom-build/"+mapGpuFolder.filename().u8string()+"/snapshot.map\n").c_str());}return false;}
+  if(status<0)throw std::runtime_error("Cannot extract brush lighting from the MAP snapshot; patches are not supported.");
+  mapGpuStageAssets(mapGpuFolder/"snapshot.map");mapGpuSnapshotPending=false;return true;
+}
+static void mapGpuBegin(int rays, int samples=4){
+  if(runActive||buildRunning||mapGpuRunning)return;
+  try{
+    if(assetsLoading)throw std::runtime_error("Wait for game resources to finish loading before baking.");
+    if(gameProfile!=2)throw std::runtime_error("MAP GPU lighting currently supports Quake 1.");
+    if(documentFile.empty())throw std::runtime_error("Save the map once before baking MAP lighting.");
+    if(cvars->GetFloat("ftebroom_bsp_preview"))buildEdit();
+    auto stamp=std::chrono::system_clock::now().time_since_epoch().count();mapGpuFolder=ftebroom::pak::diskFolder(documentFile.parent_path())/"_ftebroom-build"/("map-gpu-"+std::to_string(stamp));std::filesystem::create_directories(mapGpuFolder);mapGpuDocument=documentFile;
+    auto helper=documentPath("ftebroom.cfg").parent_path().parent_path()/"tools/gpu-light";
+#ifdef _WIN32
+    helper/="gpu-light.exe";
+#else
+    helper/="gpu-light";
+#endif
+    std::ostringstream args;args<<"--map "<<std::quoted((mapGpuFolder/"scene.rbgs").generic_u8string())<<' '<<std::quoted((mapGpuFolder/"snapshot.map").generic_u8string())<<' '<<std::quoted((mapGpuFolder/"snapshot.rblm").generic_u8string())<<' '<<rays<<' '<<std::quoted((mapGpuFolder/"materials.txt").generic_u8string())<<' '<<samples;
+    runReadyHook=mapGpuReady;mapGpuSnapshotPending=false;runExportHook=mapGpuExported;runStageHook=nullptr;
+    runBegin({"GPU lighting directly on MAP (no BSP)",mapGpuFolder.u8string(),false,{{0,"${WORK_DIR_PATH}/snapshot.map",""},{1,helper.u8string(),args.str()}}});
+    mapGpuRunning=runActive;gameProfileLocked=runActive;runWindow=false;mapGpuMessage="Exporting MAP polygons and materials...";
+  }catch(const std::exception& e){mapGpuMessage=e.what();runReadyHook=nullptr;mapGpuSnapshotPending=false;runExportHook=nullptr;}
+}
 static std::string modQuote(const std::string& text);
 static void modValidate();
 static void modPreview();
@@ -167,9 +237,24 @@ static void buildBegin()
     {std::ofstream settings(documentPath(buildSettingsFile()));settings<<buildGeometry<<' '<<buildVis<<' '<<buildLight;for(auto& argument:buildArguments)settings<<' '<<std::quoted(argument);if(gameProfile==4)settings<<' '<<std::quoted(buildCsgArguments);}
   }catch(const std::exception& error){buildMessage=error.what();runExportHook=nullptr;runStageHook=nullptr;}
 }
+static void mapGpuTestTick(){
+  if(!cvars->GetFloat("ftebroom_skip_setup")||!cvars->GetFloat("ftebroom_test_map_gpu_auto"))return;
+  static int stage=0;static double since=0;
+  if(stage==0&&!assetsLoading){char map[4096]{};cvars->GetString("ftebroom_test_map",map,sizeof map);if(!*map)return;recentWindow=false;documentRequest("@"+std::string(map));stage=1;since=ImGui::GetTime();}
+  if(stage==1&&!assetsLoading&&!documentFile.empty()&&pendingDocumentFile.empty()&&ImGui::GetTime()-since>3){stage=2;mapGpuBegin((int)cvars->GetFloat("ftebroom_test_bounce_rays"));}
+  if(stage==2&&!mapGpuRunning){stage=3;since=ImGui::GetTime();command("ftebroom_camera_restore 0 -200 110 5 90 0 90\n");std::ofstream result(documentPath("data/map-gpu-test-result.txt"));result<<mapGpuMessage<<'\n'<<mapGpuResult.u8string()<<'\n'<<runLog;core->Print(("MAP_GPU_TEST_RESULT "+mapGpuMessage+"\n").c_str());}
+  if(stage==3&&ImGui::GetTime()-since>2){stage=4;command("screenshot map103-gpu.png\n");}
+}
 static void buildTick()
 {
+  mapGpuTestTick();
   if(buildWasPreview && !modEmbedded && !cvars->GetFloat("ftebroom_bsp_preview"))buildRestoreLayout();
+  if(mapGpuRunning&&!runActive){
+    {std::ofstream log(mapGpuFolder/"build.log");log<<runLog;}
+    mapGpuRunning=false;gameProfileLocked=false;runReadyHook=nullptr;mapGpuSnapshotPending=false;runExportHook=nullptr;runStageHook=nullptr;
+    if(runHadError||!std::filesystem::exists(mapGpuFolder/"snapshot.rblm"))mapGpuMessage=runHadError?runError:"MAP bake cancelled. Previous output retained.";
+    else{mapGpuResult=mapGpuFolder/"snapshot.map";mapGpuResultDocument=mapGpuDocument;mapGpuResultRevision=mapGpuRevision;mapGpuResultGeneration=mapGpuGeneration;mapGpuResultProfile=gameProfile;mapGpuMessage="MAP GPU bake complete; no BSP was generated.";mapGpuShow();}
+  }
   if(gpuBakeRunning&&!runActive){
     gpuBakeRunning=false;gameProfileLocked=false;
     if(gpuBakeDocument!=documentFile){buildMessage="Map changed during GPU bake; output saved without replacing the current preview.";}
@@ -216,6 +301,13 @@ static void buildPanel()
     if(ImGui::CollapsingHeader("Advanced compiler arguments")) {
       if(gameProfile==4)runText("CSG arguments",buildCsgArguments);runText("BSP arguments",buildArguments[0]);runText("VIS arguments",buildArguments[1]);runText("LIGHT arguments",buildArguments[2]);
       ImGui::TextWrapped("Extra arguments before the input filename. Example LIGHT: -fast -samples 3 -bounce 2. Passed directly to the selected compiler, not a command shell.");
+    }
+    if(gameProfile==2&&ImGui::CollapsingHeader("GPU lighting on MAP (no BSP)")){
+      static int mapRays=32;static int mapSamples=1;const char* quality[]={"Fast (1 sample)","Balanced (4 samples)","Fine (16 samples)"};ImGui::Combo("MAP shadow quality",&mapSamples,quality,3);ImGui::SliderInt("MAP bounce rays",&mapRays,0,64);
+      ImGui::TextWrapped("Experimental: direct point lights and one diffuse bounce on brush MAP geometry. Uses a BVH, texture alpha masks and separate surface lightmaps. No QBSP, VIS or CPU LIGHT. Patches and moving objects are not yet supported. Point lights, target/mangle spotlights and target-based Quake sunlight are supported. Animated lightstyles bake at static brightness. The source MAP stays unchanged.");
+      if(ImGui::Button("Bake MAP lighting"))mapGpuBegin(mapRays,mapSamples==0?1:mapSamples==1?4:16);
+      ImGui::SameLine();if(ImGui::Button("Show baked MAP"))mapGpuShow();
+      if(!mapGpuMessage.empty())ImGui::TextWrapped("%s",mapGpuMessage.c_str());
     }
     if(gameProfile==2&&ImGui::CollapsingHeader("Experimental GPU lighting")){
       static int rays=32;ImGui::SliderInt("One-bounce rays",&rays,0,64);
@@ -302,7 +394,7 @@ static void buildToolbar(bool inlineTools=false)
 }
 static void buildOverlay()
 {
-  if(!buildRunning && !modLoading && buildMessage.empty())return;
+  if(!buildRunning && !mapGpuRunning && !modLoading && buildMessage.empty())return;
   int pane=-1;for(int i=0;i<viewLayout;i++)if(viewRects[i].type==0&&viewRects[i].w>0){pane=i;break;}
   if(pane<0)return;auto r=viewRects[pane];float width=std::max(120.f,std::min(r.w-16,600.f*uiScale()));
   ImGui::SetNextWindowPos({r.x+r.w*.5f,r.y+12*uiScale()},ImGuiCond_Always,{.5f,0});ImGui::SetNextWindowSize({width,0});ImGui::SetNextWindowBgAlpha(.97f);
@@ -312,6 +404,11 @@ static void buildOverlay()
       ImGui::TextDisabled("Preparing the engine, map and game resources");
       ImGui::ProgressBar(-float(ImGui::GetTime()),{-1,8*uiScale()},"");
       if(ImGui::Button("Cancel"))modEmbedEnd();
+    }else if(mapGpuRunning){
+      ImGui::TextUnformatted("GPU lighting on MAP (no BSP)");
+      auto progress=runLog.rfind("Progress ");int percent=-1;if(progress!=std::string::npos)std::sscanf(runLog.c_str()+progress,"Progress %d",&percent);
+      ImGui::ProgressBar(percent<0?-float(ImGui::GetTime()):percent/100.f,{-1,8*uiScale()},percent<0?"Preparing polygons and materials":"GPU lighting");
+      if(ImGui::SmallButton("Cancel bake"))runStop();ImGui::SameLine();if(ImGui::SmallButton("Log"))runWindow=true;
     }else if(buildRunning){int step=std::min(runStep,(int)buildStages.size()-1);
       ImGui::Text("%s | %.0f s",buildStages[step].c_str(),ImGui::GetTime()-buildStarted);
       ImGui::ProgressBar(float(runStep)/float(buildStages.size()),{-1,6},"");
