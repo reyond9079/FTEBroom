@@ -135,6 +135,12 @@ void fb_entity_create(string classname,int brush,vector position)
     fb_tx_begin("Create entity");int id=terrain_edit(TEREDIT_ENT_ADD,"");
     string data=strcat("\"classname\" \"",fb_organize_escape(name),"\"\n");
     if(!brush)data=strcat(data,"\"origin\" \"",vtos(position),"\"\n");
+    // GoldSrc requires _light even when optional property defaults are disabled.
+    if(!autocvar_ftebroom_instantiate_defaults && (int)fb_entity_defaults!=0)
+      if(name=="light" || name=="light_spot" || name=="light_environment") {
+        string requiredLight=fb_entity_defaults[strcat(name,"/_light")];
+        if(requiredLight!="")data=strcat(data,"\"_light\" \"",fb_organize_escape(requiredLight),"\"\n");
+      }
     if(autocvar_ftebroom_instantiate_defaults && (int)fb_entity_defaults!=0) {
         string prefix=strcat(name,"/");
         for(int k=0;;k++) {

@@ -2,6 +2,10 @@
 #include "ftebroom_model_import.h"
 #include <functional>
 #include "ftebroom_model_static_export.h"
+#include "ftebroom_model_md2_export.h"
+#include "ftebroom_model_studio_export.h"
+static ftebroom::modelEdit::Matrix modelConverterNativeMatrix;
+static bool modelConverterNativeAffine=false;
 static bool modelConverterEditor=false;
 static int modelConverterSourceSkin=0;
 static std::function<void(ftebroom::modelExport::Mesh&)> modelConverterTransform;
@@ -14,26 +18,51 @@ static char modelConverterDestination[4096]={};
 static std::filesystem::path modelConverterFolder;
 static bool modelConverterFolderOpen=false;
 static ImVec2 modelConverterBakeCenter;
-static const char* modelConverterExtension(){return modelConverterFormat==4?".md5mesh":modelConverterFormat==3?".iqm":modelConverterFormat==2?".mdl":modelConverterFormat==1?".obj":".md3";}
+static const char* modelConverterExtension(){return modelConverterFormat==6?".mdl":modelConverterFormat==5?".md2":modelConverterFormat==4?".md5mesh":modelConverterFormat==3?".iqm":modelConverterFormat==2?".mdl":modelConverterFormat==1?".obj":".md3";}
 static void modelConverterShow(const std::string& source) {
   if(modelConverterPending||modelImportJob.valid())return;
-  modelConverterEditor=false;modelConverterTransform={};modelConverterMdlTransform={};modelConverterSourceSkin=0;
+  modelConverterEditor=false;modelConverterNativeAffine=false;modelConverterNativeMatrix={};modelConverterTransform={};modelConverterMdlTransform={};modelConverterSourceSkin=0;
   modelImportExternal.clear();modelImportStage.clear();modelImportProfile=gameProfile;
   modelConverterSource=source;modelConverterOpen=true;modelConverterMessage.clear();modelConverterAcceptLoss=false;
-  modelConverterFormat=gameProfile==2?2:0;modelConverterFrames=1;modelConverterSequence=0;
+  modelConverterFormat=gameProfile==4?6:gameProfile==3?5:gameProfile==2?2:0;modelConverterFrames=1;modelConverterSequence=0;
   auto target=modFileRoot()/"models"/"converted"/(std::filesystem::u8path(source).stem().u8string()+modelConverterExtension());
   std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());
 }
 static void modelConverterSave(ftebroom::modelExport::Mesh mesh) {
   std::vector<std::string> originalMaterials;for(auto& surface:mesh.surfaces)originalMaterials.push_back(surface.material);
-  if(modelConverterTransform)modelConverterTransform(mesh);
+  if(modelConverterTransform&&!mesh.surfaces.empty())modelConverterTransform(mesh);
   if(gameProfile!=modelImportProfile)throw std::runtime_error("Game profile changed. Reopen the conversion in the intended profile.");
   auto target=std::filesystem::u8path(modelConverterDestination);if(!modelConverterEditor)modFileValidate(target);
   if(modelConverterEditor&&!target.is_absolute())throw std::runtime_error("Choose an absolute export path.");
   if(modFilePacked(target)||std::filesystem::exists(target))throw std::runtime_error("Choose a new loose filename inside the mod directory.");
   std::vector<ftebroom::modelExport::Skin> skins;
   std::string source;auto sourcePath=modelImportExternal.empty()?std::filesystem::u8path(modelConverterSource):modelImportExternal;
-  if(entityLower(sourcePath.extension().u8string())==".mdl")source=modelImportExternal.empty()?modelResource(modelConverterSource):q1Read(modelImportExternal);
+  if(entityLower(sourcePath.extension().u8string())==".mdl"||entityLower(sourcePath.extension().u8string())==".md2")source=modelImportExternal.empty()?modelResource(modelConverterSource):q1Read(modelImportExternal);
+  if(modelConverterFormat==6&&source.substr(0,4)=="IDST"){
+    if(modelConverterEditor&&!modelConverterNativeAffine)throw std::runtime_error("Native studio export requires the complete rig transform without material overrides.");
+    auto companion=[&](const std::string& name){
+      auto read=[&](const std::filesystem::path& p){return modelImportExternal.empty()?modelResource(p.generic_u8string()):(std::filesystem::is_regular_file(p)?q1Read(p):std::string());};
+      if(name=="@textures"){auto p=sourcePath.parent_path()/(sourcePath.stem().u8string()+"t.mdl");auto b=read(p);if(b.empty())b=read(sourcePath.parent_path()/(sourcePath.stem().u8string()+"T.mdl"));return b;}
+      auto p=std::filesystem::u8path(name);if(p.is_absolute()||p.has_root_name())throw std::runtime_error("Unsafe studio companion path.");for(auto& part:p)if(part=="..")throw std::runtime_error("Unsafe studio companion path.");
+      auto b=read(p);if(b.empty())b=read(sourcePath.parent_path()/p.filename());return b;
+    };
+    auto output=ftebroom::studioExport::transform(source,modelConverterNativeMatrix,companion);
+    std::filesystem::create_directories(target.parent_path());auto temp=target;temp+=".ftebroom-convert.tmp";if(std::filesystem::exists(temp))throw std::runtime_error("Export temporary file already exists.");
+    try{soundWrite(temp,output);std::filesystem::rename(temp,target);}catch(...){std::error_code ec;std::filesystem::remove(temp,ec);throw;}
+    command("fs_flush\n");modFilesRefresh=true;modelConverterMessage="Exported native GoldSrc MDL with all sequences, blends, events, bodygroups, skins and embedded textures. Bone channels are re-encoded at studio precision.";return;
+  }
+  if(modelConverterFormat==5&&source.substr(0,4)=="IDP2"&&(!modelConverterEditor||modelConverterNativeAffine)){
+    auto output=ftebroom::modelExport::transformMd2(source,modelConverterNativeMatrix);auto count=ftebroom::quake1::word(source,20),table=ftebroom::quake1::word(source,44);if(!count||count>32)throw std::runtime_error("Native MD2 requires 1 to 32 skins.");
+    ftebroom::quake1::range(source,table,size_t(count)*64);auto folder=target.parent_path()/(target.stem().u8string()+"-skins");if(std::filesystem::exists(folder))throw std::runtime_error("Destination skin folder already exists.");
+    std::vector<std::string> images;for(unsigned i=0;i<count;i++){
+      auto original=ftebroom::quake1::name(source,table+i*64,64);auto image=modelImportTexture(original);ftebroom::legacy::pcx(image);images.push_back(std::move(image));
+      auto skinPath=folder/(std::to_string(i)+".pcx");auto name=modFileModelPath(skinPath);if(name.empty())name=skinPath.lexically_relative(target.parent_path()).generic_u8string();if(name.size()>=64)throw std::runtime_error("MD2 skin path must be shorter than 64 bytes.");output.replace(table+i*64,64,name+std::string(64-name.size(),0));
+    }
+    std::filesystem::create_directories(target.parent_path());auto temp=target;temp+=".ftebroom-convert.tmp";if(std::filesystem::exists(temp))throw std::runtime_error("Export temporary file already exists.");bool owned=false;
+    try{owned=std::filesystem::create_directory(folder);if(!owned)throw std::runtime_error("Cannot create skin folder.");for(unsigned i=0;i<count;i++)soundWrite(folder/(std::to_string(i)+".pcx"),images[i]);soundWrite(temp,output);std::filesystem::rename(temp,target);}
+    catch(...){std::error_code ec;std::filesystem::remove(temp,ec);if(owned){for(unsigned i=0;i<count;i++)std::filesystem::remove(folder/(std::to_string(i)+".pcx"),ec);std::filesystem::remove(folder,ec);}throw;}
+    command("fs_flush\n");modFilesRefresh=true;modelConverterMessage="Exported native MD2: every frame, frame name, UV and original PCX skin retained; transformed positions use MD2 precision.";return;
+  }
   if(modelConverterEditor&&modelConverterFormat==2&&modelConverterMdlTransform&&source.substr(0,4)=="IDPO"){
     auto output=modelConverterMdlTransform(source);std::filesystem::create_directories(target.parent_path());auto temp=target;temp+=".ftebroom-convert.tmp";
     if(std::filesystem::exists(temp))throw std::runtime_error("Export temporary file already exists.");
@@ -46,15 +75,17 @@ static void modelConverterSave(ftebroom::modelExport::Mesh mesh) {
       auto palette=modelResource("gfx/palette.lmp");auto mdl=ftebroom::readMdl(source,modelConverterSourceSkin);
       skins.push_back(modelImportDecode(ftebroom::quake1::tga(mdl.skin,palette)));
     }else if(source.substr(0,4)=="IDST"&&surface.material.rfind("__hl_texture_",0)==0){
-      auto skin=modelImportHalfLifeSkin(source,std::stoul(surface.material.substr(13)));
+      auto skin=modelImportHalfLifeSkin(source,std::stoul(surface.material.substr(13)),modelConverterSource);
       for(auto& frame:surface.frames)for(auto& v:frame){v.uv[0]/=skin.width;v.uv[1]/=skin.height;}
       skins.push_back(std::move(skin));
     }else skins.push_back(modelImportDecode(modelImportTexture(surface.material)));
   }
   auto skinFolder=target.parent_path()/(target.stem().u8string()+"-skins");
-  if(modelConverterFormat!=2&&std::filesystem::exists(skinFolder))throw std::runtime_error("The destination skin directory already exists. Choose a new filename.");
+  if(modelConverterFormat!=2&&modelConverterFormat!=6&&std::filesystem::exists(skinFolder))throw std::runtime_error("The destination skin directory already exists. Choose a new filename.");
   for(size_t i=0;i<mesh.surfaces.size();i++){auto path=skinFolder/(std::to_string(i)+".tga");auto name=modFileModelPath(path);mesh.surfaces[i].material=name.empty()?path.lexically_relative(target.parent_path()).generic_u8string():name;}
-  std::string output=modelConverterFormat==4?ftebroom::modelExport::md5mesh(mesh):modelConverterFormat==3?ftebroom::modelExport::iqm(mesh):modelConverterFormat==2?ftebroom::modelExport::mdl(mesh,skins,modelResource("gfx/palette.lmp")):modelConverterFormat==1?ftebroom::modelExport::obj(mesh):ftebroom::modelExport::md3(mesh);
+  std::string md2Skin;std::string output;
+  if(modelConverterFormat==5){auto skinPath=skinFolder/"skin.pcx";auto name=modFileModelPath(skinPath);if(name.empty())name=skinPath.lexically_relative(target.parent_path()).generic_u8string();auto md2=ftebroom::modelExport::md2(mesh,skins,q2Palette(),name);output=std::move(md2.model);md2Skin=std::move(md2.skin);}
+  else output=modelConverterFormat==6?ftebroom::studioExport::bake(mesh,skins,modelConverterFPS):modelConverterFormat==4?ftebroom::modelExport::md5mesh(mesh):modelConverterFormat==3?ftebroom::modelExport::iqm(mesh):modelConverterFormat==2?ftebroom::modelExport::mdl(mesh,skins,modelResource("gfx/palette.lmp")):modelConverterFormat==1?ftebroom::modelExport::obj(mesh):ftebroom::modelExport::md3(mesh);
   auto mtl=target;mtl.replace_extension(".mtl");std::string materialText;
   if(modelConverterFormat==1){
     if(std::filesystem::exists(mtl))throw std::runtime_error("The destination MTL already exists.");
@@ -65,9 +96,9 @@ static void modelConverterSave(ftebroom::modelExport::Mesh mesh) {
   if(std::filesystem::exists(temp))throw std::runtime_error("Conversion temporary file already exists.");
   bool ownedSkins=false;
   try{
-    if(modelConverterFormat!=2){ownedSkins=std::filesystem::create_directory(skinFolder);if(!ownedSkins)throw std::runtime_error("Cannot create skin directory.");for(size_t i=0;i<skins.size();i++)soundWrite(skinFolder/(std::to_string(i)+".tga"),modelImportTga(skins[i]));}
+    if(modelConverterFormat!=2&&modelConverterFormat!=6){ownedSkins=std::filesystem::create_directory(skinFolder);if(!ownedSkins)throw std::runtime_error("Cannot create skin directory.");if(modelConverterFormat==5)soundWrite(skinFolder/"skin.pcx",md2Skin);else for(size_t i=0;i<skins.size();i++)soundWrite(skinFolder/(std::to_string(i)+".tga"),modelImportTga(skins[i]));}
     if(modelConverterFormat==1)soundWrite(mtl,materialText);soundWrite(temp,output);std::filesystem::rename(temp,target);
-  }catch(...){std::error_code ec;std::filesystem::remove(temp,ec);if(modelConverterFormat==1)std::filesystem::remove(mtl,ec);if(ownedSkins){for(size_t i=0;i<skins.size();i++)std::filesystem::remove(skinFolder/(std::to_string(i)+".tga"),ec);std::filesystem::remove(skinFolder,ec);}throw;}
+  }catch(...){std::error_code ec;std::filesystem::remove(temp,ec);if(modelConverterFormat==1)std::filesystem::remove(mtl,ec);if(ownedSkins){std::filesystem::remove(skinFolder/"skin.pcx",ec);for(size_t i=0;i<skins.size();i++)std::filesystem::remove(skinFolder/(std::to_string(i)+".tga"),ec);std::filesystem::remove(skinFolder,ec);}throw;}
   command("fs_flush\n");modFilesRefresh=true;modelConverterMessage="Saved "+target.u8string()+". Source coordinates and origin retained (target-format quantization applies).";
 }
 static void modelConverterPanel() {
@@ -85,7 +116,7 @@ static void modelConverterPanel() {
   }
   if(!modelConverterOpen&&!modelConverterPending&&!modelImportQueue.empty()){
     auto request=modelImportQueue.front();modelImportQueue.erase(modelImportQueue.begin());
-    modelConverterShow(request.source.u8string());modelImportExternal=request.source;modelImportProfile=request.profile;modelConverterFormat=request.profile==2?2:0;if(modelImportBridge(request.source))modelConverterSequence=1;
+    modelConverterShow(request.source.u8string());modelImportExternal=request.source;modelImportProfile=request.profile;modelConverterFormat=request.profile==4?6:request.profile==3?5:request.profile==2?2:0;if(modelImportBridge(request.source))modelConverterSequence=1;
     auto folder=(modFilePacked(request.folder)||wadBrowseFolder(request.folder))?modFileRoot()/"models"/"converted":request.folder;
     auto target=folder/(request.source.stem().u8string()+modelConverterExtension());
     for(int i=1;std::filesystem::exists(target);i++)target=folder/(request.source.stem().u8string()+"-"+std::to_string(i)+modelConverterExtension());
@@ -102,9 +133,9 @@ static void modelConverterPanel() {
     }
     if(modelConverterPending&&!modelImportDownloading)ImGui::TextUnformatted("Baking model and textures. The editor remains usable.");
     ImGui::BeginDisabled(modelConverterPending);
-    if(modelImportProfile==1||modelConverterEditor){int choice=modelConverterFormat;if(ImGui::Combo("Target format",&choice,"MD3 (baked animation)\0OBJ + MTL (static)\0Quake MDL (paletted skin)\0IQM (static pose)\0MD5MESH (static pose)\0")){modelConverterFormat=choice;auto target=std::filesystem::u8path(modelConverterDestination);target.replace_extension(modelConverterExtension());std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());}}
-    else ImGui::Text("Target: %s",modelImportProfile==2?"Quake MDL":"Quake III MD3");
-    if(modelImportProfile>=3)ImGui::TextWrapped("Converter outputs target the FTE engine. Native Quake II MD2 / GoldSrc studio MDL export is not provided by this converter.");
+    if(modelImportProfile==1||modelConverterEditor){int choice=modelConverterFormat;if(ImGui::Combo("Target format",&choice,"MD3 (baked animation)\0OBJ + MTL (static)\0Quake MDL (paletted skin)\0IQM (static pose)\0MD5MESH (static pose)\0Quake II MD2 (baked animation)\0GoldSrc MDL (native rig)\0")){modelConverterFormat=choice;auto target=std::filesystem::u8path(modelConverterDestination);target.replace_extension(modelConverterExtension());std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",target.u8string().c_str());}}
+    else ImGui::Text("Target: %s",modelImportProfile==4?"GoldSrc MDL":modelImportProfile==3?"Quake II MD2":modelImportProfile==2?"Quake MDL":"Quake III MD3");
+
     ImGui::InputText("Destination",modelConverterDestination,sizeof modelConverterDestination);
     if(modelConverterEditor){
       if(ImGui::Button("Choose folder...")){modelConverterFolder=std::filesystem::u8path(modelConverterDestination).parent_path();modelConverterFolderOpen=true;}
@@ -123,8 +154,10 @@ static void modelConverterPanel() {
     if(!bridge)ImGui::TextDisabled("Use -1 for consecutive MDL / MD2 poses.");
     ImGui::SliderInt("Baked frames",&modelConverterFrames,1,1024);ImGui::SliderFloat("Sampling FPS",&modelConverterFPS,1,120,"%.0f");
     ImGui::TextWrapped("Bones, tags, events and skin variants are baked or lost. OBJ retains only the first pose. Diffuse textures are retained; shader effects, transparency, normal/roughness maps are not. Quake MDL uses a 256-pixel tile per material and the active game palette (no fullbright colours); positions have 8-bit precision per axis. MD3 coordinates must fit -512 to 511.984 units. Missing textures stop conversion. The source is never overwritten.");
-    if(modelConverterFormat>=3)ImGui::TextWrapped("IQM/MD5MESH export the first sampled pose only, without the original rig or animation. Use MD3 or MDL for baked animation.");
+    if(modelConverterFormat==3||modelConverterFormat==4)ImGui::TextWrapped("IQM/MD5MESH export the first sampled pose only, without the original rig or animation. Use MD3 or MDL for baked animation.");
     if(modelConverterEditor&&modelConverterFormat==2&&modelConverterMdlTransform)ImGui::TextWrapped("Quake MDL to Quake MDL keeps all original skins, UVs, frames, frame groups and timings. Geometry is transformed at MDL precision; sampling options do not trim this lossless-skin path.");
+    if(modelConverterFormat==5)ImGui::TextWrapped("Native MD2: up to 2048 vertices, 4096 triangles and 512 frames. PCX atlas uses the Quake II palette. Coordinates retain their original units and origin at 8-bit vertex precision.");
+    if(modelConverterFormat==6)ImGui::TextWrapped("Generic studio baking preserves static meshes or vertex animation within the 128-bone limit; larger vertex animations are rejected. Native studio-to-studio export keeps every original animation sequence, blend, event, skin and bodygroup, ignoring sampling controls. Uniform scale, translation and rotation retain the rig. Nonuniform animated scale is rejected.");
     ImGui::Checkbox("I accept these conversion losses",&modelConverterAcceptLoss);
     ImGui::BeginDisabled(!modelConverterAcceptLoss);
     if(ImGui::Button("Bake and convert"))try{
@@ -132,7 +165,10 @@ static void modelConverterPanel() {
       auto path=std::filesystem::u8path(modelConverterDestination);if(!modelConverterEditor)modFileValidate(path);
       if(modFilePacked(path)||std::filesystem::exists(path)||entityLower(path.extension().u8string())!=modelConverterExtension())throw std::runtime_error("Choose a new loose file with the target format extension.");
       if(modelConverterFormat==2&&modelResource("gfx/palette.lmp").size()!=768)throw std::runtime_error("Load the Quake palette before converting to MDL.");
-      if(bridge){
+      auto sourceBytes=modelImportExternal.empty()?modelResource(modelConverterSource):q1Read(modelImportExternal);
+      bool nativeSaved=(modelConverterFormat==6&&sourceBytes.substr(0,4)=="IDST")||(modelConverterFormat==5&&sourceBytes.substr(0,4)=="IDP2"&&(!modelConverterEditor||modelConverterNativeAffine));
+      if(nativeSaved)modelConverterSave({});
+      else if(bridge){
         char script[4096]={};if(!files->NativePath("model-import-blender.py",(fs_relative)5,script,sizeof script))throw std::runtime_error("Blender import helper is missing.");
         modelImportStage=modelImportNewStage();
         std::vector<std::string> installer;
@@ -175,7 +211,7 @@ static void modelConverterPanel() {
         }
         cvars->SetString("ftebroom_convert_source",modelConverterSource.c_str());cvars->SetFloat("ftebroom_convert_skin",modelConverterSourceSkin);cvars->SetFloat("ftebroom_convert_sequence",std::max(-1,modelConverterSequence));cvars->SetFloat("ftebroom_convert_frames",modelConverterFrames);cvars->SetFloat("ftebroom_convert_fps",modelConverterFPS);cvars->SetFloat("ftebroom_convert_status",0);command("fs_flush\nftebroom_model_extract\n");
       }
-      modelConverterPending=true;modelConverterMessage="Extracting model and textures...";
+      if(!nativeSaved){modelConverterPending=true;modelConverterMessage="Extracting model and textures...";}
     }catch(const std::exception& e){modelConverterMessage=e.what();}
     {auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();modelConverterBakeCenter={(a.x+b.x)*.5f,(a.y+b.y)*.5f};}
     ImGui::EndDisabled();ImGui::EndDisabled();

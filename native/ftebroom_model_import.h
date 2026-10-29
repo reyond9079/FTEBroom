@@ -56,18 +56,19 @@ static std::string modelImportRun(const std::vector<std::string>& args,const std
   }catch(const std::exception& e){return e.what();}return {};
 }
 static ftebroom::modelExport::Skin modelImportDecode(const std::string& bytes){
+  if(bytes.size()>128&&(unsigned char)bytes[0]==10){auto t=ftebroom::legacy::pcx(bytes);return modelImportDecode(ftebroom::quake1::tga(t,{}));}
   int w=0,h=0,n=0;if(bytes.empty()||bytes.size()>64*1024*1024||!stbi_info_from_memory((const stbi_uc*)bytes.data(),bytes.size(),&w,&h,&n)||w<=0||h<=0||size_t(w)*h>16777216)throw std::runtime_error("Missing or unsupported model texture.");
   auto p=stbi_load_from_memory((const stbi_uc*)bytes.data(),bytes.size(),&w,&h,&n,4);if(!p)throw std::runtime_error("Cannot decode model texture.");
   ftebroom::modelExport::Skin skin;skin.width=w;skin.height=h;skin.rgba.assign(p,p+size_t(w)*h*4);stbi_image_free(p);return skin;
 }
-static ftebroom::modelExport::Skin modelImportHalfLifeSkin(std::string bytes,unsigned index){
+static ftebroom::modelExport::Skin modelImportHalfLifeSkin(std::string bytes,unsigned index,const std::string& resource){
   using namespace ftebroom::quake1;
   range(bytes,0,244);if(bytes.substr(0,4)!="IDST"||word(bytes,4)!=10)throw std::runtime_error("Expected a Half-Life MDL version 10.");
   if(!word(bytes,180)){
-    if(modelImportExternal.empty())throw std::runtime_error("Import the original Half-Life model with its companion texture MDL.");
-    auto source=modelImportExternal.parent_path()/(modelImportExternal.stem().u8string()+"t.mdl");
-    if(!std::filesystem::exists(source))source=modelImportExternal.parent_path()/(modelImportExternal.stem().u8string()+"T.mdl");
-    bytes=q1Read(source);range(bytes,0,244);
+    auto source=modelImportExternal.empty()?std::filesystem::u8path(resource):modelImportExternal;
+    auto texture=source.parent_path()/(source.stem().u8string()+"t.mdl");
+    bytes=modelImportExternal.empty()?modelResource(texture.generic_u8string()):(std::filesystem::is_regular_file(texture)?q1Read(texture):std::string());
+    if(bytes.empty()){texture=source.parent_path()/(source.stem().u8string()+"T.mdl");bytes=modelImportExternal.empty()?modelResource(texture.generic_u8string()):q1Read(texture);}range(bytes,0,244);
   }
   auto count=word(bytes,180),offset=word(bytes,184);if(count>256||index>=count)throw std::runtime_error("Invalid Half-Life texture index.");
   size_t at=size_t(offset)+index*80;range(bytes,at,80);unsigned w=word(bytes,at+68),h=word(bytes,at+72),data=word(bytes,at+76);
@@ -88,9 +89,9 @@ static std::string modelImportTexture(const std::string& material){
     // own directory. Search ancestors for this explicit dependency only.
     for(int i=0;i<4&&!parent.empty();i++,parent=parent.parent_path())candidates.push_back(parent/name);
   }
-  for(const auto& base:candidates)for(const auto* suffix:{"",".tga",".png",".jpg",".jpeg"}){
+  for(const auto& base:candidates)for(const auto* suffix:{"",".tga",".png",".jpg",".jpeg",".pcx"}){
     auto path=base;path+=suffix;if(std::filesystem::is_regular_file(path)&&std::filesystem::file_size(path)<=64*1024*1024)return q1Read(path);
   }
-  for(const auto* suffix:{"",".tga",".png",".jpg",".jpeg"}){auto bytes=modelResource(material+suffix);if(!bytes.empty())return bytes;}
+  for(const auto* suffix:{"",".tga",".png",".jpg",".jpeg",".pcx"}){auto bytes=modelResource(material+suffix);if(!bytes.empty())return bytes;}
   throw std::runtime_error("Missing texture: "+material+". Keep the original texture files beside the source model or in its game directory.");
 }

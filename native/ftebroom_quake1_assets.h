@@ -137,7 +137,9 @@ static void q1IndexAssets() {
     auto image="textures/_ftebroom_q1/"+encoded+".tga";
     int tags=t.name[0]=='*'?32:0;if(t.name.rfind("sky",0)==0)tags|=512;
     auto material="textures/"+t.name;
-    auto script="{\n{\nmap "+image+"\nrgbgen vertex\nalphagen vertex\n"+(t.name[0]=='{'?std::string("alphafunc GE128\ndepthwrite\n"):std::string{})+"}\n}";
+    // Global aliases also resolve on compiled BSP surfaces. Keep their lightmap
+    // pass; editable MAP/browser previews register separate unlit shaders.
+    auto script="{\n{\nmap "+image+"\n"+(t.name[0]=='{'?std::string("alphafunc GE128\ndepthwrite\n"):std::string{})+"}\n{\nmap $lightmap\nblendfunc filter\ndepthfunc equal\n}\n}";
     shaderFile<<material<<"\n"<<script<<"\n";
     materials[material]={material,image,false,tags};
   }

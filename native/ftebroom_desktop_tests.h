@@ -9,6 +9,40 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="hl95retail"){
+    gameProfile=4;char mod[4096]={};cvars->GetString("ftebroom_test_mod",mod,sizeof mod);std::snprintf(hlMod,sizeof hlMod,"%s",mod);hlRuntime=0;gamePreviewAfterBuild=false;gameProfileSave();expect(mountAssets(),"hl95_retail_mount");documentRequest("@"+(std::filesystem::u8path(root)/"hl/maps/room.map").u8string());
+  }
+  if(std::string(mode)=="hl95ready"){
+    static int attempts=0;if(!pendingDocumentFile.empty()||documentUntitled||documentFile.filename()!="room.map"){
+      if(++attempts<90)command("in 1 ftebroom_test_desktop hl95ready\n");else expect(false,"hl95_map_open_timeout");
+    }else {attempts=0;command("ftebroom_test_desktop legacy94ready\n");}
+  }
+  if(std::string(mode)=="hl95light"){
+    expect(!buildRunning&&!runHadError&&!buildResult.empty()&&buildValidBsp(buildResult),"hl95_real_resources_compile");
+    if(!buildResult.empty()){auto b=q1Read(buildResult);auto o=ftebroom::quake1::word(b,4+8*8),n=ftebroom::quake1::word(b,8+8*8);expect(n>1&&o+n<=b.size(),"hl95_bsp_has_lightmaps");}
+    core->Print(("HL95_BUILD_LOG\n"+runLog+"\n").c_str());buildShow();
+  }
+  if(std::string(mode)=="hl95preview"){
+    modelViewerOpen=false;modPreview();expect(runActive,"hl95_preview_started");
+  }
+  if(std::string(mode)=="hl95previewcheck"){
+    expect(runActive&&runLog.find("ftebroom_preview_ready")!=std::string::npos,"hl95_preview_world_ready");
+    core->Print(("HL95_PREVIEW_LOG\n"+runLog+"\n").c_str());modEmbedEnd();
+  }
+  if(std::string(mode)=="hl95model")modelEditorShow("models/scientist.mdl");
+  if(std::string(mode)=="hl95export"){
+    modelEditLoad();expect(modelEditLoaded&&modelEditNodes.size()==2&&cvars->GetFloat("ftebroom_modeleditor_drawn")>0,"hl95_studio_editable_and_drawn");
+    if(modelEditNodes.size()==2){modelEditNodes[0].total=1.5;modelEditNodes[0].rotation={10,20,30};modelEditNodes[0].position={4,5,6};modelEditChanged=true;modelEditPublish();modelEditExport();auto path=std::filesystem::u8path(root)/"studio95-export.mdl";std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",path.u8string().c_str());modelConverterFormat=6;modelConverterSave({});expect(std::filesystem::is_regular_file(path),"hl95_native_studio_export");auto cached=documentPath("models/qa/studio95-export.mdl");std::filesystem::create_directories(cached.parent_path());std::filesystem::copy_file(path,cached,std::filesystem::copy_options::overwrite_existing);modelConverterOpen=false;modelViewerOpen=false;command("fs_flush\nin 0.2 ftebroom_test_desktop hl95reopen\n");}
+  }
+  if(std::string(mode)=="hl95reopen"){modelEditorShow("models/qa/studio95-export.mdl");modelViewerPlay=true;modelViewerBones=true;}
+  if(std::string(mode)=="hl95reopencheck")expect(cvars->GetFloat("ftebroom_modeleditor_drawn")>0&&cvars->GetFloat("ftebroom_modelviewer_count")>1&&cvars->GetFloat("ftebroom_modelviewer_bones_drawn")>0,"hl95_export_reopened_textured_animated_bones");
+  if(std::string(mode)=="md295model"){modelConverterOpen=false;modelEditorShow("models/qa/native95.md2");}
+  if(std::string(mode)=="md295export"){
+    modelEditLoad();expect(modelEditLoaded&&modelEditNodes.size()==2&&cvars->GetFloat("ftebroom_modeleditor_drawn")>0,"md295_editable_textured_model");
+    if(modelEditNodes.size()==2){modelEditNodes[0].total=1.25;modelEditNodes[0].position={2,3,4};modelEditChanged=true;modelEditPublish();modelEditExport();auto path=std::filesystem::u8path(root)/"md295-export.md2";std::snprintf(modelConverterDestination,sizeof modelConverterDestination,"%s",path.u8string().c_str());modelConverterFormat=5;modelConverterSave({});expect(ftebroom::quake1::word(q1Read(path),40)==3,"md295_native_export_all_frames");std::filesystem::copy_file(path,documentPath("models/qa/md295-export.md2"),std::filesystem::copy_options::overwrite_existing);auto skin=path.parent_path()/"md295-export-skins/0.pcx";auto dest=documentPath("md295-export-skins/0.pcx");std::filesystem::create_directories(dest.parent_path());std::filesystem::copy_file(skin,dest,std::filesystem::copy_options::overwrite_existing);modelConverterOpen=false;modelViewerOpen=false;command("fs_flush\nin 0.2 ftebroom_test_desktop md295reopen\n");}
+  }
+  if(std::string(mode)=="md295reopen"){modelEditorShow("models/qa/md295-export.md2");modelViewerPlay=true;}
+  if(std::string(mode)=="md295reopencheck")expect(cvars->GetFloat("ftebroom_modelviewer_count")==3&&cvars->GetFloat("ftebroom_modeleditor_drawn")>0,"md295_export_reopened_animated");
   if(std::string(mode)=="legacy94q2"||std::string(mode)=="legacy94hl"){
     bool hl=std::string(mode)=="legacy94hl";gameProfile=hl?4:3;auto folder=std::filesystem::u8path(root)/(hl?"hl":"q2");
     std::snprintf(hl?hlMod:q2Mod,1024,"%s",folder.u8string().c_str());gameProfileSave();expect(mountAssets(),"legacy94_mount_requested");documentRequest("@"+(folder/"maps/room.map").u8string());

@@ -117,6 +117,22 @@ inline std::string face(const std::string& line,bool classic,bool engineOutput=f
     throw std::runtime_error("This UV mapping needs Valve 220. Select Valve 220 in Game / resources before saving; no file was replaced.");
   out<<prefix<<offset[0]<<' '<<offset[1]<<' '<<std::atan2(sine,cosine)*180/3.141592653589793<<' '<<1/norm<<' '<<1/invY;return out.str();
 }
+// GoldSrc compilers require _light, unlike Quake's scalar light key. Preserve
+// explicitly authored _light values and normalize only missing values.
+inline std::string halfLifeLights(const std::string& source){
+  std::istringstream input(source);std::ostringstream out;std::string line,classname,brightness;int depth=0;bool explicitLight=false;
+  while(std::getline(input,line)){
+    auto first=line.find_first_not_of(" \t\r");auto trimmed=first==line.npos?std::string():line.substr(first);
+    if(trimmed=="{"){if(depth==0){classname.clear();brightness.clear();explicitLight=false;}depth++;}
+    else if(trimmed=="}"){
+      if(depth==1&&!explicitLight&&(classname=="light"||classname=="light_spot"||classname=="light_environment")){
+        float intensity=200;std::istringstream value(brightness);float parsed;if(value>>parsed&&std::isfinite(parsed)&&parsed>=0&&parsed<=1e9f)intensity=parsed;
+        out<<"\"_light\" \"255 255 255 "<<intensity<<"\"\n";
+      }depth--;
+    }else if(depth==1&&trimmed.rfind("\"",0)==0){std::istringstream row(trimmed);std::string key,value;if(row>>std::quoted(key)>>std::quoted(value)){if(key=="classname")classname=value;if(key=="light")brightness=value;if(key=="_light"){if(value.empty())continue;explicitLight=true;}}}
+    out<<line<<'\n';
+  }return out.str();
+}
 inline std::string map(const std::string& source,bool classic,const std::string& wads,bool engineOutput=false,bool halfLife=false) {
   std::istringstream input(source);std::ostringstream out;std::string line;bool world=false;
   while(std::getline(input,line)) {
@@ -127,7 +143,7 @@ inline std::string map(const std::string& source,bool classic,const std::string&
     if(trimmed.rfind("(",0)==0)line=face(trimmed,classic,engineOutput);
     out<<line<<'\n';
     if(!world && trimmed.find("\"worldspawn\"")!=std::string::npos){world=true;if(halfLife)out<<"\"mapversion\" \"220\"\n";if(!wads.empty())out<<"\"wad\" "<<std::quoted(wads)<<'\n';}
-  }return out.str();
+  }return halfLife?halfLifeLights(out.str()):out.str();
 }
 inline std::vector<std::string> mapTextures(const std::string& source) {
   std::istringstream input(source);std::string line;std::vector<std::string> result;

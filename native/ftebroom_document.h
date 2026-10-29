@@ -157,7 +157,7 @@ static void documentProceed()
     gameProfileSave();if(!mountAssets())setupNeeded=true;
     documentTerrain=false;documentUntitled=true;documentFile.clear();pendingDocumentFile.clear();pendingDocumentAlias.clear();documentName="untitled";
     cvars->SetFloat("ftebroom_terrain_document",0);cvars->SetFloat("ftebroom_terrain_edit",0);
-    std::string scene=q1Read(documentPath("maps/start.map"));
+    std::string scene=q1Read(documentPath(selected>=2?"maps/start-quake1.map":"maps/start.map"));
     if(selected!=0){size_t at=0;while((at=scene.find("info_player_deathmatch",at))!=scene.npos){scene.replace(at,22,"info_player_start");at+=17;}}
     if(selected==2){size_t at=0;while((at=scene.find("ftebroom/grid",at))!=scene.npos){scene.replace(at,13,"fb_grey");at+=7;}}
     std::ofstream(documentPath("maps/_ftebroom_profile_start.map"),std::ios::binary)<<documentMetadata(scene);

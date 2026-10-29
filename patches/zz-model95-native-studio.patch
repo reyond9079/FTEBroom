@@ -1,0 +1,119 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -8298,8 +8298,8 @@
+     G_FLOAT(OFS_RETURN) = 0;
+ #ifdef HALFLIFEMODELS
+     if (model && model->loadstate == MLS_LOADED && model->type == mod_halflife) {
+-        extern qboolean HLMDL_EditorExport(model_t *, int, int, float);
+-        G_FLOAT(OFS_RETURN) = HLMDL_EditorExport(model,sequence,frames,fps);return;
++        extern qboolean HLMDL_EditorExport(model_t *, int, int, float, int);
++        G_FLOAT(OFS_RETURN) = HLMDL_EditorExport(model,sequence,frames,fps,G_FLOAT(OFS_PARM4));return;
+     }
+ #endif
+     if (!model || model->loadstate != MLS_LOADED || model->type != mod_alias || frames < 1 || frames > 1024 || fps < 1 || fps > 120)
+@@ -8361,7 +8361,16 @@
+     model_t *model=w->Get_CModel(w,G_FLOAT(OFS_PARM0));
+     galiasinfo_t *surface;int s=0,v,a;char key[128],value[256];entity_t entity;
+     Cvar_Set(Cvar_Get("ftebroom_modeleditor_meshes","0",0,""),"0");
+-    if(!model||model->loadstate!=MLS_LOADED||model->type!=mod_alias)return;
++    if(!model||model->loadstate!=MLS_LOADED)return;
++#ifdef HALFLIFEMODELS
++    if(model->type==mod_halflife){
++        Cvar_Set(Cvar_Get("ftebroom_modeleditor_mesh_0_name","",0,""),"Studio model (complete rig)");
++        snprintf(value,sizeof(value),"%.9g %.9g %.9g",model->mins[0],model->mins[1],model->mins[2]);Cvar_Set(Cvar_Get("ftebroom_modeleditor_mesh_0_low","",0,""),value);
++        snprintf(value,sizeof(value),"%.9g %.9g %.9g",model->maxs[0],model->maxs[1],model->maxs[2]);Cvar_Set(Cvar_Get("ftebroom_modeleditor_mesh_0_high","",0,""),value);
++        Cvar_Set(Cvar_Get("ftebroom_modeleditor_meshes","0",0,""),"1");return;
++    }
++#endif
++    if(model->type!=mod_alias)return;
+     memset(&entity,0,sizeof(entity));entity.model=model;entity.scale=1;entity.playerindex=-1;
+     entity.framestate.g[FS_REG].lerpweight[0]=1;entity.framestate.g[FS_REG].endbone=0x7fffffff;
+     for(surface=model->meshinfo;surface&&s<256;surface=surface->nextsurf,s++){
+@@ -8379,23 +8388,35 @@
+ {
+     csqcedict_t *in=(void*)G_EDICT(prinst,OFS_PARM0);entity_t ent;int selected=G_FLOAT(OFS_PARM1),mode=G_FLOAT(OFS_PARM2),sort;
+     batch_t *batches[SHADER_SORT_COUNT],*b;unsigned mi;int i,j,planes,drawn=0;
+-    if(ED_ISFREE(in)||!in->entnum||!CopyCSQCEdictToEntity(in,&ent)||!ent.model||ent.model->loadstate!=MLS_LOADED||ent.model->type!=mod_alias)return;
++    if(ED_ISFREE(in)||!in->entnum||!CopyCSQCEdictToEntity(in,&ent)||!ent.model||ent.model->loadstate!=MLS_LOADED||(ent.model->type!=mod_alias
++#ifdef HALFLIFEMODELS
++        &&ent.model->type!=mod_halflife
++#endif
++        ))return;
+     // Pending guide polygons must end before direct model vertices/indices are
+     // appended; otherwise the line batch also consumes the model's triangles.
+     if(R2D_Flush)R2D_Flush();
+-    memset(batches,0,sizeof(batches));planes=r_refdef.frustum_numplanes;r_refdef.frustum_numplanes=0;R_GAlias_GenerateBatches(&ent,batches);r_refdef.frustum_numplanes=planes;
++    memset(batches,0,sizeof(batches));planes=r_refdef.frustum_numplanes;r_refdef.frustum_numplanes=0;
++#ifdef HALFLIFEMODELS
++    if(ent.model->type==mod_halflife){extern void R_HalfLife_GenerateBatches(entity_t *,batch_t **);R_HalfLife_GenerateBatches(&ent,batches);}else
++#endif
++    {R_GAlias_GenerateBatches(&ent,batches);}
++    r_refdef.frustum_numplanes=planes;
+     for(sort=0;sort<SHADER_SORT_COUNT;sort++)for(b=batches[sort];b;b=b->next){
+         /* Build CPU geometry: render batches may otherwise contain GPU-only VBOs. */
+-        for(mi=b->firstmesh;mi<b->meshes;mi++)if(selected<0||b->user.alias.surfrefs[mi]==selected){
+-            mesh_t cpuMesh,*m=&cpuMesh;galiasinfo_t *source=ent.model->meshinfo;int sourceIndex=b->user.alias.surfrefs[mi],sourceWalk;
++        if(ent.model->type!=mod_alias&&b->buildmeshes)b->buildmeshes(b);
++        for(mi=b->firstmesh;mi<b->meshes;mi++)if(selected<0||ent.model->type!=mod_alias||b->user.alias.surfrefs[mi]==selected){
++            mesh_t cpuMesh,*m=&cpuMesh;galiasinfo_t *source=ent.model->meshinfo;int sourceIndex=ent.model->type==mod_alias?b->user.alias.surfrefs[mi]:0,sourceWalk;
+             scenetris_t *t;vecV_t *posed=NULL;vec3_t tmp;
+-            for(sourceWalk=0;source&&sourceWalk<sourceIndex;sourceWalk++)source=source->nextsurf;
+-            if(!source)continue;
+-            memset(&cpuMesh,0,sizeof(cpuMesh));Alias_FlushCache();Alias_GAliasBuildMesh(&cpuMesh,NULL,source,sourceIndex,&ent,false);
++            if(ent.model->type==mod_alias){
++                for(sourceWalk=0;source&&sourceWalk<sourceIndex;sourceWalk++)source=source->nextsurf;
++                if(!source)continue;
++                memset(&cpuMesh,0,sizeof(cpuMesh));Alias_FlushCache();Alias_GAliasBuildMesh(&cpuMesh,NULL,source,sourceIndex,&ent,false);
++            }else if(b->mesh&&b->mesh[mi])m=b->mesh[mi];else continue;
+             entity_t shaped=ent;
+             if(selected<0){int axis;char key[128];for(axis=0;axis<4;axis++){
+-                if(axis<3)snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_%d",b->user.alias.surfrefs[mi]+1,axis);
+-                else snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_origin",b->user.alias.surfrefs[mi]+1);
++                if(axis<3)snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_%d",sourceIndex+1,axis);
++                else snprintf(key,sizeof(key),"ftebroom_modeleditor_transform_%d_origin",sourceIndex+1);
+                 float *v=axis<3?shaped.axis[axis]:shaped.origin;
+                 if(sscanf(Cvar_VariableString(key),"%f %f %f",&v[0],&v[1],&v[2])!=3){v[0]=v[1]=v[2]=0;if(axis<3)v[axis]=1;}
+             }}
+--- a/engine/gl/gl_hlmdl.c
++++ b/engine/gl/gl_hlmdl.c
+@@ -624,6 +624,22 @@
+ 	mod->type = mod_halflife;
+ 	mod->numframes = model->header->numseq;
+ 	mod->meshinfo = model;
++    // Studio headers often leave the clipping box empty. Use the visual box
++    // and every sequence box for framing, culling and editor gizmos instead.
++    {
++        int a,seq;qboolean visualbox=false,validbox=true;float radius2=0;
++        VectorCopy(header->unknown3[1],mod->mins);VectorCopy(header->unknown3[2],mod->maxs);
++        for(a=0;a<3;a++){if(!isfinite(mod->mins[a])||!isfinite(mod->maxs[a])||mod->maxs[a]<mod->mins[a])validbox=false;else if(mod->maxs[a]>mod->mins[a])visualbox=true;}
++        visualbox=visualbox&&validbox;if(!visualbox){VectorClear(mod->mins);VectorClear(mod->maxs);}
++        if(!visualbox&&header->numseq>0&&header->numseq<=2048&&header->seqindex>=0&&(size_t)header->seqindex+(size_t)header->numseq*sizeof(hlmdl_sequencelist_t)<=fsize){
++            hlmdl_sequencelist_t *sequences=(void*)((qbyte*)header+header->seqindex);
++            for(seq=0;seq<header->numseq;seq++)for(a=0;a<3;a++){
++                if(isfinite(sequences[seq].bbox[0][a]))mod->mins[a]=min(mod->mins[a],sequences[seq].bbox[0][a]);
++                if(isfinite(sequences[seq].bbox[1][a]))mod->maxs[a]=max(mod->maxs[a],sequences[seq].bbox[1][a]);
++            }
++        }
++        for(a=0;a<3;a++){float v=max(fabs(mod->mins[a]),fabs(mod->maxs[a]));radius2+=v*v;}mod->radius=sqrt(radius2);
++    }
+ 
+ #ifndef SERVERONLY
+ 	model->numgeomsets = model->header->numbodyparts;
+@@ -1434,7 +1450,7 @@
+ 
+ #ifndef SERVERONLY
+ /* Export the default bodygroup with baked bones; no game/model events run. */
+-qboolean HLMDL_EditorExport(model_t *mod, int sequence, int frames, float fps)
++qboolean HLMDL_EditorExport(model_t *mod, int sequence, int frames, float fps, int skin)
+ {
+     hlmodel_t *model = Mod_Extradata(mod);
+     int body, m, f, v, a, b, surfaces = 0, total = 0;
+@@ -1479,7 +1495,7 @@
+             for (m=0;m<part->nummesh;m++)
+             {
+                 mesh_t *mesh=&model->geomset[body].alternatives[0].submesh[m];
+-                VFS_PRINTF(file,"\"__hl_texture_%d\" %d %d\n",model->skinref[desc[m].skinindex],mesh->numvertexes,mesh->numindexes/3);
++                VFS_PRINTF(file,"\"__hl_texture_%d\" %d %d\n",model->skinref[(skin>=0&&skin<model->numskingroups?skin:0)*model->numskinrefs+desc[m].skinindex],mesh->numvertexes,mesh->numindexes/3);
+                 for(v=0;v<mesh->numvertexes;v++)
+                 {
+                     vec3_t point,normal;int bone=mesh->bonenums[v][0];

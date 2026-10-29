@@ -55,8 +55,9 @@ GoldSrc studio MDL v10 supports textured thumbnails, skins and animated Model
 editor inspection. Enable **Show bones** to draw joints over the model. Texture
 companion `*T.mdl` files must remain beside the model. FTE can prefer replacement
 models sharing a basename; keep this in mind when comparing MDL and MD2 files.
-Studio mesh transforms require conversion to an editable format such as MD3;
-the inspector states this instead of waiting indefinitely for alias-mesh metadata.
+Since alpha 95, the complete studio rig can be moved, rotated and uniformly
+scaled directly. Native MD2 and studio MDL export are available; see
+[native model export](native-models-alpha95.md) for format limits.
 Dropping a studio MDL into a Half-Life map creates `cycler`; sprites use
 `cycler_sprite`. Other FTE model formats remain inspectable but are not silently
 inserted as unsupported native Half-Life entities.
@@ -71,9 +72,9 @@ open the general compilation window. UV inspection supports all four BSP familie
 Atlas generation currently supports Quake 1 and Quake III only; the option is
 disabled for Quake II and Half-Life rather than producing an invalid atlas.
 
-The converter's existing FTE-compatible output formats remain available. It does
-not export native MD2 or GoldSrc studio MDL; a Quake MDL output is not a Half-Life
-MDL. BSP inspection is static geometry, not a replacement for gameplay testing.
+The converter's existing FTE-compatible output formats remain available. Alpha 95
+adds native MD2 and GoldSrc studio MDL exporters. A Quake MDL output is not a
+Half-Life MDL. BSP inspection is static geometry, not a replacement for gameplay testing.
 
 ## Verification
 

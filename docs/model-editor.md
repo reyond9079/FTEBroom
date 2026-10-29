@@ -53,7 +53,9 @@ review the warnings, and export. The original model remains unchanged.
 Transforms are baked into the exported geometry, without automatic recentering
 or normalisation. Exported textures accompany the model when required.
 
-Available writers are MD3, Quake MDL, OBJ, IQM and MD5MESH. FTE can read other
+Available writers are MD3, Quake MDL, Quake II MD2, GoldSrc studio MDL, OBJ, IQM and MD5MESH.
+[Native MD2/studio export](native-models-alpha95.md) documents rig/skin retention
+and the target formats' limits. FTE can read other
 formats for which this editor does not provide a writer. MD3 and MDL support
 baked vertex animation. OBJ, IQM and MD5MESH export a static pose; original rigs,
 tags and animation events are not preserved by these writers. Cross-format

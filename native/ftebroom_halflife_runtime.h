@@ -29,3 +29,21 @@ static void halfLifeInstallRuntime(){
   }
   catch(...){std::error_code error;std::filesystem::remove(pending,error);throw;}
 }
+
+// A private, highest-priority home keeps the preview's VM/configuration paired
+// with its bundled runtime. Loose QC modules in an existing Steam mod must not
+// override that runtime or receive editor configuration writes.
+static void halfLifeStageRuntime(const std::filesystem::path& home){
+  char native[4096]{};if(!files->NativePath("ftebroom.cfg",(fs_relative)5,native,sizeof native))throw std::runtime_error("Cannot locate the editor runtime.");
+  auto package=std::filesystem::u8path(native).parent_path().parent_path()/"tools/runtimes"/(hlRuntime?"reyondbroom-freecs-94.pk3":"reyondbroom-freehl-94.pk3");
+  auto entries=ftebroom::pak::directory(package);uint64_t total=0;
+  for(const auto& entry:entries){
+    auto name=std::filesystem::u8path(entry.name);if(name.empty()||name.is_absolute())throw std::runtime_error("Invalid preview runtime path.");
+    for(auto& part:name)if(part=="..")throw std::runtime_error("Invalid preview runtime path.");
+    if((total+=entry.size)>64*1024*1024)throw std::runtime_error("Preview runtime exceeds installation limit.");
+    if(entry.name.back()=='/')continue;auto target=home/name;std::filesystem::create_directories(target.parent_path());
+    auto bytes=ftebroom::pak::read(package/name);std::ofstream out(target,std::ios::binary|std::ios::trunc);out.write(bytes.data(),bytes.size());out.close();if(!out)throw std::runtime_error("Cannot stage preview runtime: "+target.u8string());
+  }
+  // Never execute a foreign engine configuration from the retail mod directory.
+  std::ofstream(home/"fte.cfg")<<"// Private ReyondBroom preview configuration.\n";
+}

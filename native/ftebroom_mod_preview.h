@@ -32,6 +32,7 @@ static void modPreview()
     auto root=buildResult.parent_path()/"mod-preview";
     auto home=root/"home", maps=home/mod.filename()/"maps";
     std::filesystem::create_directories(maps);
+    if(gameProfile==4)halfLifeStageRuntime(home/mod.filename());
     // Preserve generated external lightmap names while retaining the real map name.
     for(const auto& file:std::filesystem::directory_iterator(buildResult.parent_path())) {
       auto ext=file.path().extension();
@@ -45,14 +46,24 @@ static void modPreview()
     modEmbedBegin();
 #endif
     auto embeddedEngine=runBundledEngine();
+#ifndef _WIN32
+    if(gameProfile==4){
+      // An engine beside the editor's default.fmf/installed.lst can inherit
+      // the editor installation even with -basedir. Isolate its binary path.
+      auto isolated=root/"engine"/embeddedEngine.filename();std::filesystem::create_directories(isolated.parent_path());
+      std::filesystem::copy_file(embeddedEngine,isolated,std::filesystem::copy_options::overwrite_existing);
+      std::filesystem::permissions(isolated,std::filesystem::perms::owner_exec|std::filesystem::perms::group_exec|std::filesystem::perms::others_exec,std::filesystem::perm_options::add);
+      embeddedEngine=isolated;
+    }
+#endif
     std::string gameSwitch=gameProfile==4?std::string("-game valve "):std::string();
 #ifdef _WIN32
     std::string previewSwitch="-plugin -ftebroom-preview ";
 #else
-    std::string previewSwitch;
+    std::string previewSwitch="-ftebroom-preview ";
 #endif
     std::string args=previewSwitch+"-noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" "+gameSwitch+"-game "+modQuote(mod.filename().u8string())+
-      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set r_drawviewmodel 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+exec quake.rc +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+"+map "+name;
+      " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set r_drawviewmodel 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+set forceqmenu 1 +exec quake.rc +set r_fullbright 0 +set r_vertexlight 0 +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+"+map "+name;
     if(cvars->GetFloat("ftebroom_skip_setup"))args+=" +set ftebroom_preview_trace 1";
     RunProfile preview{std::string(gameProfileName())+": mod preview",root.u8string(),true,{{1,embeddedEngine.u8string(),args}}};
     runBegin(preview);runWindow=false;

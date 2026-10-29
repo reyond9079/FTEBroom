@@ -548,7 +548,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 94");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 95");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1205,7 +1205,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 94");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 95");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1615,7 +1615,7 @@ static void mapReady()
   openPanel();
   core->Print("ReyondBroom: permanent workspace restored for map.\n");
 }
-static void profileStartMap(){static bool first=true;if(first){recentLoad();recentWindow=!cvars->GetFloat("ftebroom_skip_setup")&&firstSetupStep<0&&!recentMaps.empty();first=false;}gameProfileLoad();command(gameClassic()?"mapedit maps/start-quake1.map\n":"mapedit maps/start.map\n");}
+static void profileStartMap(){if(!pendingDocumentFile.empty())return;static bool first=true;if(first){recentLoad();recentWindow=!cvars->GetFloat("ftebroom_skip_setup")&&firstSetupStep<0&&!recentMaps.empty();first=false;}gameProfileLoad();command(gameClassic()?"mapedit maps/start-quake1.map\n":"mapedit maps/start.map\n");}
 static void QDECL actionFocusTick(int)
 {
   libreTick();

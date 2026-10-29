@@ -40,6 +40,8 @@ static std::filesystem::path runBundledEngine()
   auto engine=root/"bin/fteqw64.exe";
   return std::filesystem::is_regular_file(engine)?engine:root/"fteqw64.exe";
 #else
+  auto preview=root/"tools/runtimes/fteqw-preview64";
+  if(gameProfile==4&&std::filesystem::is_regular_file(preview))return preview;
   return root/"fteqw-gl64";
 #endif
 }

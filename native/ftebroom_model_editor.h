@@ -109,7 +109,6 @@ static void modelEditPublish(){
   cvars->SetFloat("ftebroom_modeleditor_count",modelEditNodes.size()-1);modelEditChanged=false;
 }
 static void modelEditExport(){
-  if(modelViewerStudio){modelConverterShow(modelViewerPath);return;}
   if(!modelEditLoaded){modelEditMessage="Wait for model metadata before exporting.";return;}
   if(modelConverterPending){modelEditMessage="Wait for the current export to finish.";return;}
   if(!modelEditValid())return;
@@ -127,6 +126,7 @@ static void modelEditExport(){
   }
   std::vector<ftebroom::modelEdit::Matrix> transforms;std::vector<std::string> names;for(size_t i=1;i<modelEditNodes.size();i++){transforms.push_back(modelEditWorld(i));names.push_back(modelEditNodes[i].name);}
   modelConverterShow(modelViewerPath);modelConverterEditor=true;modelConverterSourceSkin=modelViewerSkin;
+  if(transforms.size()==1&&overrides.empty()){modelConverterNativeMatrix=transforms[0];modelConverterNativeAffine=true;}
   modelConverterSequence=modelViewerSequence;modelConverterFrames=std::max(1,int(cvars->GetFloat("ftebroom_modelviewer_poses")));modelConverterFPS=modelViewerFPS;
   if(modelConverterFrames==1){modelConverterSequence=-1;modelConverterFrames=std::max(1,int(cvars->GetFloat("ftebroom_modelviewer_count")));}
   else {float duration=cvars->GetFloat("ftebroom_modelviewer_duration");if(duration>0)modelConverterFPS=std::clamp(modelConverterFrames/duration,1.f,120.f);}
@@ -173,7 +173,7 @@ static void modelEditorInspector(){
     ImGui::Text("Size: %.3f, %.3f, %.3f",high[0]-low[0],high[1]-low[1],high[2]-low[2]);
     ImGui::TextWrapped("Orbit, fly and pan in the preview. View contains floor grid, origin axes and reset camera.");return;
   }
-  if(modelViewerStudio){ImGui::TextUnformatted("GoldSrc studio model");ImGui::TextWrapped("Textured animation, skins and bones are available. Mesh transforms require conversion to an editable format such as MD3. Export model as... opens the converter.");return;}
+  if(modelViewerStudio)ImGui::TextWrapped("GoldSrc studio rig. Move, rotate and use uniform Total scale to retain every native sequence, blend, skin and bodygroup on export.");
   modelEditLoad();
   ImGui::TextUnformatted("Model editor");ImGui::TextDisabled("Source file is not modified. Export to save.");
   if(modelEditNodes.empty()){ImGui::TextWrapped("Loading editable mesh metadata...");return;}

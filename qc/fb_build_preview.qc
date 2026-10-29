@@ -20,13 +20,15 @@ void fb_build_preview_enter(string path)
 {
     fb_build_preview_leave();
     if(substring(path,0,20)!="maps/ftebroom-build/")return;
+    // BSP lightmaps and shader permutations must be initialized in lit mode,
+    // rather than inheriting the editable MAP's fullbright render state.
+    fb_build_source_fullbright=cvar("r_fullbright");cvar_set("r_fullbright","0");
     float index=getmodelindex(path);
-    if(!index){cvar_set("ftebroom_build_error","Cannot load compiled BSP");return;}
+    if(!index){cvar_set("r_fullbright",ftos(fb_build_source_fullbright));cvar_set("ftebroom_build_error","Cannot load compiled BSP");return;}
     fb_build_source_model=world.modelindex;if(!fb_build_source_model)fb_build_source_model=1;
-    if(!editor_renderworld(index)){cvar_set("ftebroom_build_error","Cannot load compiled BSP");return;}
+    if(!editor_renderworld(index)){cvar_set("r_fullbright",ftos(fb_build_source_fullbright));cvar_set("ftebroom_build_error","Cannot load compiled BSP");return;}
     fb_build_source_clear=cvar("gl_clear");fb_build_source_clearcolour=strzone(cvar_string("r_clearcolour"));
     cvar_set("r_clearcolour","0 0 0");cvar_set("gl_clear","1");
-    fb_build_source_fullbright=cvar("r_fullbright");cvar_set("r_fullbright","0");
     fb_build_preview_active=TRUE;cvar_set("ftebroom_bsp_preview","1");
     path=strzone(path);int entityCount=0;
     getentitytoken("");
