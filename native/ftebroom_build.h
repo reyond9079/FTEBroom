@@ -136,13 +136,15 @@ static void mapGpuExported(const std::filesystem::path& target){
   if(documentFile!=mapGpuDocument)throw std::runtime_error("The active map changed during export.");
   auto relative="maps/ftebroom-build/"+mapGpuFolder.filename().u8string()+"/snapshot.map";
   std::filesystem::create_directories(documentPath(relative).parent_path());std::filesystem::copy_file(target,documentPath(relative));
-  cvars->SetFloat("ftebroom_gpu_snapshot_status",0);mapGpuSnapshotPending=true;mapGpuSnapshotStarted=ImGui::GetTime();mapGpuSnapshotPoll=mapGpuSnapshotStarted;
+  cvars->SetFloat("ftebroom_gpu_snapshot_status",0);cvars->SetString("ftebroom_gpu_snapshot_path","");mapGpuSnapshotPending=true;mapGpuSnapshotStarted=ImGui::GetTime();mapGpuSnapshotPoll=mapGpuSnapshotStarted;
   command(("ftebroom_gpu_snapshot "+relative+"\n").c_str());
 }
 static bool mapGpuReady(){
   if(!mapGpuSnapshotPending)return true;
   int status=(int)cvars->GetFloat("ftebroom_gpu_snapshot_status");
-  if(status==0){if(ImGui::GetTime()-mapGpuSnapshotStarted>120)throw std::runtime_error("GPU MAP snapshot preparation timed out.");
+  char snapshotPath[512]{};cvars->GetString("ftebroom_gpu_snapshot_path",snapshotPath,sizeof snapshotPath);
+  bool current=std::string(snapshotPath)=="maps/ftebroom-build/"+mapGpuFolder.filename().u8string()+"/snapshot.map";
+  if(status==0||!current){if(ImGui::GetTime()-mapGpuSnapshotStarted>120)throw std::runtime_error("GPU MAP snapshot preparation timed out.");
     if(ImGui::GetTime()-mapGpuSnapshotPoll>.2){mapGpuSnapshotPoll=ImGui::GetTime();command(("ftebroom_gpu_snapshot maps/ftebroom-build/"+mapGpuFolder.filename().u8string()+"/snapshot.map\n").c_str());}return false;}
   if(status<0)throw std::runtime_error("Cannot extract brush lighting from the MAP snapshot; patches are not supported.");
   mapGpuStageAssets(mapGpuFolder/"snapshot.map");mapGpuSnapshotPending=false;return true;
