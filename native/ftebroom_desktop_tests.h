@@ -9,6 +9,25 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="q2102load"){
+    gameProfile=3;std::snprintf(q2Mod,sizeof q2Mod,"%s",root);gameProfileSave();
+    expect(mountAssets(),"q2102_mount");
+    char map[4096]{};cvars->GetString("ftebroom_test_map",map,sizeof map);documentRequest("@"+std::string(map));
+  }
+  if(std::string(mode)=="q2102ready"){
+    expect(!assetsLoading&&assetError.empty()&&gameProfile==3,"q2102_resources");recentWindow=false;
+    expect(materials.count("textures/e1u1/grate2_5")&&materials.count("textures/ctf/color1b2")&&materials.count("textures/e1u1/rocks17_1"),"q2102_rerelease_materials");
+    for(const char* name:{"textures/e1u1/grate2_5","textures/ctf/color1b2","textures/e1u1/rocks17_1"}){
+      auto it=materials.find(name);core->Print((std::string("Q2102_MATERIAL ")+name+" "+(it==materials.end()?"MISSING":it->second.preview)+"\n").c_str());
+    }
+    auto grate=materials.find("textures/e1u1/grate2_5");
+    expect(grate!=materials.end()&&grate->second.preview.rfind("textures/_ftebroom_q2/",0)==0,"q2102_wal_overrides_generated_alias");
+    if(grate!=materials.end()){
+      auto alias=q1Read(documentPath("scripts/reyondbroom-quake2.shader"));
+      expect(alias.find("diffusemap "+grate->second.preview)!=std::string::npos,"q2102_static_selection_same_diffuse");
+    }
+    command("ftebroom_test_materials q2102probe\n");
+  }
 #ifndef _WIN32
   if(std::string(mode)=="rtl100protocol"){
     modLightingRaw=false;runPreviewSettings=modPreviewReadSettings;

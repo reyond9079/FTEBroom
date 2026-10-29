@@ -3,6 +3,17 @@ int fb_material_test_id;
 float fb_material_testcommand()
 {
     if(argv(0)!="ftebroom_test_materials" || !cvar("ftebroom_skip_setup")) return FALSE;
+    if(argv(1)=="q2102probe") {
+        fb_tool_deactivate();fb_selection_clear();cvar_set("ca_newbrushtexture","e1u1/grate2_5");
+        fb_createbox('0 0 96','128 128 224');fb_material_test_id=selectedbrushes[0].id;fb_selection_clear();
+        cvar_set("ftebroom_test_camera_lock","64 -192 176");
+        localcmd("ftebroom_camera_restore 64 -192 176 0 90 0 90\n");
+        string shader=fb_surface_preview_shader("e1u1/grate2_5",1);
+        print(sprintf("Q2102_SIZE shader=%v raw=%v preview=%s\n",drawgetimagesize(shader),drawgetimagesize("textures/e1u1/grate2_5"),fb_shader_previews["e1u1/grate2_5"]));
+        return TRUE;
+    }
+    if(argv(1)=="q2102select"){fb_selection_set(fb_document_brush_node(1,fb_material_test_id),TRUE);return TRUE;}
+    if(argv(1)=="q2102clear"){fb_selection_clear();return TRUE;}
     if(argv(1)=="case79view") {
         fb_tool_deactivate();fb_selection_clear();cvar_set("ca_newbrushtexture",argv(2));
         fb_createbox('0 0 96','128 128 128');fb_group_create("Material case regression");fb_selection_clear();

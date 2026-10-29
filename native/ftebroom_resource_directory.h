@@ -21,6 +21,18 @@ inline std::filesystem::path legacyResourceDirectory(std::string input,int profi
   if(std::filesystem::is_directory(child))path=child;
   return path;
 }
+// Additional official rerelease resources are a fallback; selected loose files
+// and PAKs retain priority. Custom mod layouts keep their existing baseq2 rule.
+inline std::filesystem::path quake2FallbackDirectory(const std::filesystem::path& selected) {
+  std::string name=selected.filename().u8string();std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return char(std::tolower(c));});
+  if(name=="baseq2"){
+    auto rerelease=selected.parent_path()/"rerelease/baseq2";
+    if(std::filesystem::is_directory(rerelease))return rerelease;
+  }
+  auto classic=selected.parent_path()/"baseq2";
+  if(classic!=selected&&std::filesystem::is_directory(classic))return classic;
+  return {};
+}
 inline bool quakeId1(const std::filesystem::path& path) {
   auto name=path.filename().u8string();
   std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return char(std::tolower(c));});

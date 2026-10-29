@@ -26,7 +26,7 @@ inline MapProfile mapProfile(const std::string& bytes) {
   }
   auto clean=[](std::string& s){auto start=s.find_first_not_of(" \t");s=start==s.npos?"":s.substr(start);std::transform(s.begin(),s.end(),s.begin(),[](unsigned char c){return char(std::tolower(c));});};clean(game);clean(format);
   if(game=="quake"||game=="quake 1"||game=="librequake") {if(format=="standard"||format=="valve")return {2,format=="valve"?1:0,false};}
-  if(game=="quake2"||game=="quake 2"||game=="quake ii")return {3,1,false};
+  if(game=="quake2"||game=="quake 2"||game=="quake ii"||game=="quake2re"||game=="quake ii remastered"||format=="quake2"||format=="quake2 (valve)")return {3,1,false};
   if(game=="half-life"||game=="halflife"||game=="goldsrc"||game=="counter-strike")return {4,1,false};
   bool q3=format=="quake3"||format=="quake3 (legacy)"||format=="quake3 (valve)";
   if(q3 && (game=="quake3"||game=="quake 3"||game=="quake iii arena"||game.empty()))return {0,-1,false};

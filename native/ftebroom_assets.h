@@ -109,6 +109,8 @@ static void assetsReady()
   }
   for (auto& path : resourceFiles)
   {
+    // Generated WAL aliases are output, never authoritative input resources.
+    if(gameProfile==3 && path=="scripts/reyondbroom-quake2.shader")continue;
     if (path.size() < 7 || path.substr(path.size() - 7) != ".shader")
       continue;
     size_t size = 0;
@@ -223,7 +225,7 @@ static bool mountAssets()
         "No PK3 archives, textures or scripts were found in this folder.");
     auto normalized = path.generic_u8string();
     auto base=gameWad()?q1BaseDirectory():std::string{};
-    if(gameProfile==3){auto q2base=path.parent_path()/"baseq2";if(q2base!=path&&std::filesystem::is_directory(q2base))base=q2base.generic_u8string();}
+    if(gameProfile==3){base=ftebroom::quake2FallbackDirectory(path).generic_u8string();if(!base.empty())core->Print(("ReyondBroom: Quake II fallback resources: "+base+" (selected directory has priority)\n").c_str());}
     cvars->SetString("ftebroom_assetpath", base.empty()?normalized.c_str():base.c_str());
     cvars->SetString("ftebroom_modassetpath",gameProfile==1?gameRuntime().c_str():!base.empty()?normalized.c_str():"");
     std::ofstream settings(settingsPath(), std::ios::binary);

@@ -16,7 +16,7 @@ static void q2IndexAssets(){
     if(!same){std::ofstream output(file,std::ios::binary);output.write(image.data(),image.size());if(!output)throw std::runtime_error("Cannot cache Quake II texture.");}
     auto flags=ftebroom::quake1::word(bytes,88);m.tags=(flags&4?512:0)|(flags&8?32:0)|(flags&128?64:0);m.opacity=flags&16?.33f:flags&32?.66f:1.f;
     m.preview="textures/_ftebroom_q2/"+key+".tga";
-    scripts<<m.name<<"\n{\ncull back\n{\nmap "<<m.preview<<"\n"<<(m.opacity<1?"blendfunc blend\n":"")<<"}\n"<<(m.opacity<1?"":"{\nmap $lightmap\nblendfunc filter\ndepthfunc equal\n}\n")<<"}\n";
+    scripts<<m.name<<"\n{\ncull back\ndiffusemap "<<m.preview<<"\n{\nmap "<<m.preview<<"\n"<<(m.opacity<1?"blendfunc blend\n":"")<<"}\n"<<(m.opacity<1?"":"{\nmap $lightmap\nblendfunc filter\ndepthfunc equal\n}\n")<<"}\n";
   }
   scripts.close();command("fs_restart\nftebroom_reload_palette\nftebroom_reload_asset_models\n");
 }
