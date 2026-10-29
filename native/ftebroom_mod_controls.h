@@ -8,6 +8,22 @@ static ModControl modControls[]={
 static bool modMenuDrawn=false;
 static std::vector<std::string> modAppliedKeys;
 static float modSensitivity=3;static bool modInvertMouse=false,modControlsLoaded=false;
+static bool modLightingRTL=false,modLightingLoaded=false,modLightingRaw=false;
+static float modLightingDistance=4096;
+static std::string modLightingSource;
+static ImVec2 modLightingToggleCenter;
+static void modLightingLoad(){
+  if(modLightingLoaded)return;modLightingLoaded=true;
+  std::ifstream file(documentPath("mod-lighting.txt"));int enabled;float distance;
+  if(file>>enabled>>distance){modLightingRTL=enabled!=0;if(std::isfinite(distance))modLightingDistance=std::clamp(distance,0.f,65536.f);}
+}
+static std::string modLightingCommand(){
+  return "ftebroom_preview_lighting "+std::to_string(modLightingRTL?1:0)+" "+std::to_string(modLightingDistance)+" "+std::to_string(modLightingRaw?1:0)+" \""+modLightingSource+"\"";
+}
+static void modLightingApply(){
+  modInputQueue+=modLightingCommand()+"\n";
+  std::ofstream file(documentPath("mod-lighting.txt"));file<<(modLightingRTL?1:0)<<' '<<modLightingDistance<<'\n';
+}
 static void modControlsLoad()
 {
   if(modControlsLoaded)return;modControlsLoaded=true;
@@ -23,10 +39,12 @@ static std::string modControlName(int key)
 static void modControlsApply()
 {
   modControlsLoad();
+  modLightingLoad();
   for(const auto& key:modAppliedKeys)modInputQueue+="unbind \""+key+"\"\n";modAppliedKeys.clear();
   for(auto& binding:modControls){auto key=modControlName(binding.key);if(!key.empty() && key.find_first_of("\";\\\r\n")==std::string::npos)
     {modInputQueue+="bind \""+key+"\" \""+binding.action+"\"\n";modAppliedKeys.push_back(key);}}
   modInputQueue+="set sensitivity "+std::to_string(modSensitivity)+"\nset m_pitch "+std::string(modInvertMouse?"-0.022":"0.022")+"\n";
+  modInputQueue+=modLightingCommand()+"\n";
 }
 static void modOpenControls(){modReleaseInput();modControlsLoad();modMenuOpen=true;modControlCapture=-1;}
 static void modControlsPanel()
@@ -34,16 +52,30 @@ static void modControlsPanel()
   modMenuDrawn=false;
   if(modEmbedded && modMenuOpen && !ImGui::IsPopupOpen("Mod controls"))ImGui::OpenPopup("Mod controls");
   if(!ImGui::IsPopupOpen("Mod controls"))return;
-  ImGui::SetNextWindowSize({540*uiScale(),560*uiScale()},ImGuiCond_Appearing);
+  auto screen=ImGui::GetIO().DisplaySize;
+  ImGui::SetNextWindowSize({std::min(600*uiScale(),screen.x-40),std::min(720*uiScale(),screen.y-40)},ImGuiCond_Appearing);
   if(ImGui::BeginPopupModal("Mod controls",&modMenuOpen,ImGuiWindowFlags_NoSavedSettings)){
     if(!modEmbedded || !modMenuOpen){ImGui::CloseCurrentPopup();ImGui::EndPopup();return;}
     modMenuDrawn=true;
     ImGui::TextWrapped("Controls apply to this preview. Your mod files are unchanged.");
+    ImGui::BeginChild("Preview settings",{0,-ImGui::GetFrameHeightWithSpacing()*3},ImGuiChildFlags_None);
+    if(ImGui::CollapsingHeader("Lighting",ImGuiTreeNodeFlags_DefaultOpen)){
+      if(ImGui::Checkbox("FTE-native RTL instead of lightmaps",&modLightingRTL))modLightingApply();
+      {auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();modLightingToggleCenter={(a.x+b.x)*.5f,(a.y+b.y)*.5f};}
+      ImGui::BeginDisabled(!modLightingRTL);
+      if(ImGui::DragFloat("RTL distance (map units)",&modLightingDistance,64,0,65536,"%.0f",ImGuiSliderFlags_AlwaysClamp)){
+        if(!std::isfinite(modLightingDistance))modLightingDistance=4096;
+        modLightingApply();
+      }
+      ImGui::EndDisabled();
+      ImGui::TextWrapped("0 = unlimited. Lights fade over the last 20% of the range outside their influence. Ordinary map lights are imported automatically. Realtime shadows can cost more GPU time.");
+      ImGui::Separator();
+    }
     ImGui::SliderFloat("Mouse sensitivity",&modSensitivity,.1f,20.f,"%.1f");ImGui::Checkbox("Invert mouse Y",&modInvertMouse);
     for(int i=0;i<(int)std::size(modControls);++i){ImGui::PushID(i);ImGui::TextUnformatted(modControls[i].label);ImGui::SameLine(240*uiScale());
       auto label=modControlCapture==i?std::string("Press a key..."):modControlName(modControls[i].key);
       if(ImGui::Button(label.c_str(),{160*uiScale(),0}))modControlCapture=i;ImGui::PopID();}
-    ImGui::Separator();
+    ImGui::EndChild();ImGui::Separator();
     if(ImGui::Button("Apply")){
       modReleaseInput();modControlsApply();std::ofstream out(documentPath("mod-controls.txt"));out<<modSensitivity<<' '<<modInvertMouse;
       for(auto& binding:modControls)out<<' '<<binding.key;out<<'\n';modControlCapture=-1;

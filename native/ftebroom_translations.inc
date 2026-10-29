@@ -349,3 +349,7 @@
 {"Compile","Компилировать","Kompilieren","Compiler","编译","コンパイル","Compilar"},
 {"Setup compile","Настройка компиляции","Kompilierung einrichten","Configurer la compilation","编译设置","コンパイル設定","Configurar compilación"},
 {"Shape / move","Форма / перемещение","Form / Verschieben","Forme / déplacement","形状 / 移动","形状 / 移動","Forma / mover"},
+
+{"Lighting","Освещение","Beleuchtung","Éclairage","照明","照明","Iluminación"},
+{"FTE-native RTL instead of lightmaps","RTL-свет FTE вместо лайтмап","FTE-RTL statt Lightmaps","RTL FTE au lieu des lightmaps","FTE 实时照明替代光照贴图","ライトマップの代わりに FTE RTL","RTL de FTE en lugar de lightmaps"},
+{"RTL distance (map units)","Дальность RTL (единицы карты)","RTL-Reichweite (Karteneinheiten)","Distance RTL (unités de carte)","实时灯光距离（地图单位）","RTL 距離（マップ単位）","Distancia RTL (unidades del mapa)"},

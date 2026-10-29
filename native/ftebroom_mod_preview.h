@@ -14,18 +14,23 @@ static bool modCompiledCurrent(){
   return modHasCompiledMap()&&buildResultContentRevision==buildCurrentContentRevision()&&buildResultGeneration==documentGeneration;
 }
 static void modRawMaterials(const std::filesystem::path& source,const std::filesystem::path& home){
-  if(!gameWad())return;
   auto names=ftebroom::quake1::mapTextures(q1Read(source));std::set<std::string> used(names.begin(),names.end());
   std::filesystem::create_directories(home/"scripts");std::ofstream shaders(home/"scripts/reyondbroom-raw-preview.shader");
+  for(const auto& name:used)if(ftebroom::previewToolMaterial(name)){
+    shaders<<name<<"\n{\nsurfaceparm nodraw\nsurfaceparm noshadows\n}\n";
+    if(name.rfind("textures/",0)!=0)shaders<<"textures/"<<name<<"\n{\nsurfaceparm nodraw\nsurfaceparm noshadows\n}\n";
+  }
+  if(!gameWad()){shaders.close();if(!shaders)throw std::runtime_error("Cannot stage preview tool materials.");return;}
   for(const auto& pair:materials){
     auto name=entityLower(pair.first),shortName=name.rfind("textures/",0)==0?name.substr(9):name;
     if(!used.count(name)&&!used.count(shortName))continue;
+    if(ftebroom::previewToolMaterial(name))continue;
     const auto& image=pair.second.preview;
     if(image.rfind("textures/_ftebroom_q1/",0)!=0||image.find("..")!=std::string::npos)throw std::runtime_error("Invalid raw-preview WAD image path.");
     auto bytes=modelResource(image);if(bytes.empty())throw std::runtime_error("A WAD preview image is missing: "+pair.first);
     auto target=home/std::filesystem::u8path(image);std::filesystem::create_directories(target.parent_path());
     std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();if(!output)throw std::runtime_error("Cannot stage raw-preview material.");
-    auto pass="\n{\nmap "+image+"\n"+(shortName.rfind("{",0)==0?std::string("alphafunc GE128\ndepthwrite\n"):std::string())+"}\n";
+    auto pass="\n{\nmap "+image+"\nrgbgen identitylighting\n"+(shortName.rfind("{",0)==0?std::string("alphafunc GE128\ndepthwrite\n"):std::string())+"}\n";
     shaders<<pair.first<<"\n{"<<pass<<"}\n"<<shortName<<"\n{"<<pass<<"}\n";
   }
   shaders.close();if(!shaders)throw std::runtime_error("Cannot stage raw-preview material aliases.");
@@ -71,6 +76,14 @@ static void modLaunch(const std::filesystem::path& source,bool raw)
     }
     std::filesystem::copy_file(source,maps/(name+(raw?".map":".bsp")),std::filesystem::copy_options::overwrite_existing);
     if(raw)modRawMaterials(source,home/mod.filename());
+    auto lightSource=raw?source:source.parent_path()/"snapshot.map";
+    modLightingSource.clear();modLightingRaw=raw;modLightingLoad();
+    if(std::filesystem::is_regular_file(lightSource)){
+      modLightingSource="maps/reyond-preview-lights.ent";
+      auto lights=ftebroom::previewLightEntities(q1Read(lightSource));
+      std::ofstream output(home/mod.filename()/modLightingSource,std::ios::binary);output<<lights;output.close();
+      if(!output)throw std::runtime_error("Cannot stage preview light entities.");
+    }
     if(!raw)for(const char* ext:{".lit",".lux"}){auto extra=source;extra.replace_extension(ext);if(std::filesystem::exists(extra))std::filesystem::copy_file(extra,maps/(name+ext),std::filesystem::copy_options::overwrite_existing); }
     if(cvars->GetFloat("ftebroom_bsp_preview"))buildEdit();
 #ifdef _WIN32
@@ -95,6 +108,7 @@ static void modLaunch(const std::filesystem::path& source,bool raw)
 #endif
     std::string args=previewSwitch+"-noupdates -quake -basedir "+modQuote(mod.parent_path().generic_u8string())+" "+gameSwitch+"-game "+modQuote(mod.filename().u8string())+
       " -homedir "+modQuote(home.generic_u8string())+" -usehome -readonly -window -width 1280 -height 800 +set viewsize 120 +set sv_public 0 +set deathmatch 0 +set coop 0 +set sv_nopvs 0 +set ftebroom_preview_play 1 +set r_drawviewmodel 1 +set chase_active 0 +set cl_idlefps 60 +set cl_maxfps 60 +set vid_wait 0 "+(gameProfile==1?std::string("+set r_glsl_offsetmapping 1 "):std::string())+(gameProfile==4?std::string("+set forceqmenu 1 +exec quake.rc +set r_fullbright ")+(raw?"1":"0")+std::string(" +set r_vertexlight 0 +set pm_thirdPerson 0 +set r_showViewModels 1 +set com_protocolname Nuclide +set g_gametype ")+(hlRuntime?"counterstrike ":"singleplayer "):std::string())+(raw?std::string("+set r_fullbright 1 "):std::string())+"+map "+(raw?modQuote("maps/"+name+".map"):name);
+    args+=" +"+modLightingCommand();
     if(cvars->GetFloat("ftebroom_skip_setup"))args+=" +set ftebroom_preview_trace 1";
     RunProfile preview{std::string(gameProfileName())+": mod preview",root.u8string(),true,{{1,embeddedEngine.u8string(),args}}};
     runBegin(preview);runWindow=false;

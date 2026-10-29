@@ -9,6 +9,59 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  static int rtl99Wait=0;
+  if(std::string(mode)=="rtl99log"){core->Print(("RTL99_LOG\n"+runLog+"\n").c_str());return;}
+  if(std::string(mode)=="rtl99launch"){
+    if(buildRunning){command("in 1 ftebroom_test_desktop rtl99launch\n");return;}
+    expect(!buildResult.empty()&&buildValidBsp(buildResult),"rtl99_fixture_compiled");
+    modLightingLoaded=true;modLightingRTL=false;modLightingDistance=4096;modLaunch(buildResult,false);
+    expect(runActive,"rtl99_compiled_preview_started");command("in 5 ftebroom_test_desktop rtl99menu\n");
+  }
+  if(std::string(mode).rfind("rtl99",0)==0 && std::string(mode)!="rtl99launch"){
+    std::string needed="ftebroom_preview_ready";
+    if(std::string(mode)=="rtl99on")needed="ftebroom_preview_lighting_applied rtl=1 imported=1";
+    if(std::string(mode)=="rtl99near")needed="distance=128 inrange=0 culled=1";
+    if(std::string(mode)=="rtl99unlimited")needed="distance=0 inrange=1 culled=0";
+    if(std::string(mode)=="rtl99off")needed="ftebroom_preview_lighting_applied rtl=0";
+    if(std::string(mode)=="rtl99raw")needed="ftebroom_preview_lighting_applied rtl=1 imported=1";
+    if(!runActive||runLog.find(needed)==std::string::npos){
+      if(++rtl99Wait<90){modInputQueue+="ftebroom_preview_lighting\n";command(("in 1 ftebroom_test_desktop "+std::string(mode)+"\n").c_str());}
+      else {expect(false,"rtl99_runtime_timeout");core->Print((buildMessage+"\n"+runLog).c_str());}return;
+    }
+    rtl99Wait=0;
+    if(std::string(mode)=="rtl99menu"){
+      modOpenControls();frame();frame();expect(modMenuDrawn,"rtl99_escape_menu_has_lighting");
+      auto p=modLightingToggleCenter;event(0,0,0,p.x,p.y,1280,800);event(1,mouseKeys[0],0,p.x,p.y,1280,800);event(0,0,0,p.x,p.y,1280,800);event(2,mouseKeys[0],0,p.x,p.y,1280,800);frame();
+      expect(modLightingRTL,"rtl99_checkbox_enabled");modMenuOpen=false;frame();command("in 5 ftebroom_test_desktop rtl99on\n");
+    }else if(std::string(mode)=="rtl99on"){
+      expect(runLog.find("lightmaps=0 fullbright=0")!=std::string::npos,"rtl99_ordinary_light_imported_without_lightmap");
+      modPlay=false;modLastCamera.clear();cvars->SetString("ftebroom_camera_state","0 -768 64 0 90 0 90");
+      modLightingDistance=128;modLightingApply();modInputQueue+="in 1 ftebroom_preview_lighting\n";command("in 4 ftebroom_test_desktop rtl99near\n");
+    }else if(std::string(mode)=="rtl99near"){
+      expect(true,"rtl99_far_light_culled");modLightingDistance=0;modLightingApply();modInputQueue+="in 1 ftebroom_preview_lighting\n";command("in 4 ftebroom_test_desktop rtl99unlimited\n");
+    }else if(std::string(mode)=="rtl99unlimited"){
+      expect(true,"rtl99_unlimited_light_restored");modLightingRTL=false;modLightingApply();command("in 4 ftebroom_test_desktop rtl99off\n");
+    }else if(std::string(mode)=="rtl99off"){
+      expect(runLog.find("lightmaps=1 fullbright=0")!=std::string::npos,"rtl99_lightmap_restored");
+      modEmbedEnd();if(runActive)runStop();modLightingRTL=true;modLightingDistance=4096;modPreviewChoose(2);command("in 20 ftebroom_test_desktop rtl99raw\n");
+    }else if(std::string(mode)=="rtl99raw"){
+      modLightingApply();
+      expect(runLog.find("+map \"maps/room.map\"")!=std::string::npos,"rtl99_raw_map_realtime_lighting");
+      auto home=std::filesystem::u8path(runningProfile.work)/"home"/std::filesystem::u8path(gameRuntime()).filename();
+      auto shader=q1Read(home/"scripts/reyondbroom-raw-preview.shader");
+      shader.erase(std::remove(shader.begin(),shader.end(),'\r'),shader.end());
+      expect(shader.find("clip\n{\nsurfaceparm nodraw\nsurfaceparm noshadows")!=std::string::npos,"rtl99_raw_clip_hidden_no_shadows");
+      expect(q1Read(home/"maps/room.map").find("CLIP")!=std::string::npos,"rtl99_clip_geometry_retained");
+      auto enabled=modLightingRTL;auto distance=modLightingDistance;modLightingLoaded=false;modLightingLoad();expect(modLightingRTL==enabled&&modLightingDistance==distance,"rtl99_preferences_persisted");
+      modInputQueue+="+moveright\nin 3 -moveright\n";
+    }else if(std::string(mode)=="rtl99collision"){
+      auto at=runLog.rfind("ftebroom_preview_player ");float x=0,y=0,z=0;
+      bool position=at!=std::string::npos&&std::sscanf(runLog.c_str()+at,"ftebroom_preview_player %f %f %f",&x,&y,&z)==3;
+      expect(position&&std::abs(x)<16&&y< -200&&y> -280,"rtl99_invisible_clip_stops_player");
+      core->Print(("RTL99_COLLISION "+std::to_string(x)+" "+std::to_string(y)+" "+std::to_string(z)+"\n").c_str());
+      modEmbedEnd();if(runActive)runStop();command("in 2 quit force\n");
+    }
+  }
   static std::filesystem::path preview98Bsp;static int preview98Revision,preview98Wait;
   if(std::string(mode)=="preview98edit"){
     if(buildRunning){command("in 1 ftebroom_test_desktop preview98edit\n");return;}
