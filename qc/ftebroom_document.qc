@@ -15,7 +15,8 @@ typedef struct {
     hashtable fields;
 } fb_node_t;
 fb_node_t *fb_nodes;
-int fb_node_count,fb_node_capacity,fb_saved_revision,fb_seen_revision;
+int fb_node_count,fb_node_capacity,fb_saved_revision;
+var int fb_seen_revision=-1;
 entity fb_document_probe;
 int fb_grid_geometry_epoch,fb_document_structure_epoch;
 int fb_incremental_epoch;var int fb_incremental_revision=-1;

@@ -947,6 +947,9 @@ void(float prevprogs) init =
 void() initents =
 {
 	world_hitcontentsmaski = &world.hitcontentsmaski;
+    // The first render can precede the deferred document reload, especially
+    // on Wayland. Never reuse the previous map's revision-zero document.
+    fb_seen_revision=-1;
     fb_tool_deactivate();
 	localcmd("in 0.2 ftebroom_map_ready\n");
     localcmd("in 0.1 ftebroom_document_reload\n");
