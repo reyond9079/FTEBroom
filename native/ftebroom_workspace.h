@@ -50,7 +50,7 @@ static void uiSaveAppearance()
   if (cvars->GetFloat("ftebroom_skip_setup"))
     return;
   std::ofstream out(documentPath("appearance.cfg"));
-  out << uiScaleChoice << ' ' << uiLocked << ' ' << uiTheme << ' ' << uiLanguage << '\n';
+  out << uiScaleChoice << ' ' << uiLocked << ' ' << uiTheme << ' ' << uiLanguage << ' ' << uiCursorPercent << '\n';
 }
 static void uiLoad()
 {
@@ -67,6 +67,8 @@ static void uiLoad()
       uiLocked = locked != 0;
       int theme=0;if(appearance>>theme)uiTheme=std::clamp(theme,0,4);
       int language=0;if(appearance>>language)uiLanguage=std::clamp(language,0,6);
+      int cursor=uiDefaultCursorPercent;
+      uiCursorPercent=(appearance>>cursor)?std::clamp(cursor,50,250):uiDefaultCursorPercent;
     }
     std::ifstream layout(documentPath("workspace.ini"), std::ios::binary);
     std::string data((std::istreambuf_iterator<char>(layout)), {});
@@ -185,6 +187,11 @@ static void uiPreferences()
       &uiScaleChoice,
       "100% (17 px)\0 125% (21 px)\0 150% (26 px)\0 175% (30 px)\0 200% (34 px)\0"))
     uiSaveAppearance();
+  ImGui::SetNextItemWidth(140*uiScale());
+  if(ImGui::SliderInt("Cursor size",&uiCursorPercent,50,250,"%d%%",ImGuiSliderFlags_AlwaysClamp))uiSaveAppearance();
+  ImGui::SameLine();
+  if(ImGui::Button("Reset cursor size")){uiCursorPercent=uiDefaultCursorPercent;uiSaveAppearance();}
+  ImGui::TextWrapped("Cursor size is independent of UI / font scale and applies immediately.");
   ImGui::TextWrapped(
     "Dark panels use the TrenchBroom dark palette. Drag a panel tab to undock it or join "
     "another tab group. Drag dividers to resize.");

@@ -49,7 +49,7 @@ struct Action
   const char* gesture;
 };
 static std::vector<Action> actions;
-static bool actionReference = false, preferencesRequest = false;
+static bool actionReference = false, preferencesRequest = false, preferencesAppearanceRequest=false;
 static void preferencesApplyActions();
 static void initActions()
 {
@@ -490,6 +490,7 @@ static void actionMenus()
       if(std::string(group)=="Edit" && gameProfile==1)ImGui::MenuItem("Create FTE Engine terrain...",nullptr,&terrainCreateWindow);
       if(std::string(group)=="Help" && ImGui::BeginMenu("Updates")){updatePanel();ImGui::EndMenu();}
       if(std::string(group)=="View") {
+        if(ImGui::MenuItem("Preferences...")){preferencesRequest=true;preferencesAppearanceRequest=true;}
         bool outlines=cvars->GetFloat("ftebroom_show_edges")!=0;
         if(ImGui::MenuItem("Brush outlines",nullptr,outlines))cvars->SetFloat("ftebroom_show_edges",!outlines);
         if(ImGui::MenuItem("Resolution...")){uiResolutionRead();uiResolutionWindow=true;}

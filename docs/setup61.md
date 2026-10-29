@@ -34,8 +34,24 @@ wizard open and show an error naming the selected game.
 first-person view with viewmodels enabled; the embedded Windows preview still
 offers **Free camera** for inspection. Click the viewport to capture controls,
 and press Escape for the preview controls menu. The editor uses its own scaled
-cursor images instead of inheriting a tiny game cursor; native Linux cursor
-shapes continue to follow the desktop cursor theme, with scaled image fallbacks.
+cursor images instead of inheriting a game cursor. Set **Cursor size** under
+**View → Preferences → View** or **Workspace → Appearance…**. The shared 50–250%
+setting applies immediately to pointer, text and resize shapes, independently of
+UI/font scale, and survives restarts. **Reset cursor size** restores 100%.
+
+If the current editor contents have not been compiled, **Play mod** asks whether
+to **Compile changes and play**, **Play last compiled BSP**, or **Play current MAP
+without compiling**. Compiling rebuilds geometry and launches only after success;
+errors/cancellation retain the previous BSP. The last successful build is also
+remembered across editor restarts. A restored build is treated as unverified, so
+it never silently replaces newer editor contents.
+
+MAP preview exports an isolated snapshot from memory, including unsaved changes,
+and loads it directly with FTE. It does not save over the working MAP or replace
+the last compiled BSP. Used WAD images are staged privately for classic profiles.
+This mode has no baked lightmaps or compiled visibility and can load more slowly
+than BSP. Unsaved untitled maps can use MAP preview; compilation requires choosing
+a save location first. The last-BSP option is disabled when no build is available.
 
 For Quake 1, select **LibreQuake** to download the pinned v0.09-beta mod, or
 **Choose my own mod** and **Browse...** to select a directory. Downloads run outside

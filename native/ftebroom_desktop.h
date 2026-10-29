@@ -33,11 +33,7 @@ static BOOL CALLBACK desktopFind(HWND h,LPARAM){DWORD pid=0;GetWindowThreadProce
 static LRESULT CALLBACK desktopProc(HWND h,UINT message,WPARAM w,LPARAM l){
  if(message==WM_CLOSE && modEmbedded)modEmbedEnd();
  if(message==WM_ACTIVATE && LOWORD(w)!=WA_INACTIVE)cvars->SetFloat("ftebroom_focus_time",float(core->GetMilliseconds())/1000.f);
- if(message==WM_SETCURSOR&&LOWORD(l)==HTCLIENT&&ready&&!sceneLook&&!modCaptured&&!modelEditCameraCaptured){
-  auto cursor=ImGui::GetMouseCursor();LPCSTR id=nullptr;
-  switch(cursor){case ImGuiMouseCursor_ResizeNS:id=IDC_SIZENS;break;case ImGuiMouseCursor_ResizeEW:id=IDC_SIZEWE;break;case ImGuiMouseCursor_ResizeNESW:id=IDC_SIZENESW;break;case ImGuiMouseCursor_ResizeNWSE:id=IDC_SIZENWSE;break;case ImGuiMouseCursor_ResizeAll:id=IDC_SIZEALL;break;case ImGuiMouseCursor_TextInput:id=IDC_IBEAM;break;case ImGuiMouseCursor_Hand:id=IDC_HAND;break;default:break;}
-  if(id){SetCursor(LoadCursorA(nullptr,id));return TRUE;}
- }
+ // Forward WM_SETCURSOR so FTE can install the newly sized hardware image.
  if(message==WM_DROPFILES){auto drop=(HDROP)w;if(modEmbedded){importError="Return to map editing before importing resources.";DragFinish(drop);return 0;}POINT point;DragQueryPoint(drop,&point);RECT rect;GetClientRect(h,&rect);auto size=ImGui::GetIO().DisplaySize;ImVec2 p{point.x*size.x/std::max(1L,rect.right),point.y*size.y/std::max(1L,rect.bottom)};
   bool over=materialDropVisible&&p.x>=materialDropMin.x&&p.y>=materialDropMin.y&&p.x<materialDropMax.x&&p.y<materialDropMax.y;
   for(UINT i=0,count=DragQueryFileW(drop,0xffffffff,nullptr,0);i<count;i++){UINT n=DragQueryFileW(drop,i,nullptr,0);std::wstring name(n+1,0);DragQueryFileW(drop,i,name.data(),n+1);name.resize(n);auto path=std::filesystem::path(name);auto ext=path.extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);bool manager=modFilesVisible&&p.x>=modFilesMin.x&&p.y>=modFilesMin.y&&p.x<modFilesMax.x&&p.y<modFilesMax.y;

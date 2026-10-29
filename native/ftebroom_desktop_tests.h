@@ -9,6 +9,72 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  static std::filesystem::path preview98Bsp;static int preview98Revision,preview98Wait;
+  if(std::string(mode)=="preview98edit"){
+    if(buildRunning){command("in 1 ftebroom_test_desktop preview98edit\n");return;}
+    command("in 3 ftebroom_test_desktop preview98last\nin 35 ftebroom_test_desktop preview98lastcheck\n");
+    expect(modCompiledCurrent(),"preview98_fresh_build_current");preview98Bsp=buildResult;preview98Revision=buildResultRevision;
+    core->Print(("RB98_FRESH "+std::to_string(buildResultContentRevision)+"/"+std::to_string(buildCurrentContentRevision())+" gen="+std::to_string(buildResultGeneration)+"/"+std::to_string(documentGeneration)+"\n").c_str());
+    auto source=buildResultSourceMap;auto content=buildResultContentRevision;auto generation=buildResultGeneration;buildResult.clear();buildRestoreHistory();expect(modHasCompiledMap()&&!modCompiledCurrent(),"preview98_previous_session_build_restored");
+    buildResultRevision=preview98Revision;buildResultSourceMap=source;buildResultContentRevision=content;buildResultGeneration=generation;buildEdit();entityProperty("set","message","preview98_unsaved");
+  }
+  if(std::string(mode)=="preview98last"){
+    expect(!modCompiledCurrent(),"preview98_unsaved_change_detected");modPreview();expect(modChoiceOpen,"preview98_choice_dialog");modPreviewChoose(1);
+    expect(runActive&&!modChoiceOpen,"preview98_last_bsp_started");preview98Wait=0;
+  }
+  if(std::string(mode)=="preview98lastcheck"||std::string(mode)=="preview98rawcheck"||std::string(mode)=="preview98compiledcheck"){
+    if(!runActive||runLog.find("ftebroom_preview_ready")==std::string::npos){
+      if(++preview98Wait<150)command(("in 1 ftebroom_test_desktop "+std::string(mode)+"\n").c_str());
+      else {expect(false,"preview98_runtime_timeout");core->Print((buildMessage+"\n"+runLog).c_str());}return;
+    }
+    preview98Wait=0;
+    if(std::string(mode)=="preview98lastcheck"){
+      expect(runLog.find("+map room ")!=std::string::npos&&buildResult==preview98Bsp&&buildResultRevision==preview98Revision,"preview98_last_bsp_kept_current_edits");
+      modEmbedEnd();if(runActive)runStop();modPreview();modPreviewChoose(2);expect(modRawExporting,"preview98_current_map_exporting");command("in 25 ftebroom_test_desktop preview98rawcheck\n");
+    }else if(std::string(mode)=="preview98rawcheck"){
+      auto root=std::filesystem::u8path(runningProfile.work)/"home"/std::filesystem::u8path(gameRuntime()).filename();
+      auto map=root/"maps/room.map";
+      expect(runLog.find("+map \"maps/room.map\"")!=std::string::npos&&std::filesystem::is_regular_file(map)&&!std::filesystem::exists(root/"maps/room.bsp"),"preview98_raw_map_without_bsp");
+      expect(q1Read(map).find("preview98_unsaved")!=std::string::npos&&buildResult==preview98Bsp&&buildResultRevision==preview98Revision,"preview98_raw_uses_unsaved_contents");
+      expect(q1Read(map).find("\"classname\" \"func_group\"")==std::string::npos,"preview98_raw_editor_groups_flattened");
+      expect(std::filesystem::is_regular_file(root/"scripts/reyondbroom-raw-preview.shader"),"preview98_raw_wad_materials");
+      modEmbedEnd();if(runActive)runStop();modPreview();modPreviewChoose(0);expect(buildRunning&&modCompilePending,"preview98_compile_and_play_requested");command("in 45 ftebroom_test_desktop preview98compiledcheck\n");
+    }else {
+      expect(buildResult!=preview98Bsp&&modCompiledCurrent()&&!modCompilePending,"preview98_compile_then_play_latest");
+      modEmbedEnd();if(runActive)runStop();command("in 2 quit force\n");
+    }
+  }
+  if(std::string(mode)=="cursor98small"||std::string(mode)=="cursor98large"||std::string(mode)=="cursor98font"){
+    cameraEnd();modelEditorCameraEnd(true);uiCursorPercent=std::string(mode)=="cursor98large"?200:100;
+    uiScaleChoice=std::string(mode)=="cursor98font"?4:0;
+    event(0,0,0,200,400,1280,800);event(0,0,0,200,400,1280,800);
+#ifdef _WIN32
+    RECT client{};GetClientRect(desktopHost,&client);auto r=viewRects[0];auto size=ImGui::GetIO().DisplaySize;
+    POINT point{LONG((r.x+r.w*.5f)*client.right/size.x),LONG((r.y+r.h*.5f)*client.bottom/size.y)};ClientToScreen(desktopHost,&point);SetForegroundWindow(desktopHost);SetCursorPos(point.x,point.y);
+#endif
+  }
+  if(std::string(mode).rfind("cursor98check",0)==0){
+    static int small=0;
+#ifdef _WIN32
+    desktopProc(desktopHost,WM_SETCURSOR,(WPARAM)desktopHost,HTCLIENT);
+    ICONINFO info{};BITMAP bitmap{};int height=0;
+    CURSORINFO current{sizeof(CURSORINFO)};GetCursorInfo(&current);
+    if(GetIconInfo(current.hCursor,&info)){if(GetObject(info.hbmColor?info.hbmColor:info.hbmMask,sizeof bitmap,&bitmap))height=info.hbmColor?bitmap.bmHeight:bitmap.bmHeight/2;if(info.hbmColor)DeleteObject(info.hbmColor);if(info.hbmMask)DeleteObject(info.hbmMask);}
+    if(std::string(mode)=="cursor98checksmall"){small=height;expect(height>=16&&height<=32,"cursor98_smaller_default");}
+    else if(std::string(mode)=="cursor98checklarge")expect(height>small,"cursor98_size_changes_hardware_cursor");
+    else expect(height==small,"cursor98_font_scale_independent");
+    core->Print(("RB98_CURSOR_HEIGHT "+std::to_string(height)+"\n").c_str());
+#else
+    expect(!uiCursorNames[ImGuiMouseCursor_Arrow].empty()&&!ImGui::GetIO().MouseDrawCursor,"cursor98_single_scaled_image");
+#endif
+  }
+  if(std::string(mode)=="cursor98preferences"){
+    uiCursorPercent=175;cvars->SetFloat("ftebroom_skip_setup",0);uiSaveAppearance();
+    uiCursorPercent=100;uiLoaded=false;uiLoad();expect(uiCursorPercent==175,"cursor98_size_persisted");
+    std::ofstream(documentPath("appearance.cfg"))<<"0 0 0 0\n";uiCursorPercent=175;uiLoaded=false;uiLoad();expect(uiCursorPercent==100,"cursor98_legacy_settings_default");
+    cvars->SetFloat("ftebroom_skip_setup",1);uiScaleChoice=0;preferencesRequest=true;preferencesAppearanceRequest=true;frame();frame();
+    auto window=ImGui::FindWindowByName("Preferences");expect(window&&window->Active&&!preferencesAppearanceRequest,"cursor98_appearance_page_open");
+  }
   if(std::string(mode)=="cursor97"){
     cameraEnd();modelEditorCameraEnd(true);ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);uiCursorUpdate(false,1.f);
     expect(!uiCursorNames[ImGuiMouseCursor_Arrow].empty()&&!ImGui::GetIO().MouseDrawCursor,"cursor97_single_explicit_cursor");
@@ -17,7 +83,7 @@ static void testDesktop(){
 #ifdef _WIN32
     ICONINFO info{};BITMAP bitmap{};int height=0;
     if(GetIconInfo(GetCursor(),&info)){if(GetObject(info.hbmColor?info.hbmColor:info.hbmMask,sizeof bitmap,&bitmap))height=info.hbmColor?bitmap.bmHeight:bitmap.bmHeight/2;if(info.hbmColor)DeleteObject(info.hbmColor);if(info.hbmMask)DeleteObject(info.hbmMask);}
-    expect(height>=28,"cursor97_visible_hardware_size");core->Print(("RB97_CURSOR_HEIGHT "+std::to_string(height)+"\n").c_str());
+    expect(height>=16,"cursor97_visible_hardware_size");core->Print(("RB97_CURSOR_HEIGHT "+std::to_string(height)+"\n").c_str());
 #else
     expect(uiCursorShape(ImGuiMouseCursor_Arrow)==1&&!uiCursorNames[ImGuiMouseCursor_Arrow].empty(),"cursor97_native_shape_and_scaled_fallback");
 #endif
@@ -824,9 +890,9 @@ static void testDesktop(){
 
 #ifdef _WIN32
 
-   desktopAttach();ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);desktopProc(desktopHost,WM_SETCURSOR,(WPARAM)desktopHost,HTCLIENT);expect(GetCursor()==LoadCursorA(nullptr,IDC_SIZEWE),"horizontal_resize_cursor");
+   desktopAttach();ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);expect(desktopProc(desktopHost,WM_SETCURSOR,(WPARAM)desktopHost,HTCLIENT)==TRUE&&!uiCursorNames[ImGuiMouseCursor_ResizeEW].empty(),"horizontal_resize_cursor");
 
-   ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);desktopProc(desktopHost,WM_SETCURSOR,(WPARAM)desktopHost,HTCLIENT);expect(GetCursor()==LoadCursorA(nullptr,IDC_SIZENWSE),"diagonal_resize_cursor");
+   ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);expect(desktopProc(desktopHost,WM_SETCURSOR,(WPARAM)desktopHost,HTCLIENT)==TRUE&&!uiCursorNames[ImGuiMouseCursor_ResizeNWSE].empty(),"diagonal_resize_cursor");
 
 #endif
 

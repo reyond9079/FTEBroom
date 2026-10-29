@@ -405,6 +405,7 @@ static void panel(float w, float h)
   const float statusHeight = ImGui::GetTextLineHeight() + 16 * uiScale();
   uiWorkspace(w, h, menuHeight + toolbarHeight, statusHeight);
   projectSetup();
+  modPreviewPanel();
   viewCompute(w, h);
   viewOverlay();
   if ((int)cvars->GetFloat("ftebroom_tool") == 1)
@@ -542,15 +543,15 @@ static void panel(float w, float h)
     if (ImGui::BeginMenu("Workspace"))
     {
       ImGui::MenuItem("Mod file manager",nullptr,&modFilesOpen);
-      if (ImGui::MenuItem("Appearance / font scale..."))
-        preferencesRequest = true;
+      if (ImGui::MenuItem("Appearance..."))
+        {preferencesRequest = true;preferencesAppearanceRequest=true;}
       if (ImGui::MenuItem("Lock panels", nullptr, &uiLocked))
         uiSaveAppearance();
       if (ImGui::MenuItem("Reset panel layout"))
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 97");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 98");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1145,8 +1146,9 @@ static void panel(float w, float h)
   {
     if(ImGui::BeginTabBar("Preference pages"))
     {
-    if(ImGui::BeginTabItem("View"))
+    if(ImGui::BeginTabItem("View",nullptr,preferencesAppearanceRequest?ImGuiTabItemFlags_SetSelected:0))
     {
+    preferencesAppearanceRequest=false;
     uiPreferences();
     if(ImGui::CollapsingHeader("Resolution"))uiResolutionControls();
     bool legacy = cvars->GetFloat("ftebroom_drag_mode") != 0;
@@ -1207,7 +1209,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 97");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 98");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1237,7 +1239,7 @@ static void panel(float w, float h)
 #ifndef _WIN32
   linuxPlatformTestPanel();
 #endif
-  uiCursorUpdate(sceneLook||modelEditCameraCaptured||modCaptured,uiScale());
+  uiCursorUpdate(sceneLook||modelEditCameraCaptured||modCaptured,uiCursorPercent/100.f);
   render();
   modEmbedTick(w,h);
   uiSaveLayout();
@@ -1584,6 +1586,7 @@ static void mapReady()
       else if(loadedAlias!=name || documentFile.empty())
         documentFile = documentUntitled ? std::filesystem::path{}
                                         : documentPath("maps/" + name + ".map");
+      if(loadedAlias!=name)++documentGeneration;
       loadedAlias=name;
       if(!documentFile.empty())documentName=documentFile.stem().u8string();
       pendingDocumentFile.clear();
@@ -1623,7 +1626,7 @@ static void QDECL actionFocusTick(int)
   clipboardPump();
   documentTick();
   // Compiler jobs must advance even while the UI is occluded or another menu owns focus.
-  if(ready){runTick();buildTick();pluginsTick();}
+  if(ready){runTick();buildTick();modPreviewTick();pluginsTick();}
   if (!ready || input->HasMenuFocus())
     return;
   modelEditorCameraEnd(false);

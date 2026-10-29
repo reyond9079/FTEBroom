@@ -22,6 +22,7 @@ static std::string saveTemporary, saveDestination;
 static std::filesystem::path documentFile, pendingDocumentFile, saveNativeTarget, fileBrowserFolder;
 static std::string pendingDocumentAlias;
 static int saveRevision;
+static uint64_t documentGeneration=0;
 static std::chrono::steady_clock::time_point saveProfileStarted;
 static bool savingDocument, savingBackup, savingExport, confirmDocument;
 static bool savePakDetached;

@@ -5,6 +5,15 @@ static bool buildWasPreview;
 static std::string buildMessage,buildResultModel,buildPendingModel;
 static std::filesystem::path buildResult,buildPending,buildDocument,buildResultDocument;
 static int buildRevision,buildResultRevision,buildResultProfile=-1;
+static std::string buildSourceMap,buildResultSourceMap;
+static bool modCompilePending=false;
+static int buildContentRevision=-1,buildResultContentRevision=-1;
+static uint64_t buildGeneration=0,buildResultGeneration=0;
+static int buildCurrentContentRevision(){
+  std::string value;int revision=-1;
+  if(qcQuery(4,0,value)&&std::sscanf(value.c_str(),"RBMAP1 %d",&revision)==1)return revision;
+  return (int)cvars->GetFloat("ftebroom_revision");
+}
 static double buildStarted;
 static int buildSavedLayout,buildSavedFocus,buildSavedMax,buildSavedTypes[4];
 static std::vector<std::string> buildStages;
@@ -28,10 +37,29 @@ static bool buildValidBsp(const std::filesystem::path& path)
 {
   auto bytes=buildRead(path);return gameProfile>=3?ftebroom::quake1::gameBsp(bytes,gameProfile):ftebroom::quake1::bsp(bytes,gameProfile==2);
 }
+static std::filesystem::path buildHistoryFile(){
+  return ftebroom::pak::diskFolder(documentFile.parent_path())/"_ftebroom-build"/(backupStorageName()+"-"+gameProfileKey(gameProfile)+".last-build");
+}
+static void buildSaveHistory(){
+  try{auto file=buildHistoryFile();std::filesystem::create_directories(file.parent_path());std::ofstream output(file);
+    output<<gameProfile<<' '<<std::quoted(documentFile.generic_u8string())<<' '<<std::quoted(buildResult.generic_u8string())<<'\n';
+  }catch(const std::exception& e){core->Print((std::string("ReyondBroom: cannot save build history: ")+e.what()+"\n").c_str());}
+}
+static void buildRestoreHistory(){
+  if(documentFile.empty()||(!buildResult.empty()&&buildResultDocument==documentFile&&buildResultProfile==gameProfile))return;
+  try{std::ifstream input(buildHistoryFile());int profile=-1;std::string document,result;
+    if(!(input>>profile>>std::quoted(document)>>std::quoted(result))||profile!=gameProfile||document!=documentFile.generic_u8string())return;
+    auto path=std::filesystem::u8path(result);if(!std::filesystem::is_regular_file(path)||!buildValidBsp(path))return;
+    buildResult=path;buildResultDocument=documentFile;buildResultProfile=profile;buildResultRevision=-1;buildResultContentRevision=-1;buildResultGeneration=0;buildResultSourceMap.clear();
+    buildResultModel="maps/ftebroom-build/"+path.parent_path().filename().u8string()+"/snapshot.bsp";
+  }catch(const std::exception& e){core->Print((std::string("ReyondBroom: cannot restore build history: ")+e.what()+"\n").c_str());}
+}
 static void buildExported(const std::filesystem::path& path)
 {
   if(documentFile!=buildDocument)throw std::runtime_error("The active map changed during export. Start Build again for the current map.");
   buildRevision=(int)cvars->GetFloat("ftebroom_revision");
+  buildContentRevision=buildCurrentContentRevision();buildGeneration=documentGeneration;
+  char loaded[512]{};cvars->GetString("mapname",loaded,sizeof loaded);buildSourceMap=loaded;
   runAppend("Exported current editor contents from: "+buildDocument.u8string()+"\nBuild copy: "+path.u8string()+"\nRevision: "+std::to_string(buildRevision)+"\n");
   if(!buildGeometry && buildRead(path)!=buildRead(buildResult.parent_path()/"snapshot.map"))
     throw std::runtime_error("Geometry changed. Enable Geometry/BSP before rebuilding VIS or LIGHT.");
@@ -142,14 +170,17 @@ static void buildTick()
   if(buildWasPreview && !modEmbedded && !cvars->GetFloat("ftebroom_bsp_preview"))buildRestoreLayout();
   if(!buildRunning||runActive)return;
   buildRunning=false;gameProfileLocked=false;runExportHook=nullptr;runStageHook=nullptr;
+  bool playAfterBuild=modCompilePending;modCompilePending=false;
   {std::ofstream log(buildPending.parent_path()/"build.log");log<<runLog;}
   if(runHadError){buildMessage=runError;return;}
   if(runStep!=(int)buildStages.size()){buildMessage="Build cancelled. Previous successful BSP is retained.";return;}
   try {
     if(!buildValidBsp(buildPending))throw std::runtime_error("Compiler did not produce a valid BSP for the selected profile.");
-    buildResult=buildPending;buildResultModel=buildPendingModel;buildResultDocument=buildDocument;buildResultRevision=buildRevision;buildResultProfile=gameProfile;
+    buildResult=buildPending;buildResultModel=buildPendingModel;buildResultDocument=buildDocument;buildResultRevision=buildRevision;buildResultProfile=gameProfile;buildResultSourceMap=buildSourceMap;
+    buildResultContentRevision=buildContentRevision;buildResultGeneration=buildGeneration;
+    buildSaveHistory();
     buildMessage="Build complete. Ready to preview.";
-    if(gameProfile!=0 && gameProfile!=3 && gamePreviewAfterBuild)modPreview();
+    if(gameProfile!=0 && gameProfile!=3 && (gamePreviewAfterBuild||playAfterBuild))modPreview();
     else buildShow();
   }catch(const std::exception& error){buildMessage=error.what();}
 }
@@ -238,7 +269,7 @@ static void buildToolbar(bool inlineTools=false)
     else {ImGui::BeginDisabled(buildResult.empty()||(buildResultDocument!=documentFile || buildResultProfile!=gameProfile)||buildRunning);
       if(compileButton("Show BSP",2))buildShow();ImGui::EndDisabled();}
     gameProfileLoad();
-    if(gameProfile!=0&&gameProfile!=3){next("Play mod");ImGui::BeginDisabled(runActive||buildRunning||buildResult.empty()||(buildResultDocument!=documentFile || buildResultProfile!=gameProfile));
+    if(gameProfile!=0&&gameProfile!=3){next("Play mod");ImGui::BeginDisabled(runActive||runExclusive||buildRunning||assetsLoading);
       if(compileButton("Play mod",3))modPreview();ImGui::EndDisabled();}
     ImGui::PopStyleVar();
 }

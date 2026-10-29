@@ -14,6 +14,7 @@ void fb_uv_publish();
 void fb_uv_finish(int commit);
 float fb_entity_command();
 int fb_export_map();
+int fb_export_raw_preview;
 int fb_export_selected_bsp();
 float fb_context_command();
 void fb_entity_drop_preview();
@@ -636,7 +637,7 @@ float() ftebroom_command =
     if(fb_context_command())return TRUE;
     if(argv(0)=="ftebroom_tag") {fb_filter_tag(argv(1),stoi(argv(2)));return TRUE;}
     if(argv(0)=="ftebroom_export_selected_bsp") {fb_export_selected_bsp();return TRUE;}
-    if(argv(0)=="ftebroom_export_map") {fb_export_map();return TRUE;}
+    if(argv(0)=="ftebroom_export_map") {fb_export_raw_preview=argv(1)=="raw-preview";fb_export_map();fb_export_raw_preview=FALSE;return TRUE;}
     if(argv(0)=="ftebroom_group") {fb_group_create(argv(1));return TRUE;}
     if(argv(0)=="ftebroom_organize") {fb_organize_action(argv(1),stoi(argv(2)),argv(3));return TRUE;}
     if(argv(0)=="ftebroom_vertex_delete") {fb_vertex_delete();return TRUE;}

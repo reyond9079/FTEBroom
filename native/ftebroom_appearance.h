@@ -5,6 +5,8 @@ static constexpr int uiDefaultScaleChoice = 1;
 static constexpr int uiDefaultScaleChoice = 0;
 #endif
 static int uiScaleChoice = uiDefaultScaleChoice;
+static constexpr int uiDefaultCursorPercent=100;
+static int uiCursorPercent=uiDefaultCursorPercent;
 static int uiTheme = 0;
 static const char* uiThemeNames[]={"Modern Dark","Retro Light","Retro Dark","Modern Light","Half-Life"};
 static ImFont* uiFonts[5] = {};

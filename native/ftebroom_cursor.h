@@ -50,13 +50,15 @@ static void uiCursorInitialize(plugfsfuncs_t* fs,ImFontAtlas* atlas,const unsign
 static void uiCursorUpdate(bool look,float scale)
 {
   ImGui::GetIO().MouseDrawCursor=false;
-  scale=std::max(1.f,scale)*1.75f;
+  scale=std::clamp(scale,.5f,2.5f);
   if(look||!input->HasMenuFocus())return;
   int cursor=ImGui::GetMouseCursor();
   if(cursor<0||cursor>=ImGuiMouseCursor_COUNT)cursor=ImGuiMouseCursor_Arrow;
   const auto& fallback=uiCursorNames[cursor];
   const auto& hot=uiCursorHotspots[cursor];
   char name[160];
-  std::snprintf(name,sizeof name,"shape:%d:%s",uiCursorShape(cursor),fallback.c_str());
+  // Native theme shapes ignore the requested scale. Use the same resizable
+  // hardware image on each backend, with FTE's software fallback if necessary.
+  std::snprintf(name,sizeof name,"%s",fallback.c_str());
   input->SetMenuFocus(qtrue,name,hot.x*scale,hot.y*scale,scale);
 }

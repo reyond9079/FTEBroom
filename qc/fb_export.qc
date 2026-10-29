@@ -7,7 +7,12 @@ int fb_export_included(int node)
 }
 int fb_export_owner(int node)
 {
-    int parent=fb_nodes[node].parent;return parent<=1?0:parent;
+    int parent=fb_nodes[node].parent;
+    if(fb_export_raw_preview)for(int step=0;step<fb_node_count && parent>1 && parent<fb_node_count;step++) {
+        if(fb_nodes[parent].kind!=FB_NODE_LAYER && fb_nodes[parent].kind!=FB_NODE_GROUP && fb_nodes[parent].fields["classname"]!="func_group")break;
+        parent=fb_nodes[parent].parent;
+    }
+    return parent<=1||parent>=fb_node_count?0:parent;
 }
 int fb_export_map()
 {
@@ -23,10 +28,12 @@ int fb_export_map()
     }
     for(int e=0;e<fb_node_count;e++) {
         if(fb_nodes[e].kind<0 || e==1 || (e && (fb_nodes[e].kind>=FB_NODE_BRUSH || !fb_export_included(e))))continue;
+        if(fb_export_raw_preview && e && (fb_nodes[e].kind==FB_NODE_LAYER || fb_nodes[e].kind==FB_NODE_GROUP || fb_nodes[e].fields["classname"]=="func_group"))continue;
         fputs(file,"{\n");hashtable fields=(hashtable)fb_nodes[e].fields;
         for(int k=0;;k++) {
             string key=hash_getkey(fields,k);if isnull(key)break;
             if(substring(key,0,10)=="_ftebroom_")continue;
+            if(fb_export_raw_preview && substring(key,0,4)=="_tb_")continue;
             if(key=="model" && substring(fields[key],0,1)=="*")continue;
             fputs(file,strcat(fb_map_quote(key)," ",fb_map_quote(fields[key]),"\n"));
         }
