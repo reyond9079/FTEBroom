@@ -53,11 +53,11 @@ static void testDesktop(){
       expect(shader.find("clip\n{\nsurfaceparm nodraw\nsurfaceparm noshadows")!=std::string::npos,"rtl99_raw_clip_hidden_no_shadows");
       expect(q1Read(home/"maps/room.map").find("CLIP")!=std::string::npos,"rtl99_clip_geometry_retained");
       auto enabled=modLightingRTL;auto distance=modLightingDistance;modLightingLoaded=false;modLightingLoad();expect(modLightingRTL==enabled&&modLightingDistance==distance,"rtl99_preferences_persisted");
-      modInputQueue+="+moveright\nin 3 -moveright\n";
+      modInputQueue+="ftebroom_preview_lighting trace 0 0 32 0 -400 32\n";
     }else if(std::string(mode)=="rtl99collision"){
-      auto at=runLog.rfind("ftebroom_preview_player ");float x=0,y=0,z=0;
-      bool position=at!=std::string::npos&&std::sscanf(runLog.c_str()+at,"ftebroom_preview_player %f %f %f",&x,&y,&z)==3;
-      expect(position&&std::abs(x)<16&&y< -200&&y> -280,"rtl99_invisible_clip_stops_player");
+      auto at=runLog.rfind("ftebroom_preview_collision ");float fraction=1,x=0,y=0,z=0;
+      bool position=at!=std::string::npos&&std::sscanf(runLog.c_str()+at,"ftebroom_preview_collision fraction=%f end=%f,%f,%f",&fraction,&x,&y,&z)==4;
+      expect(position&&fraction>0&&fraction<1&&std::abs(x)<16&&y< -200&&y> -280,"rtl99_invisible_clip_blocks_player_trace");
       core->Print(("RTL99_COLLISION "+std::to_string(x)+" "+std::to_string(y)+" "+std::to_string(z)+"\n").c_str());
       modEmbedEnd();if(runActive)runStop();command("in 2 quit force\n");
     }

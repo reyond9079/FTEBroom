@@ -1,6 +1,6 @@
 --- a/engine/gl/gl_rlight.c
 +++ b/engine/gl/gl_rlight.c
-@@ -2318,6 +2318,66 @@
+@@ -2318,6 +2318,78 @@
  	Q_snprintfz (macro_buf, sizeof(macro_buf), "%g", dl->lightcolourscales[1]);
  	return macro_buf;
  }
@@ -15,9 +15,21 @@
 +static void R_FTEBroomPreviewLighting_f(void)
 +{
 +    float distance;
-+    int enabled, raw;
++    int enabled, raw, i;
 +    const char *source;
 +    if (!COM_CheckParm("-ftebroom-preview")) return;
++    /* A preview-only player-box sweep for collision regression checks. */
++    if (Cmd_Argc() == 8 && !strcmp(Cmd_Argv(1), "trace") && cl.worldmodel && cl.worldmodel->funcs.NativeTrace) {
++        vec3_t start, end, mins = {-16,-16,-16}, maxs = {16,16,16};
++        trace_t trace;
++        for (i = 0; i < 3; i++) {
++            start[i] = atof(Cmd_Argv(2+i));end[i] = atof(Cmd_Argv(5+i));
++            if (!(start[i] >= -1000000 && start[i] <= 1000000 && end[i] >= -1000000 && end[i] <= 1000000)) return;
++        }
++        memset(&trace, 0, sizeof(trace));
++        cl.worldmodel->funcs.NativeTrace(cl.worldmodel, 0, NULLFRAMESTATE, NULL, start, end, mins, maxs, false, MASK_PLAYERSOLID, &trace);
++        printf("ftebroom_preview_collision fraction=%g end=%g,%g,%g\n", trace.fraction, trace.endpos[0], trace.endpos[1], trace.endpos[2]);fflush(stdout);return;
++    }
 +    if (Cmd_Argc() == 1) {
 +        printf("ftebroom_preview_lighting_status rtl=%i imported=%i distance=%g inrange=%i culled=%i lightmaps=%g fullbright=%g\n",
 +            rb_preview_lighting, rb_preview_imported, ftebroom_preview_light_distance,
@@ -67,7 +79,7 @@
  static char *r_editlights_current_specular(void)
  {
  	int i = r_editlights_selected;
-@@ -2356,6 +2416,7 @@
+@@ -2356,6 +2428,7 @@
  
  void R_EditLights_RegisterCommands(void)
  {
