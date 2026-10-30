@@ -17,12 +17,32 @@ static void cacheUnlock(){flock(cacheLock,LOCK_UN);}
 static void cacheShared(){flock(cacheLock,LOCK_SH);}
 #endif
 static std::filesystem::path cacheRoot;
-static void cacheSweep(){
+static std::set<std::string> cacheProjectImages;
+static std::string cacheProjectLastKey;
+static void cacheProjectIndexed(){
+ cacheProjectImages.clear();
+ cacheProjectLastKey.clear();
+ for(const auto& pair:materials)if(ftebroom::diskcache::cachedImage(pair.second.preview))cacheProjectImages.insert(pair.second.preview);
+ cacheProjectRemember();
+}
+static void cacheProjectRemember(){
+ try{
+  auto source=pendingDocumentFile.empty()?documentFile:pendingDocumentFile;
+  if(source.empty()||cacheRoot.empty()||cacheProjectImages.empty())return;
+  auto key=std::to_string(gameProfile)+"\n"+source.parent_path().lexically_normal().generic_u8string()+"\n"+gameRuntime()+"\n"+std::string(baseq3);
+  if(gameWad())for(const auto& wad:q1WadPaths())key+="\n"+wad.generic_u8string();
+  if(key==cacheProjectLastKey)return;
+  if(ftebroom::diskcache::rememberProject(cacheRoot,key,cacheProjectImages))cacheProjectLastKey=key;
+ }catch(const std::exception& e){core->Print((std::string("ReyondBroom project-cache history skipped: ")+e.what()+"\n").c_str());}
+}
+static void cacheSweep(bool allowFull){
  try{
   ftebroom::diskcache::Options options;
+  options.fullScan=allowFull&&ftebroom::diskcache::fullScanDue(cacheRoot);
   if(!documentFile.empty())options.protectedFiles.insert(documentFile);
   if(!pendingDocumentFile.empty())options.protectedFiles.insert(pendingDocumentFile);
   auto result=ftebroom::diskcache::clean(cacheRoot,options);
+  if(result.fullScan&&!result.errors)ftebroom::diskcache::markFullScan(cacheRoot);
   core->Print(("ReyondBroom cache cleanup: "+std::to_string(result.files)+" generated files, "+std::to_string(result.bytes/1048576)+" MiB reclaimed.\n").c_str());
  }catch(const std::exception& e){core->Print((std::string("ReyondBroom cache cleanup skipped: ")+e.what()+"\n").c_str());}
 }
@@ -35,7 +55,7 @@ static void cacheMaintenanceStart(){
 #else
  cacheLock=open(lock.c_str(),O_CREAT|O_RDWR,0600);if(cacheLock<0)return;
 #endif
- if(cacheExclusive()){cacheSweep();cacheUnlock();}cacheShared();
+ if(cacheExclusive()){cacheSweep(false);cacheUnlock();}cacheShared();
 }
 static void cacheMaintenanceStop(){
 #ifdef _WIN32
@@ -43,7 +63,8 @@ static void cacheMaintenanceStop(){
 #else
  if(cacheLock<0)return;
 #endif
- cacheUnlock();if(cacheExclusive()){cacheSweep();cacheUnlock();}
+ cacheProjectRemember();
+ cacheUnlock();if(cacheExclusive()){cacheSweep(true);cacheUnlock();}
 #ifdef _WIN32
  CloseHandle(cacheLock);cacheLock=INVALID_HANDLE_VALUE;
 #else

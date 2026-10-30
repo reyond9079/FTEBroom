@@ -67,11 +67,12 @@ static void assetsReady()
   resetMaterialBrowser();
   clearEntityPreviews();
   materials.clear();
+  cacheProjectIndexed();
   resourceFiles.clear();
   resourceDirs.clear();
   shaderFiles = 0;
   if(gameWad()) {
-    try {q1IndexAssets();publishMaterialTags();command("ftebroom_definitions\n");char current[256]={};cvars->GetString("mapname",current,sizeof current);if(std::filesystem::path(current).stem()=="start"&&!cvars->GetFloat("ftebroom_dirty"))profileStartMap();assetsLoading=false;setupNeeded=false;cvars->SetFloat("ftebroom_material_count",float(materials.size()));return;}
+    try {q1IndexAssets();cacheProjectIndexed();publishMaterialTags();command("ftebroom_definitions\n");char current[256]={};cvars->GetString("mapname",current,sizeof current);if(std::filesystem::path(current).stem()=="start"&&!cvars->GetFloat("ftebroom_dirty"))profileStartMap();assetsLoading=false;setupNeeded=false;cvars->SetFloat("ftebroom_material_count",float(materials.size()));return;}
     catch(const std::exception& e){assetError=e.what();assetsLoading=false;setupNeeded=true;return;}
   }
   scanDirectory("textures/");
@@ -149,6 +150,7 @@ static void assetsReady()
     }
   }
   if(gameProfile==3){try{q2IndexAssets();}catch(const std::exception& e){assetError=e.what();assetsLoading=false;setupNeeded=true;return;}}
+  cacheProjectIndexed();
   publishMaterialTags();
   command("ftebroom_definitions\n");
   assetsLoading = false;

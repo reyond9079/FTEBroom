@@ -224,6 +224,8 @@ static void action(const char* cmd)
   cancelGesture();
   command(cmd);
 }
+static void cacheProjectIndexed();
+static void cacheProjectRemember();
 #include "ftebroom_assets.h"
 #include "ftebroom_document.h"
 #include "ftebroom_wall_browser.h"
@@ -445,7 +447,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 108");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 109");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1106,7 +1108,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 108");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 109");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1499,7 +1501,7 @@ static void mapReady()
     std::snprintf(mapName, sizeof mapName, "%s", documentName.c_str());
   }
   documentIndexLines(documentFile);
-  if(!documentUntitled)recentRemember(documentFile,gameProfile);
+  if(!documentUntitled){recentRemember(documentFile,gameProfile);cacheProjectRemember();}
   if(!documentFile.empty())fileBrowserFolder=documentFile.parent_path();
   cvars->SetString("ftebroom_document_path",documentFile.u8string().c_str());
   lastBackup = std::chrono::steady_clock::now();
