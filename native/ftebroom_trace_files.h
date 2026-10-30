@@ -64,7 +64,7 @@ static bool traceChoose(int kind, const std::filesystem::path& path)
     auto data=result.str();files->Write(output,data.data(),data.size());files->Close(output);
     tracePaths[kind-1] = path;
     if(kind==1){tracePoints=std::move(parsed);tracePointIndex=-1;traceWindow=traceVisible=true;traceRevision=traceRevisionNow();traceDocument=documentFile;traceGeneration=documentGeneration;}
-    action(kind == 1 ? "ftebroom_trace loadpoints\n" : "ftebroom_trace loadportals\n");
+    command(kind == 1 ? "ftebroom_trace loadpoints\n" : "ftebroom_trace loadportals\n");
     return true;
   }
   catch (const std::exception& error) { documentError = error.what(); return false; }
