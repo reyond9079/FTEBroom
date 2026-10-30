@@ -4,15 +4,25 @@ var float autocvar_ftebroom_opaque_batches=1;
 var float autocvar_ftebroom_show_brushes=1,autocvar_ftebroom_show_points=1,autocvar_ftebroom_show_models=1;
 var float autocvar_ftebroom_show_entity_names=1,autocvar_ftebroom_show_entity_bounds=1,autocvar_ftebroom_show_group_bounds=1,autocvar_ftebroom_show_brush_entity_bounds=1;
 var float autocvar_ftebroom_render_faces=0,autocvar_ftebroom_shade_faces=1,autocvar_ftebroom_show_edges=1;
+var float autocvar_ftebroom_tool_opacity=.35;
 float fb_surface_shade(vector normal){return autocvar_ftebroom_shade_faces?0.6+0.4*fabs(normal*normalize('0.3 -0.5 1')):1;}
 var float autocvar_ftebroom_bounds_visible=0;
 var float autocvar_ftebroom_hidden_tags=0,autocvar_ftebroom_entity_links=1;
 var string autocvar_ftebroom_hidden_classes="";
 int *fb_filter_tags;int fb_filter_tag_count;
-hashtable fb_shader_tags,fb_shader_previews;
+hashtable fb_shader_tags,fb_shader_previews,fb_shader_loose;
+string fb_material_preview_key(string source)
+{
+    string key=fb_material_key(source);
+    if(cvar("ftebroom_game_profile")!=3 || !fb_shader_previews || fb_shader_previews[key]!="")return key;
+    int start=0,slash;while((slash=strstrofs(key,"/",start))>=0)start=slash+1;
+    string leaf=substring(key,start,-1);
+    if(fb_shader_loose)if((int)fb_shader_loose[leaf])return leaf;
+    return key;
+}
 int fb_sky_material(string material)
 {
-    string name=fb_material_key(material);
+    string name=fb_material_preview_key(material);
     if(fb_shader_tags)if((int)fb_shader_tags[name]&512)return TRUE;
     if(cvar("ftebroom_quake1") && substring(name,0,3)=="sky")return TRUE;
     return substring(name,0,4)=="sky/" || substring(name,0,6)=="skies/";
@@ -22,28 +32,33 @@ hashtable fb_shader_opacity,fb_shader_masked,fb_shader_blend,fb_shader_alpha_tes
 void fb_filter_materials_load()
 {
     if(fb_shader_tags)hash_destroytab(fb_shader_tags);if(fb_shader_previews)hash_destroytab(fb_shader_previews);
+    if(fb_shader_loose)hash_destroytab(fb_shader_loose);fb_shader_loose=hash_createtab(512,EV_INTEGER);
     fb_shader_tags=hash_createtab(512,EV_INTEGER);fb_shader_previews=hash_createtab(512,EV_STRING);
     if(fb_shader_opacity)hash_destroytab(fb_shader_opacity);if(fb_shader_masked)hash_destroytab(fb_shader_masked);if(fb_shader_blend)hash_destroytab(fb_shader_blend);if(fb_shader_alpha_test)hash_destroytab(fb_shader_alpha_test);
     fb_shader_opacity=hash_createtab(512,EV_FLOAT);fb_shader_masked=hash_createtab(512,EV_INTEGER);fb_shader_blend=hash_createtab(512,EV_STRING);fb_shader_alpha_test=hash_createtab(512,EV_STRING);
     filestream file=fopen("ftebroom-material-tags.txt",FILE_READ);if((float)file<0)return;
-    string line;while((line=fgets(file))){int count=tokenize(line);if(count>=2){fb_shader_tags[argv(0)]=stoi(argv(1));fb_shader_previews[argv(0)]=argv(2);fb_shader_opacity[argv(0)]=count>=4?stof(argv(3)):1.0;fb_shader_masked[argv(0)]=stoi(argv(4));fb_shader_blend[argv(0)]=argv(5);fb_shader_alpha_test[argv(0)]=argv(6);}}
+    string line;while((line=fgets(file))){int count=tokenize(line);if(count>=2){fb_shader_tags[argv(0)]=stoi(argv(1));fb_shader_previews[argv(0)]=argv(2);fb_shader_opacity[argv(0)]=count>=4?stof(argv(3)):1.0;fb_shader_masked[argv(0)]=stoi(argv(4));fb_shader_blend[argv(0)]=argv(5);fb_shader_alpha_test[argv(0)]=argv(6);fb_shader_loose[argv(0)]=count>=8?stoi(argv(7)):0i;}}
     fclose(file);fb_filter_epoch++;
 }
 int fb_filter_face_tags(brushface_t *face,int contents)
 {
-    string name=fb_material_key(face->shadername);int tags=0;
+    string name=fb_material_preview_key(face->shadername);int tags=0;
     if(fb_shader_tags)tags=fb_shader_tags[name];
     if(substring(name,0,7)=="common/") {
         if(strstrofs(name,"clip",7)>=0)tags|=FB_TAG_CLIP;
         if(strstrofs(name,"caulk",7)>=0)tags|=FB_TAG_CAULK;
         if(substring(name,7,4)=="hint")tags|=FB_TAG_HINT;
     }
-    if(cvar("ftebroom_quake1")){
+    if(cvar("ftebroom_quake1")||cvar("ftebroom_game_profile")==3){
         if(name=="clip"||name=="playerclip"||name=="monsterclip"||name=="botclip")tags|=FB_TAG_CLIP;
         if(name=="skip"||name=="nodraw"||name=="caulk"||name=="null"||name=="origin"||name=="bevel"||name=="bevel2")tags|=FB_TAG_CAULK;
         if(name=="hint"||name=="hintskip")tags|=FB_TAG_HINT;
         if(name=="trigger")tags|=FB_TAG_TRIGGER;
         if(substring(name,0,1)=="*")tags|=FB_TAG_LIQUID;
+    }
+    if(cvar("ftebroom_game_profile")==3){
+        if(face->surfaceflags&640i)tags|=FB_TAG_CAULK;
+        if(face->surfaceflags&256i)tags|=FB_TAG_HINT;
     }
     if(contents&134217728i)tags|=FB_TAG_DETAIL;
     if(contents&536870912i)tags|=FB_TAG_TRANSLUCENT;
@@ -64,7 +79,7 @@ void fb_filter_prepare()
     static int epoch=-1,materials=-1;static string previous="";
     string signature=sprintf("%g %g %g %g %g %g",autocvar_ftebroom_show_brushes,autocvar_ftebroom_show_points,autocvar_ftebroom_show_models,autocvar_ftebroom_render_faces,autocvar_ftebroom_shade_faces,autocvar_ftebroom_show_edges);
     signature=strcat(signature,sprintf(" %g %g %g %g %g %g %i",autocvar_ftebroom_hidden_tags,autocvar_ftebroom_entity_links,autocvar_ftebroom_show_entity_names,autocvar_ftebroom_show_entity_bounds,autocvar_ftebroom_show_group_bounds,autocvar_ftebroom_show_brush_entity_bounds,fb_open_group)," ",autocvar_ftebroom_hidden_classes,ftos(autocvar_ftebroom_bounds_visible));
-    signature=strcat(signature," fog=",cvar_string("r_fog_enabled")," water=",cvar_string("r_wateralpha"));
+    signature=strcat(signature," fog=",cvar_string("r_fog_enabled")," water=",cvar_string("r_wateralpha")," tools=",cvar_string("ftebroom_tool_opacity"));
     signature=strcat(signature," ",cvar_string("r_lavaalpha")," ",cvar_string("r_slimealpha")," ",cvar_string("r_telealpha"));
     if(signature!=previous){strunzone(previous);previous=strzone(signature);fb_filter_epoch++;}
     int materialEpoch=cvar("ftebroom_material_tag_epoch");
@@ -172,8 +187,8 @@ string fb_surface_material_shader(string material,float alpha)
 }
 float fb_surface_opacity(string source,int tags)
 {
-    if(tags&(FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL))return .35;
-    string key=fb_material_key(source);float opacity=1;if(fb_shader_opacity)opacity=(float)hash_get(fb_shader_opacity,key,1.0);
+    if(tags&(FB_TAG_TRIGGER|FB_TAG_CLIP|FB_TAG_CAULK|FB_TAG_HINT|FB_TAG_AREAPORTAL|FB_TAG_CLUSTERPORTAL))return bound(0,autocvar_ftebroom_tool_opacity,1);
+    string key=fb_material_preview_key(source);float opacity=1;if(fb_shader_opacity)opacity=(float)hash_get(fb_shader_opacity,key,1.0);
     if(opacity<1)return opacity;
     if(cvar("ftebroom_quake1")&&(tags&FB_TAG_LIQUID)){
         string alphaVar="r_wateralpha";
@@ -188,7 +203,8 @@ float fb_surface_opacity(string source,int tags)
 string fb_surface_preview_shader(string source,float alpha)
 {
     string material=fb_material_key(source),preview="";
-    if(fb_shader_previews)preview=fb_shader_previews[material];
+    string lookup=fb_material_preview_key(material);
+    if(fb_shader_previews)preview=fb_shader_previews[lookup];
     if(preview=="")preview=cvar("ftebroom_classic_map")?"textures/ftebroom/missing.tga":strcat("textures/",material);
     string shader=fb_surface_material_shader(material,alpha);
     int masked=cvar("ftebroom_quake1") && substring(material,0,1)=="{";if(fb_shader_masked)if((int)fb_shader_masked[material])masked=TRUE;
@@ -312,6 +328,7 @@ void fb_render_faces_prepare()
     static int geometry=-1,filters=-1,selection=-1;
     static string style;string nextStyle=strcat(cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces")," ",cvar_string("ftebroom_material_tag_epoch")," ",cvar_string("r_wateralpha"));
     nextStyle=strcat(nextStyle," ",cvar_string("r_lavaalpha")," ",cvar_string("r_slimealpha")," ",cvar_string("r_telealpha"));
+    nextStyle=strcat(nextStyle," ",cvar_string("ftebroom_tool_opacity"));
     if(geometry==fb_grid_geometry_epoch && ((fb_incremental_enabled()||cvar("ftebroom_classic_map"))?nextStyle==style:(filters==fb_filter_epoch&&selection==fb_selection_epoch)))return;
     strunzone(style);style=strzone(nextStyle);
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;

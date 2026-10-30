@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include <algorithm>
+#include <filesystem>
 #include "ftebroom_prefab_data.h"
 namespace ftebroom {
+inline bool rawPreviewImagePath(const std::string& image){
+  if(image.rfind("textures/_ftebroom_q1/",0)!=0&&image.rfind("textures/_ftebroom_q2/",0)!=0&&image.rfind("textures/_ftebroom_missing/",0)!=0)return false;
+  if(image.find('\\')!=image.npos||image.find(':')!=image.npos||image.size()<4||image.substr(image.size()-4)!=".tga")return false;
+  for(const auto& part:std::filesystem::u8path(image))if(part==".."||part==".")return false;
+  return true;
+}
 // FTE loads brush geometry directly but does not spawn editor-only groups.
 // Flatten only those containers in the private preview snapshot.
 inline std::vector<prefab::Entity> rawPreviewEntities(const std::string& bytes){

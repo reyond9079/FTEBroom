@@ -72,6 +72,8 @@ int fb_delete92_testcommand()
         cvar_set("ftebroom_shift","1");fb_faces_click(1,other,1,FALSE);
         fb_transform_expect(selectedbrushcount==1&&brush_isselected(1,first)&&!brush_isselected(1,other),"faces92_shift_excludes_unselected_brush");
         fb_faces_click(1,first,1,FALSE);fb_transform_expect(brushface_isselected(1,first,1),"faces92_shift_accepts_selected_face");
+        fb_faces_click(1,other,1,FALSE);fb_transform_expect(brushface_isselected(1,other,1)&&!brush_isselected(1,first),"faces105_shift_switches_to_other_brush");
+        fb_faces_click(1,first,1,TRUE);fb_transform_expect(brushface_isselected(1,other,1)&&brushface_isselected(1,first,1),"faces105_ctrl_shift_adds_other_brush_face");
         cvar_set("ftebroom_shift","0");fb_faces_click(1,other,1,FALSE);fb_transform_expect(brushface_isselected(1,other,1),"faces92_plain_face_tool_selects_others");return TRUE;
     }
     if(argv(1)=="drop92"){
@@ -81,6 +83,10 @@ int fb_delete92_testcommand()
     if(argv(1)=="alpha92"){
         brushface_t face={0};face.shadername="clip";int tags=fb_filter_face_tags(&face,0);
         fb_transform_expect((tags&FB_TAG_CLIP)&&fabs(fb_surface_opacity("clip",tags)-.35)<.001,"alpha92_clip_service_opacity");
+        float savedOpacity=cvar("ftebroom_tool_opacity");cvar_set("ftebroom_tool_opacity","0.12");
+        fb_transform_expect(fabs(fb_surface_opacity("clip",tags)-.12)<.001,"alpha105_configurable_service_opacity");
+        fb_transform_expect(fb_surface_opacity("ordinary",0)==1,"alpha105_regular_material_unchanged");
+        cvar_set("ftebroom_tool_opacity",ftos(savedOpacity));
         face.shadername="{tc_256vine";tags=fb_filter_face_tags(&face,0);
         fb_transform_expect(fb_surface_opacity(face.shadername,tags)==1,"alpha92_fence_keeps_opaque_texels");
         string key="alpha92/glass";fb_shader_opacity[key]=.27;fb_shader_blend[key]="blend";

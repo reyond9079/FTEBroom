@@ -444,7 +444,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 104");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 105");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1046,6 +1046,7 @@ static void panel(float w, float h)
     uiPreferences();
     if(ImGui::CollapsingHeader("Resolution"))uiResolutionControls();
     if(ImGui::CollapsingHeader("Brightness"))displayBrightnessControls();
+    if(ImGui::CollapsingHeader("Service materials"))serviceOpacityControls();
     bool legacy = cvars->GetFloat("ftebroom_drag_mode") != 0;
     if (ImGui::Checkbox("Drag unselected brushes to move (legacy)", &legacy))
       cvars->SetFloat("ftebroom_drag_mode", legacy);
@@ -1104,7 +1105,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 104");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 105");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();

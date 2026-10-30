@@ -21,6 +21,8 @@ struct MaterialEntry
   float opacity = 1;
   bool masked = false;
   std::string blend,alphaTest;
+  bool looseWal=false;
+  std::string source;
 };
 static std::map<std::string, MaterialEntry> materials;
 static std::set<std::string> resourceFiles, resourceDirs;
@@ -73,6 +75,7 @@ static void assetsReady()
     catch(const std::exception& e){assetError=e.what();assetsLoading=false;setupNeeded=true;return;}
   }
   scanDirectory("textures/");
+  if(gameProfile==3)files->EnumerateFiles((fs_relative)4,"*.wal",collectResource,nullptr);
   scanDirectory("scripts/");
   // ZIPs need not contain directory records. Match each depth explicitly too.
   std::string nested = "textures/";
@@ -99,22 +102,25 @@ static void assetsReady()
       return char(std::tolower(c));
     });
     if (
-      path.rfind("textures/", 0) == 0
+      (path.rfind("textures/", 0) == 0 || (gameProfile==3&&ext==".wal"&&path.find('/')==path.npos))
       && (ext == ".tga" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".dds" || (gameProfile==3&&(ext == ".wal" || ext == ".pcx"))))
     {
-      if (path == "textures/ftebroom/overlay.tga" || path.rfind("textures/_ftebroom_q1/",0)==0 || path.rfind("textures/_ftebroom_q2/",0)==0)
+      if (path == "textures/ftebroom/overlay.tga" || path.rfind("textures/_ftebroom_q1/",0)==0 || path.rfind("textures/_ftebroom_q2/",0)==0 || path.rfind("textures/_ftebroom_missing/",0)==0)
         continue;
       auto name = path.substr(0, dot);
       if(gameProfile==3){
         name="textures/"+ftebroom::materialKey(name);
         // Keep WAL's logical dimensions when a legacy texture is available.
         auto previous=materials.find(name);
-        if(previous!=materials.end()){
+        if(previous!=materials.end() && !(previous->second.looseWal&&path.find('/')!=path.npos)){
+          if(path.find('/')==path.npos&&!previous->second.looseWal)continue;
           auto old=std::filesystem::u8path(previous->second.preview).extension().u8string();
           if(old==".wal" || (ext!=".wal"&&old==".pcx"))continue;
         }
       }
       materials[name] = {name, path, false};
+      materials[name].looseWal=gameProfile==3&&path.find('/')==path.npos&&ext==".wal";
+      materials[name].source=path;
     }
   }
   for (auto& path : resourceFiles)

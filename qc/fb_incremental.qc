@@ -32,7 +32,7 @@ void fb_incremental_settings()
 {
     static string previous;
     string key=strcat(cvar_string("ftebroom_incremental_edits")," ",cvar_string("ftebroom_cached_meshes")," ",cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces"));
-    key=strcat(key," ",cvar_string("ftebroom_material_tag_epoch")," ",cvar_string("ftebroom_native_faces"));
+    key=strcat(key," ",cvar_string("ftebroom_material_tag_epoch")," ",cvar_string("ftebroom_native_faces")," ",cvar_string("ftebroom_tool_opacity"));
     if(previous!="" && key!=previous){if(fb_incremental_brush_count)fb_document_rebuild();else fb_grid_geometry_epoch++;}
     if(previous!=key){strunzone(previous);previous=strzone(key);}
 }

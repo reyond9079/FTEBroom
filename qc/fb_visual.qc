@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 int fb_filter_custom(int node);
+int fb_faces_whole_scope();
 void fb_container_draw(int labels);
 void fb_entity_links_draw();
 void fb_entity_drop_preview();
@@ -558,7 +559,7 @@ void fb_visual_face_hover()
     if(key!=last){strunzone(last);last=strzone(key);count=0;
         vector end=pointer;if(ortho)end_z+=1;else end_z+=8192;
         if(fb_pick_query(unproject(pointer),unproject(end),pointer,0,FB_HIT_BRUSH,ortho))
-            if(!selectedbrushcount || brush_isselected(fb_hits[0].model,fb_hits[0].id))count=brush_getfacepoints(fb_hits[0].model,fb_hits[0].id,fb_hits[0].face,points,256);
+            if(!fb_faces_whole_scope() || brush_isselected(fb_hits[0].model,fb_hits[0].id))count=brush_getfacepoints(fb_hits[0].model,fb_hits[0].id,fb_hits[0].face,points,256);
     }
     if(count<3 || count>256)return;
     vector eye=getproperty(VF_ORIGIN);makevectors(getproperty(VF_ANGLES));vector forward=v_forward;

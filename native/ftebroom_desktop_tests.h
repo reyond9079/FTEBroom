@@ -9,6 +9,22 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="floor105"){
+    expect(gameProfile==3&&!assetsLoading&&assetError.empty(),"floor105_resources");recentWindow=false;
+    auto material=q2Material("dw/floor_wide");expect(material&&material->looseWal,"floor105_root_wal_resolved");
+    if(material){auto image=q1Read(documentPath(material->preview));unsigned w=(unsigned char)image[12]|((unsigned char)image[13]<<8),h=(unsigned char)image[14]|((unsigned char)image[15]<<8);expect(w==64&&h==128,"floor105_real_image_dimensions");std::set<std::string> colors;for(size_t p=18;p+3<=image.size();p+=3)colors.insert(image.substr(p,3));expect(colors.size()>2,"floor105_real_pixels_not_black_or_checker");core->Print(("FLOOR105_IMAGE "+material->preview+"\n").c_str());}
+    command("ftebroom_test_materials floor105\n");
+  }
+  if(std::string(mode)=="floor105compiled"){
+    expect(!buildRunning&&!runHadError&&!buildResult.empty()&&buildValidBsp(buildResult),"floor105_compile_complete");
+    expect(runPlaceholderNames.empty(),"floor105_no_placeholder_used");
+    if(!buildResult.empty())expect(q1Read(buildResult.parent_path()/"textures/dw/floor_wide.wal")==q1Read(std::filesystem::u8path(q2Mod)/"floor_wide.wal"),"floor105_original_wal_bytes_preserved");
+  }
+  if(std::string(mode)=="raw105"){
+    expect(gameProfile==2&&!mapGpuRunning&&!mapGpuResult.empty(),"raw105_baked_map_ready");
+    auto home=settingsPath().parent_path()/"raw105-home";modRawMaterials(mapGpuResult,home);
+    auto script=q1Read(home/"scripts/reyondbroom-raw-preview.shader");expect(script.find("textures/_ftebroom_missing/")!=script.npos,"raw105_generated_placeholder_staged");
+  }
   if(std::string(mode)=="q2104stage"){
     runLoad();auto folder=settingsPath().parent_path()/"q2104-export";runBegin({"Q2 material staging test",folder.u8string(),false,{{0,"${WORK_DIR_PATH}/snapshot.map",""}}});
   }

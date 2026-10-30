@@ -7,13 +7,13 @@
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.104/ReyondBroom-0.5.0-alpha.104-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.104/ReyondBroom-0.5.0-alpha.104-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.105/ReyondBroom-0.5.0-alpha.105-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.105/ReyondBroom-0.5.0-alpha.105-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.104**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.104/ReyondBroom-0.5.0-alpha.104-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.105**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.105/ReyondBroom-0.5.0-alpha.105-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 
@@ -59,6 +59,8 @@ An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and 
 Extract the ZIP completely and run **ReyondBroom.exe**. Select **Quake III Arena**, choose your **baseq3** directory and load resources. Retail assets are not included. The editor runs in its own directory and does not write into baseq3.
 
 Run **Launch-Checks.cmd → B** for the new brush workflows. Use copies of maps while testing. The [combined checklist](docs/checks-alpha21.md) covers new features and regressions, including real cross-application clipboard use and Windows DPI scaling.
+
+[Material loading, service opacity and face-selection fixes](docs/materials105.md).
 
 ## Main controls
 

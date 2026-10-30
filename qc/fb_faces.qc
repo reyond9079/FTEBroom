@@ -8,6 +8,12 @@ int fb_faces_count()
     }
     return count;
 }
+int fb_faces_whole_scope()
+{
+    if(!cvar("ftebroom_shift") || !selectedbrushcount)return FALSE;
+    for(int b=0;b<selectedbrushcount;b++)if(!selbrush_whole(&selectedbrushes[b]))return FALSE;
+    return TRUE;
+}
 void fb_faces_convert()
 {
     fb_restore_entity_selection(-1);
@@ -29,7 +35,7 @@ int fb_faces_valid(int model,int id,int face)
 }
 void fb_faces_click(int model,int id,int face,int ctrl)
 {
-    if(cvar("ftebroom_shift") && selectedbrushcount)if(!brush_isselected(model,id))return;
+    if(fb_faces_whole_scope())if(!brush_isselected(model,id))return;
     if(face>64) {fb_face_limit();return;}
     fb_tx_begin("Select Faces");
     if(!ctrl || !fb_faces_valid(model,id,face)) fb_selection_clear();
@@ -46,7 +52,7 @@ void fb_faces_add_at(vector pixel)
     if(!fb_pick(pixel)) return;
     fb_hit_t hit=fb_hits[0];
     if(hit.kind!=FB_HIT_BRUSH) return;
-    if(cvar("ftebroom_shift") && selectedbrushcount)if(!brush_isselected(hit.model,hit.id))return;
+    if(fb_faces_whole_scope())if(!brush_isselected(hit.model,hit.id))return;
     if(fb_faces_valid(hit.model,hit.id,hit.face)) brushface_select(hit.model,hit.id,hit.face);
 }
 void fb_faces_paint(vector pixel)
@@ -122,7 +128,8 @@ int fb_faces_polygon(fb_flood_face_t *face,int model,int id,int index)
 }
 void fb_faces_flood(int model,int id,int face,int ctrl)
 {
-    if(cvar("ftebroom_shift") && selectedbrushcount)if(!brush_isselected(model,id))return;
+    int constrained=fb_faces_whole_scope();
+    if(constrained)if(!brush_isselected(model,id))return;
     if(!fb_faces_valid(model,id,face)) return;
     int n=brush_get(model,id,__NULL__,0,__NULL__);
     brushface_t *source=memalloc(sizeof(brushface_t)*n);
@@ -136,7 +143,7 @@ void fb_faces_flood(int model,int id,int face,int ctrl)
     for(int node=0;node<fb_node_count && !overflow;node++) {
         fb_node_t item=fb_nodes[node];
         if(item.kind!=FB_NODE_BRUSH || !fb_pick_allowed(node,0)) continue;
-        if(cvar("ftebroom_shift") && selectedbrushcount)if(!brush_isselected(item.model,item.id))continue;
+        if(constrained)if(!brush_isselected(item.model,item.id))continue;
         int total=brush_get(item.model,item.id,__NULL__,0,__NULL__);
         brushface_t *planes=memalloc(sizeof(brushface_t)*total);
         brush_get(item.model,item.id,planes,total,__NULL__);
@@ -179,7 +186,7 @@ void fb_faces_double(vector pixel,int ctrl,int alt)
     fb_cancel();if(cvar("ca_brush_view")) return;
     if(!fb_pick(pixel)) return;
     fb_hit_t hit=fb_hits[0];if(hit.kind!=FB_HIT_BRUSH) return;
-    if(cvar("ftebroom_shift") && selectedbrushcount)if(!brush_isselected(hit.model,hit.id))return;
+    if(fb_faces_whole_scope())if(!brush_isselected(hit.model,hit.id))return;
     if(alt) fb_faces_flood(hit.model,hit.id,hit.face,ctrl);
     else fb_faces_all(hit.model,hit.id,ctrl);
 }

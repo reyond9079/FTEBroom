@@ -3,6 +3,20 @@ int fb_material_test_id;
 float fb_material_testcommand()
 {
     if(argv(0)!="ftebroom_test_materials" || !cvar("ftebroom_skip_setup")) return FALSE;
+    if(argv(1)=="opacity105"){
+        float opacity105Saved=cvar("ftebroom_tool_opacity");cvar_set("ftebroom_tool_opacity","0.12");
+        fb_transform_expect(fabs(fb_surface_opacity("clip",FB_TAG_CLIP)-.12)<.001&&fabs(fb_surface_opacity("trigger",FB_TAG_TRIGGER)-.12)<.001,"opacity105_services_follow_setting");
+        fb_transform_expect(fb_surface_opacity("ordinary",0)==1,"opacity105_regular_faces_unchanged");
+        cvar_set("ftebroom_tool_opacity","0");fb_transform_expect(fb_surface_opacity("clip",FB_TAG_CLIP)==0,"opacity105_zero_hides_fill");
+        cvar_set("ftebroom_tool_opacity","1");fb_transform_expect(fb_surface_opacity("clip",FB_TAG_CLIP)==1,"opacity105_one_is_opaque");
+        cvar_set("ftebroom_tool_opacity",ftos(opacity105Saved));return TRUE;
+    }
+    if(argv(1)=="floor105"){
+        fb_filter_prepare();fb_transform_expect(fb_material_preview_key("dw/floor_wide")=="floor_wide","floor105_loose_alias_lookup");
+        string floor105Shader=fb_surface_preview_shader("dw/floor_wide",1);
+        fb_transform_expect(drawgetimagesize(floor105Shader)=='64 128 0',"floor105_map_uses_original_wal_dimensions");
+        return TRUE;
+    }
     if(argv(1)=="q2104check"){
         fb_transform_expect(fb_material_key("Textures/__TB_empty")=="__tb_empty","q2104_case_insensitive_material");
         fb_transform_expect(drawgetimagesize(fb_surface_preview_shader("__TB_empty",1))=='64 64 0',"q2104_empty_image_size");

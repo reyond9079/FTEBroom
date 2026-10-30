@@ -8,7 +8,7 @@ static void publishMaterialTags()
     if (name.rfind("textures/", 0) == 0)
       name = name.substr(9);
     out << std::quoted(name) << ' ' << item.second.tags << ' '
-        << std::quoted(item.second.preview) << ' ' << item.second.opacity << ' ' << item.second.masked << ' ' << std::quoted(item.second.blend) << ' ' << std::quoted(item.second.alphaTest) << '\n';
+        << std::quoted(item.second.preview) << ' ' << item.second.opacity << ' ' << item.second.masked << ' ' << std::quoted(item.second.blend) << ' ' << std::quoted(item.second.alphaTest) << ' ' << item.second.looseWal << '\n';
   }
   const auto content=out.str();
   const auto scope=std::to_string(gameProfile)+":"+std::string(baseq3)+":"+gameRuntime();
@@ -35,6 +35,14 @@ static void displayBrightnessControls(){
   if(ImGui::SliderFloat("Display contrast",&contrast,.5f,2.f,"%.2f"))cvars->SetFloat("v_contrast",contrast);
   if(ImGui::Button("Reset display brightness")){cvars->SetFloat("v_gamma",1);cvars->SetFloat("v_contrast",1);}
   ImGui::TextDisabled("Display only; saved textures, compiled lightmaps and GPU bake values are unchanged.");
+}
+static void serviceOpacityControls(){
+  struct Field{float value=.35f;bool active=false;};static std::map<ImGuiID,Field> fields;
+  auto& field=fields[ImGui::GetID("Service texture opacity")];if(!field.active)field.value=cvars->GetFloat("ftebroom_tool_opacity");
+  ImGui::SliderFloat("Service texture opacity",&field.value,0,1,"%.2f");
+  if(ImGui::IsItemDeactivatedAfterEdit())cvars->SetFloat("ftebroom_tool_opacity",field.value);
+  field.active=ImGui::IsItemActive();
+  if(ImGui::IsItemHovered())ImGui::SetTooltip("Clip, trigger, hint, origin, caulk and portal surfaces. 0 hides their fill, 1 is opaque. Release to apply. Game previews are unchanged.");
 }
 static void viewOptionsPanel()
 {
@@ -158,6 +166,7 @@ static void viewOptionsPanel()
   viewOption("Shade faces", "ftebroom_shade_faces");
   viewOption("Use fog", "r_fog_enabled");
   viewOption("Brush outlines", "ftebroom_show_edges");
+  serviceOpacityControls();
   viewOption("Soft map bounds", "ftebroom_bounds_visible");
   int links = (int)cvars->GetFloat("ftebroom_entity_links");
   if (ImGui::Combo("Entity links", &links, "None\0Direct\0Transitive\0All\0"))

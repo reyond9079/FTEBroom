@@ -20,18 +20,20 @@ static void modRawMaterials(const std::filesystem::path& source,const std::files
     shaders<<name<<"\n{\nsurfaceparm nodraw\nsurfaceparm noshadows\n}\n";
     if(name.rfind("textures/",0)!=0)shaders<<"textures/"<<name<<"\n{\nsurfaceparm nodraw\nsurfaceparm noshadows\n}\n";
   }
-  if(!gameWad()){shaders.close();if(!shaders)throw std::runtime_error("Cannot stage preview tool materials.");return;}
-  for(const auto& pair:materials){
-    auto name=entityLower(pair.first),shortName=name.rfind("textures/",0)==0?name.substr(9):name;
-    if(!used.count(name)&&!used.count(shortName))continue;
-    if(ftebroom::previewToolMaterial(name))continue;
-    const auto& image=pair.second.preview;
-    if(image.rfind("textures/_ftebroom_q1/",0)!=0||image.find("..")!=std::string::npos)throw std::runtime_error("Invalid raw-preview WAD image path.");
-    auto bytes=modelResource(image);if(bytes.empty())throw std::runtime_error("A WAD preview image is missing: "+pair.first);
+  if(!gameWad()&&gameProfile!=3){shaders.close();if(!shaders)throw std::runtime_error("Cannot stage preview tool materials.");return;}
+  for(const auto& usedName:used){
+    auto shortName=ftebroom::materialKey(usedName);if(ftebroom::previewToolMaterial(shortName))continue;
+    const MaterialEntry* material=nullptr;
+    if(gameProfile==3){material=q2Material(shortName);if(material&&!material->looseWal&&material->preview.rfind("textures/_ftebroom_missing/",0)!=0)continue;}
+    else {auto found=materials.find("textures/"+shortName);if(found!=materials.end())material=&found->second;}
+    if(!material)continue;
+    const auto& image=material->preview;
+    if(!ftebroom::rawPreviewImagePath(image))throw std::runtime_error("Invalid generated preview image path: "+image);
+    auto bytes=modelResource(image);if(bytes.empty())throw std::runtime_error("A preview image is missing: "+usedName);
     auto target=home/std::filesystem::u8path(image);std::filesystem::create_directories(target.parent_path());
     std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();if(!output)throw std::runtime_error("Cannot stage raw-preview material.");
     auto pass="\n{\nmap "+image+"\nrgbgen identitylighting\n"+(shortName.rfind("{",0)==0?std::string("alphafunc GE128\ndepthwrite\n"):std::string())+"}\n";
-    shaders<<pair.first<<"\n{"<<pass<<"}\n"<<shortName<<"\n{"<<pass<<"}\n";
+    shaders<<"textures/"<<shortName<<"\n{"<<pass<<"}\n"<<shortName<<"\n{"<<pass<<"}\n";
   }
   shaders.close();if(!shaders)throw std::runtime_error("Cannot stage raw-preview material aliases.");
 }
