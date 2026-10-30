@@ -52,6 +52,7 @@ static bool runPrepareExport(const std::filesystem::path& target){
           if(neutral){auto t=ftebroom::placeholderTexture(name,q2Palette(),true);buildWriteTexture(target.parent_path()/std::filesystem::u8path("textures/"+name+".wal"),ftebroom::placeholderWal(t));continue;}
         }
         auto found=materials.find("textures/"+name);
+        if(found==materials.end())found=std::find_if(materials.begin(),materials.end(),[&](const auto& entry){return ftebroom::materialKey(entry.first)==name;});
         bool absent=found==materials.end();
         if(!absent&&!found->second.shader){size_t size=0;auto bytes=files->LoadFile(found->second.preview.c_str(),&size);absent=!bytes||!size;if(bytes)core->Free(bytes);}
         if(absent || (found!=materials.end()&&found->second.preview.rfind("textures/_ftebroom_missing/",0)==0))runMissingNames.push_back(name);
