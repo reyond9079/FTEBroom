@@ -251,6 +251,7 @@ static bool terrainCreateWindow;
 #include "ftebroom_mod_files.h"
 #include "ftebroom_desktop.h"
 #include "ftebroom_update.h"
+#include "ftebroom_cache_maintenance.h"
 #include "ftebroom_bsp_model.h"
 // Actions may focus the entity inspector.
 #include "ftebroom_generators.h"
@@ -444,7 +445,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 107");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 108");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1105,7 +1106,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 107");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 108");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1913,6 +1914,7 @@ static void shutdownEditor()
   modEmbedEnd();
   if(runActive)runStop();
   cameraSave();
+  cacheMaintenanceStop();
   if (ready)
   {
     ImGui::GetIO().WantSaveIniSettings = true;
@@ -2026,6 +2028,7 @@ extern "C" qboolean NATIVEEXPORT FTEPlug_Init(plugcorefuncs_t* api)
   commands->AddCommand(
     "ftebroom_save", documentSaveCommand, "Save the current document.");
   commands->AddCommand("ftebroom", openPanel, "Open the ReyondBroom editor panel.");
+  cacheMaintenanceStart();
   core->Print("ReyondBroom: native module loaded. Type ftebroom.\n");
   return qtrue;
 }
