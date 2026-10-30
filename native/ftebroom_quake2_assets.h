@@ -11,6 +11,18 @@ static const MaterialEntry* q2Material(const std::string& source){
   auto leaf=name.substr(name.find_last_of('/')+1);found=materials.find("textures/"+leaf);
   return found!=materials.end()&&found->second.looseWal?&found->second:exact;
 }
+// Resolve document names once so every consumer sees the same real resource.
+static std::set<std::string> q2MapMaterials;
+static bool q2ExpandMapMaterials(){
+  bool changed=false;
+  for(const auto& name:q2MapMaterials){
+    auto material=q2Material(name);if(!material||!material->looseWal)continue;
+    auto key="textures/"+name;auto found=materials.find(key);
+    if(found!=materials.end()&&found->second.preview==material->preview)continue;
+    auto copy=*material;copy.name=key;materials[key]=std::move(copy);changed=true;
+  }
+  return changed;
+}
 static std::string q2WalBytes(const std::string& source){
   auto read=[](const std::string& path){size_t size=0;auto raw=(char*)files->LoadFile(path.c_str(),&size);if(!raw)return std::string{};std::string bytes(raw,size);core->Free(raw);return bytes;};
   auto name=ftebroom::materialKey(source);auto bytes=read("textures/"+name+".wal");
@@ -36,6 +48,9 @@ static void q2IndexAssets(){
     texture.name=ftebroom::materialKey(m.name);m.preview=cacheTexture(texture);
     auto flags=ext==".wal"?ftebroom::quake1::word(bytes,88):0;m.tags=(flags&4?512:0)|(flags&8?32:0)|(flags&48?64:0);m.opacity=flags&16?.33f:flags&32?.66f:1.f;
     }
+  }
+  q2ExpandMapMaterials();
+  for(const auto& pair:materials){const auto& m=pair.second;
     scripts<<m.name<<"\n{\ncull back\ndiffusemap "<<m.preview<<"\n{\nmap "<<m.preview<<"\n"<<(m.opacity<1?"blendfunc blend\n":"")<<"}\n"<<(m.opacity<1?"":"{\nmap $lightmap\nblendfunc filter\ndepthfunc equal\n}\n")<<"}\n";
   }
   scripts.close();command("fs_restart\nftebroom_reload_palette\nftebroom_reload_asset_models\n");

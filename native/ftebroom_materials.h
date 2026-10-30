@@ -56,9 +56,8 @@ static qhandle_t thumbnail(const std::string& name)
     if(victim!=thumbnailCache.end()){draw->UnloadImage(victim->second);thumbnailLastFrame.erase(victim->first);thumbnailCache.erase(victim);}
   }
   auto found = materials.find(name);
-  auto image = found != materials.end() && !found->second.preview.empty()
-                 ? found->second.preview
-                 : name;
+  const auto* resolved=gameProfile==3?q2Material(name):(found==materials.end()?nullptr:&found->second);
+  auto image=resolved&&!resolved->preview.empty()?resolved->preview:name;
   // Browser previews use a dedicated 2D shader, never a material's vertex deformation.
   std::ostringstream quoted;quoted<<std::quoted(image);
   auto shader=std::string("{\n program default2d\n nomipmaps\n nopicmip\n {\n map ")+quoted.str()+"\n rgbgen vertex\n alphagen vertex\n blendfunc blend\n }\n}\n";

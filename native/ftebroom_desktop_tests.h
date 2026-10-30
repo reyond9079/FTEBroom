@@ -9,6 +9,14 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="q2106"){
+    recentWindow=false;expect(gameProfile==3&&!assetsLoading&&assetError.empty(),"q2106_resources");
+    int aliases=0;bool complete=true;
+    for(const auto& name:q2MapMaterials){auto real=q2Material(name);if(!real||!real->looseWal)continue;aliases++;auto exact=materials.find("textures/"+name);if(exact==materials.end()||exact->second.preview!=real->preview)complete=false;}
+    expect(aliases>=2&&complete,"q2106_all_used_loose_wals_have_exact_entries");
+    auto ev=materials.find("textures/ls/ev_main");expect(ev!=materials.end()&&ev->second.preview==materials.at("textures/ev_main").preview,"q2106_ev_main_inspector_and_map_share_pixels");
+    command("ftebroom_test_materials q2106\n");
+  }
   if(std::string(mode)=="floor105"){
     expect(gameProfile==3&&!assetsLoading&&assetError.empty(),"floor105_resources");recentWindow=false;
     auto material=q2Material("dw/floor_wide");expect(material&&material->looseWal,"floor105_root_wal_resolved");

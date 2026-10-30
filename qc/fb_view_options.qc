@@ -14,7 +14,9 @@ hashtable fb_shader_tags,fb_shader_previews,fb_shader_loose;
 string fb_material_preview_key(string source)
 {
     string key=fb_material_key(source);
-    if(cvar("ftebroom_game_profile")!=3 || !fb_shader_previews || fb_shader_previews[key]!="")return key;
+    if(cvar("ftebroom_game_profile")!=3 || !fb_shader_previews)return key;
+    string image=fb_shader_previews[key];
+    if(image!="" && substring(image,0,27)!="textures/_ftebroom_missing/")return key;
     int start=0,slash;while((slash=strstrofs(key,"/",start))>=0)start=slash+1;
     string leaf=substring(key,start,-1);
     if(fb_shader_loose)if((int)fb_shader_loose[leaf])return leaf;
@@ -214,6 +216,11 @@ string fb_surface_preview_shader(string source,float alpha)
     shaderforname(shader,strcat("{\ncull none\n",program,(alpha<1 || blend!="")?"sort blend\n":"sort opaque\n","{\nmap ",fb_map_quote(preview),"\nrgbgen vertex\nalphagen vertex\n",depth,"}\n}"));
     return shader;
 }
+vector fb_material_image_size(string source)
+{
+    // Raw shader paths may already refer to a missing-image shader in FTE.
+    return drawgetimagesize(cvar("ftebroom_game_profile")==3?fb_surface_preview_shader(source,1):source);
+}
 void fb_filter_patch(int model,int id)
 {
     patchinfo_t info;int total=patch_getmesh(model,id,__NULL__,0,&info);
@@ -288,9 +295,7 @@ int fb_render_append_brush(int n,int vertexOffset)
             vector color='0.65 0.68 0.72'*shade,size='1 1 1';string shader="ftebroom/flatface";
             if(alpha<1)shader="ftebroom/flattransparent";
             if(!autocvar_ftebroom_render_faces) {
-                string material=fb_material_key(face.shadername),preview="";
-                if(fb_shader_previews)preview=fb_shader_previews[material];if(preview=="")preview=strcat("textures/",material);
-                shader=fb_surface_material_shader(material,alpha);
+                string material=fb_material_key(face.shadername);
                 shader=fb_surface_preview_shader(material,alpha);
                 size=drawgetimagesize(shader);size_x=max(1,size_x);size_y=max(1,size_y);color='1 1 1'*shade;
                 if(material=="ftebroom/grid")color*=0.8;

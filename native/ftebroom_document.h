@@ -179,6 +179,7 @@ static void documentProceed()
       const auto source=q1Read(pendingDocumentFile);
       profileLoad("map_read",prepareStarted);
       documentSelectProfile(source);
+      if(gameProfile==3)q2ReferenceMapMaterials(source);
       if(gameWad()){std::string member;std::filesystem::path archive;ftebroom::pak::split(pendingDocumentFile,archive,member);bool changed=archive!=q1DocumentPak;q1DocumentPak=archive;if(gameProfile==2)q1MapFormat=ftebroom::quake1::valveMap(source)?1:0;if(q1DiscoverWads(source,pendingDocumentFile)||changed){gameProfileSave();mountAssets();}}
       pendingDocumentAlias =
         "_ftebroom_open_"

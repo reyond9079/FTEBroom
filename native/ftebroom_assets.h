@@ -405,3 +405,9 @@ static void projectSetup()
 
 static void importMaterialControls();
 #include "ftebroom_materials.h"
+
+static void q2ReferenceMapMaterials(const std::string& source){
+  q2MapMaterials.clear();
+  for(const auto& name:ftebroom::quake1::mapTextures(source))q2MapMaterials.insert(ftebroom::materialKey(name));
+  if(!assetsLoading&&q2ExpandMapMaterials()){resetMaterialBrowser();publishMaterialTags();}
+}

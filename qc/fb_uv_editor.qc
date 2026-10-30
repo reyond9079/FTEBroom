@@ -51,7 +51,7 @@ void fb_uv_publish()
     brushface_t attr=faces[face],base=attr;fb_texture_basecoords(&base);
     vector u=normalize(base.sdir-attr.planenormal*(base.sdir*attr.planenormal)),v=normalize(crossproduct(attr.planenormal,u));
     if(v*base.tdir<0)v=-v;
-    vector origin=attr.planenormal*attr.planedist,size=drawgetimagesize(attr.shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
+    vector origin=attr.planenormal*attr.planedist,size=fb_material_image_size(attr.shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
     static vector points[64];int n=brush_getfacepoints(model,id,face+1,points,64);
     filestream stream=fopen("ftebroom-uv.txt",FILE_WRITE);if((float)stream<0)return;
     fputs(stream,strcat(fb_map_quote(attr.shadername),"\n"));

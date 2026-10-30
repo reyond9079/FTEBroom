@@ -54,7 +54,7 @@ int fb_obj_export()
             for(int f=0;f<count;f++) {
                 static vector points[64];int vertices=brush_getfacepoints(model,id,f+1,points,64);if(vertices<3)continue;
                 brushface_t face=faces[f];fb_obj_material(file,mtl,materials,face.shadername);
-                vector size=drawgetimagesize(face.shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
+                vector size=fb_material_image_size(face.shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
                 int first=fb_obj_vertex+1;
                 for(int p=0;p<vertices;p++)fb_obj_point(file,points[p],(face.sdir*points[p]+face.sbias)/size_x,(face.tdir*points[p]+face.tbias)/size_y);
                 fputs(file,"f");for(int p=vertices-1;p>=0;p--)fputs(file,sprintf(" %i/%i",first+p,first+p));fputs(file,"\n");

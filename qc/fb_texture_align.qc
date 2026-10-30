@@ -17,7 +17,7 @@ void fb_texture_align(string operation,int direction,int fraction)
             if(vertices>MAX_FACEPOINTS) {fb_tx_cancel();return;}
             if(vertices<3) continue;
             brushface_t *face=&faces[f];
-            vector image=drawgetimagesize(strcat("textures/",face->shadername));
+            vector image=cvar("ftebroom_game_profile")==3?fb_material_image_size(face->shadername):drawgetimagesize(strcat("textures/",face->shadername));
             if(image_x<=0 || image_y<=0) image=drawgetimagesize(face->shadername);
             if(image_x<=0 || image_y<=0) {fb_tx_cancel();cvar_set("ftebroom_selection_status","Texture dimensions are unavailable");return;}
             if(operation=="edge" || operation=="auto") {

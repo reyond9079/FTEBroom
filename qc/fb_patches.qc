@@ -6,7 +6,7 @@ int fb_patch_quad(int model,vector a,vector b,vector c,vector d,brushface_t *fac
     patchinfo_t info={0};info.cpwidth=info.cpheight=3;info.shadername=face->shadername;
     info.tesswidth=info.tessheight=-1;
     info.contents=CONTENTBIT_SOLID;info.texinfo='1 1 0';
-    vector size=drawgetimagesize(face->shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
+    vector size=fb_material_image_size(face->shadername);if(size_x<=0)size_x=64;if(size_y<=0)size_y=64;
     patchvert_t points[9];
     for(int y=0;y<3;y++)for(int x=0;x<3;x++) {
         float u=(float)x*0.5,v=(float)y*0.5;int index=y*3+x;

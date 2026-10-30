@@ -1,4 +1,5 @@
 string fb_surface_preview_shader(string source,float alpha);
+vector fb_material_image_size(string source);
 float fb_surface_shade(vector normal);
 float fb_surface_opacity(string source,int tags);
 int fb_filter_face_tags(brushface_t *face,int contents);
