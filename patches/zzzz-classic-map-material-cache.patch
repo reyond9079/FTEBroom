@@ -1,0 +1,11 @@
+--- a/engine/client/pr_csqc.c
++++ b/engine/client/pr_csqc.c
+@@ -4494,7 +4494,7 @@
+  rb_incremental_config_t edited=vm->callargc>6?RB_IncrementalConfig(vm,G_INT(OFS_PARM6)):(rb_incremental_config_t){0};
+  unsigned int deltaAt=0;int drawn=0;
+  rb_mesh_cache_t *cache=&rb_mesh_caches[2];int saved[24],savedArgc=vm->callargc;G_INT(OFS_RETURN)=-1;
+- if(qrenderer!=QR_OPENGL||stride!=sizeof(editorqcface_t)||total<30000||total>500000||!RB_QCBuffer(vm,offset,total,stride)||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int)))return;
++ if(qrenderer!=QR_OPENGL||stride!=sizeof(editorqcface_t)||total<(Cvar_VariableValue("ftebroom_classic_map")?4096:30000)||total>500000||!RB_QCBuffer(vm,offset,total,stride)||!RB_QCBuffer(vm,accessOffset,accessCount,sizeof(int)))return;
+  editorqcface_t *faces=(editorqcface_t*)(vm->stringtable+offset);int *access=(int*)(vm->stringtable+accessOffset);
+  memcpy(saved,(int*)pr_globals+OFS_PARM0,sizeof(saved));RB_MissingBegin(total);
+  typedef struct {int name,id,flags,tag,alphaTest;unsigned int generation;rb_soup_context_t context;} context_t;

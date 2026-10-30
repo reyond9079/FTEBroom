@@ -26,22 +26,26 @@ inline bool safe(const std::string& n){return !n.empty()&&n.size()<56&&n.front()
 inline bool validName(const std::string& n){if(!safe(n))return false;for(const auto& p:fs::u8path(n))if(p==".."||p==".")return false;return true;}
 #include "ftebroom_pk3.h"
 inline bool split(const fs::path& path,fs::path& archive,std::string& member){archive.clear();member.clear();bool found=false;for(const auto& part:path){if(found){if(!member.empty())member+='/';member+=part.u8string();}else{archive/=part;auto ext=part.extension().u8string();std::transform(ext.begin(),ext.end(),ext.begin(),::tolower);found=ext==".pak"||ext==".pk3";}}if(!found)archive.clear();return found;}
-inline std::vector<Entry> directory(const fs::path& path){
+inline std::vector<Entry> directory(const fs::path& path,bool ignoreUnsafeNames=false){
   if(zipFile(path)){std::vector<Entry> entries;for(const auto& e:zipDirectory(path))entries.push_back({e.name,e.offset,e.size});return entries;}
   std::ifstream in(path,std::ios::binary);char h[12];if(!in.read(h,12)||std::string(h,4)!="PACK")throw std::runtime_error("Invalid Quake PAK: "+path.u8string());
   auto offset=word(h+4),length=word(h+8);auto size=fs::file_size(path);
   if(offset<12||length%64||length/64>65536||offset>size||length>size-offset)throw std::runtime_error("Invalid PAK directory bounds.");
   in.seekg(offset);std::vector<Entry> result;std::map<std::string,bool> seen;
   for(uint32_t i=0;i<length/64;i++){char row[64];if(!in.read(row,64))throw std::runtime_error("Truncated PAK directory.");size_t n=0;while(n<56&&row[n])n++;Entry e{std::string(row,n),word(row+56),word(row+60)};
-    if(!validName(e.name)||e.offset<12||e.offset>size||e.size>size-e.offset||seen.count(e.name))throw std::runtime_error("Invalid or duplicate PAK entry.");seen[e.name]=true;result.push_back(e);}
+    if(e.offset<12||e.offset>size||e.size>size-e.offset||seen.count(e.name))throw std::runtime_error("Invalid or duplicate PAK entry.");
+    // Official Q2 PAKs contain a few non-canonical aliases. Resource discovery
+    // may ignore those names; archive rewriting remains strict and lossless.
+    if(!validName(e.name)){if(ignoreUnsafeNames)continue;throw std::runtime_error("Invalid or duplicate PAK entry.");}
+    seen[e.name]=true;result.push_back(e);}
   return result;
 }
 inline std::string read(const fs::path& path){fs::path archive;std::string member;uint64_t size=0,offset=0;auto physical=path;
-  if(split(path,archive,member)){if(zipFile(archive))return zipRead(archive,member);physical=archive;bool found=false;for(const auto& e:directory(archive))if(e.name==member){size=e.size;offset=e.offset;found=true;break;}if(!found)throw std::runtime_error("PAK entry not found: "+member);}
+  if(split(path,archive,member)){if(zipFile(archive))return zipRead(archive,member);if(!validName(member))throw std::runtime_error("Unsafe PAK member path.");physical=archive;bool found=false;for(const auto& e:directory(archive,true))if(e.name==member){size=e.size;offset=e.offset;found=true;break;}if(!found)throw std::runtime_error("PAK entry not found: "+member);}
   else size=fs::file_size(path);
   if(size>512*1024*1024)throw std::runtime_error("Resource exceeds 512 MiB.");std::ifstream in(physical,std::ios::binary);in.seekg(offset);std::string result(size,'\0');if(size&&!in.read(result.data(),size))throw std::runtime_error("Cannot read "+path.u8string());return result;
 }
-inline bool exists(const fs::path& path){try{fs::path a;std::string m;if(!split(path,a,m))return fs::is_regular_file(path);for(const auto& e:directory(a))if(e.name==m)return true;}catch(...){}return false;}
+inline bool exists(const fs::path& path){try{fs::path a;std::string m;if(!split(path,a,m))return fs::is_regular_file(path);for(const auto& e:directory(a,true))if(e.name==m)return true;}catch(...){}return false;}
 inline fs::path diskFolder(const fs::path& path){fs::path a;std::string m;return split(path,a,m)?a.parent_path():path;}
 inline std::vector<std::pair<bool,fs::path>> list(const fs::path& folder){
   std::vector<std::pair<bool,fs::path>> result;fs::path archive;std::string prefix;

@@ -58,8 +58,10 @@ static void scanDirectory(const std::string& path)
 #include "ftebroom_quake1_assets.h"
 #include "ftebroom_quake2_assets.h"
 static void profileStartMap();
+static void resetBuildPlaceholders();
 static void assetsReady()
 {
+  resetBuildPlaceholders();
   resetMaterialBrowser();
   clearEntityPreviews();
   materials.clear();
@@ -96,7 +98,6 @@ static void assetsReady()
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
       return char(std::tolower(c));
     });
-    if(gameProfile==3&&ext!=".wal")continue;
     if (
       path.rfind("textures/", 0) == 0
       && (ext == ".tga" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".dds" || (gameProfile==3&&(ext == ".wal" || ext == ".pcx"))))
@@ -104,6 +105,15 @@ static void assetsReady()
       if (path == "textures/ftebroom/overlay.tga" || path.rfind("textures/_ftebroom_q1/",0)==0 || path.rfind("textures/_ftebroom_q2/",0)==0)
         continue;
       auto name = path.substr(0, dot);
+      if(gameProfile==3){
+        name="textures/"+ftebroom::materialKey(name);
+        // Keep WAL's logical dimensions when a legacy texture is available.
+        auto previous=materials.find(name);
+        if(previous!=materials.end()){
+          auto old=std::filesystem::u8path(previous->second.preview).extension().u8string();
+          if(old==".wal" || (ext!=".wal"&&old==".pcx"))continue;
+        }
+      }
       materials[name] = {name, path, false};
     }
   }
@@ -142,7 +152,7 @@ static void assetsReady()
   core->Print(("ReyondBroom: indexed " + std::to_string(materials.size())
                + " materials from " + std::to_string(shaderFiles) + " shader files.\n")
                 .c_str());
-  if (cvars->GetFloat("ftebroom_skip_setup"))
+  if (cvars->GetFloat("ftebroom_skip_setup")&&!cvars->GetFloat("ftebroom_test_quiet_resources"))
     for (auto& pair : materials)
       core->Print(("ReyondBroom material: " + pair.first + "\n").c_str());
 }

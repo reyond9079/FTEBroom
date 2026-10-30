@@ -101,6 +101,8 @@ static void buildShow()
       if(file.path().extension()!=".map" && file.path().extension()!=".log")
         std::filesystem::copy(file.path(),cache/file.path().filename(),std::filesystem::copy_options::overwrite_existing|std::filesystem::copy_options::recursive);
     command(("fs_flush\nftebroom_bsp "+buildResultModel+"\n").c_str());
+    // World materials register lazily on their first rendered frame.
+    if(!buildPlaceholderHandles.empty())command("in .2 ftebroom_build_placeholders\n");
   }catch(const std::exception& error){buildMessage=error.what();buildRestoreLayout();}
 }
 static void mapGpuShow(){
@@ -229,6 +231,7 @@ static void buildBegin()
         profile.tasks.push_back({1,std::string("${")+names[i]+"}",args});buildStages.push_back(names[i]);
       }
     } else {
+    common+="-fs_pakpath \"${WORK_DIR_PATH}\" ";
     if(buildGeometry){profile.tasks.push_back({1,"${q3map2}",common+"-meta "+buildArguments[0]+" \"${WORK_DIR_PATH}/snapshot.map\""});buildStages.push_back("Geometry / BSP");}
     if(buildVis){profile.tasks.push_back({1,"${q3map2}",common+"-vis "+buildArguments[1]+" \"${WORK_DIR_PATH}/snapshot.bsp\""});buildStages.push_back("Visibility / VIS");}
     if(buildLight){profile.tasks.push_back({1,"${q3map2}",common+"-light "+buildArguments[2]+" \"${WORK_DIR_PATH}/snapshot.bsp\""});buildStages.push_back("Lighting / LIGHT");}

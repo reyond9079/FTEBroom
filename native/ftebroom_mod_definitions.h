@@ -25,7 +25,7 @@ inline std::string discoverModDefinitions(const std::filesystem::path& root) {
     if(!it->is_regular_file())continue;
     auto p=it->path();if(definition(p))loose.push_back(p);
     else if(p.extension()==".pak"||p.extension()==".pk3") {
-      for(const auto& e:pak::directory(p))if(definition(p/fs::u8path(e.name)))packed.push_back(p/fs::u8path(e.name));
+      for(const auto& e:pak::directory(p,true))if(definition(p/fs::u8path(e.name)))packed.push_back(p/fs::u8path(e.name));
     }
   }
   auto order=[&](const fs::path& a,const fs::path& b){

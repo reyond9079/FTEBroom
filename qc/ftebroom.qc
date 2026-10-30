@@ -623,6 +623,14 @@ float() ftebroom_command =
         else fb_build_preview_enter(argv(1));
         return TRUE;
     }
+    if(argv(0)=="ftebroom_material_remap") {
+        if(substring(argv(1),0,9)=="textures/" && (argv(2)==argv(1)||substring(argv(2),0,27)=="ftebroom/build-placeholder/")){
+            remapshader(argv(1),argv(2),0);
+            // Native WAD surfaces can register the bare name as their fallback.
+            remapshader(substring(argv(1),9,-1),argv(2)==argv(1)?substring(argv(1),9,-1):argv(2),0);
+        }
+        return TRUE;
+    }
     // Editing a document always restores its world before touching geometry.
     if(fb_build_preview_active && substring(argv(0),0,9)=="ftebroom_" &&
         substring(argv(0),0,16)!="ftebroom_camera_" && argv(0)!="ftebroom_camera") {

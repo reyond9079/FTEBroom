@@ -29,10 +29,18 @@ static void viewOption(const char* label, const char* cvar)
   if (ImGui::Checkbox(label, &value))
     cvars->SetFloat(cvar, value);
 }
+static void displayBrightnessControls(){
+  float gamma=cvars->GetFloat("v_gamma"),contrast=cvars->GetFloat("v_contrast");
+  if(ImGui::SliderFloat("Display brightness (gamma)",&gamma,.5f,2.f,"%.2f"))cvars->SetFloat("v_gamma",gamma);
+  if(ImGui::SliderFloat("Display contrast",&contrast,.5f,2.f,"%.2f"))cvars->SetFloat("v_contrast",contrast);
+  if(ImGui::Button("Reset display brightness")){cvars->SetFloat("v_gamma",1);cvars->SetFloat("v_contrast",1);}
+  ImGui::TextDisabled("Display only; saved textures, compiled lightmaps and GPU bake values are unchanged.");
+}
 static void viewOptionsPanel()
 {
   if (!ImGui::CollapsingHeader("View options"))
     return;
+  if(ImGui::TreeNode("Brightness")){displayBrightnessControls();ImGui::TreePop();}
   if(ImGui::TreeNode("Antialiasing and texture filtering")) {
     int samples=(int)cvars->GetFloat("vid_multisample");int choice=samples>=8?3:samples>=4?2:samples>=2?1:0;
     if(ImGui::Combo("Edge MSAA",&choice,"Off\0 2x\0 4x\0 8x\0"))cvars->SetFloat("vid_multisample",choice?float(1<<choice):1);

@@ -3,7 +3,7 @@ void fb_repeat_texture(string mode,int direction,int speed);
 string fb_material_key(string name)
 {
     // Quake WAD names are case-insensitive; keep the MAP's stored spelling.
-    if(cvar("ftebroom_quake1"))name=strtolower(name);
+    if(cvar("ftebroom_quake1") || cvar("ftebroom_game_profile")==3)name=strtolower(name);
     if(substring(name,0,9)=="textures/") return substring(name,9,-1);
     return name;
 }

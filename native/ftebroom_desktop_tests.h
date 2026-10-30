@@ -9,6 +9,37 @@ static void testDesktop(){
  char mode[64]={},root[4096]={};commands->Argv(1,mode,sizeof mode);cvars->GetString("ftebroom_test_import_root",root,sizeof root);auto frame=[](){event(0,0,0,950,550,1280,800);};
 
  try {
+  if(std::string(mode)=="q2104stage"){
+    runLoad();auto folder=settingsPath().parent_path()/"q2104-export";runBegin({"Q2 material staging test",folder.u8string(),false,{{0,"${WORK_DIR_PATH}/snapshot.map",""}}});
+  }
+  if(std::string(mode)=="q2104exportcheck"){
+    auto folder=settingsPath().parent_path()/"q2104-export";
+    expect(!runActive&&!runHadError,"q2104_export_with_placeholders_complete");
+    for(auto name:{"__tb_empty","e1u1/grate2_5","ctf/color1b2","e1u1/rocks17_1","dw/untitled_ramka"})expect(std::filesystem::exists(folder/std::filesystem::u8path("textures/"+std::string(name)+".wal")),("q2104_staged_"+std::string(name)).c_str());
+    auto grey=ftebroom::legacy::wal(q1Read(folder/"textures/__tb_empty.wal"),q2Palette());expect(grey.width==64&&grey.height==64,"q2104_neutral_compiler_material");
+  }
+  if(std::string(mode)=="missing104compile"){
+    runLoad();buildLoadSettings();buildGeometry=true;buildVis=buildLight=false;for(auto& arg:buildArguments)arg.clear();buildBegin();expect(buildRunning,"missing104_native_compile_started");
+  }
+  if(std::string(mode)=="missing104compiled")expect(!buildRunning&&!runHadError&&!buildResult.empty()&&buildValidBsp(buildResult),"missing104_native_compiler_success");
+  if(std::string(mode)=="missing104accept"||std::string(mode)=="missing104cancel"){
+    expect(runActive&&runMissingAwaiting&&!runMissingNames.empty(),"missing104_consent_before_compiler");
+    runMissingDecision=std::string(mode)=="missing104accept"?1:-1;runMissingAwaiting=false;return;
+  }
+  if(std::string(mode)=="missing104check"){
+    expect(!runHadError&&!mapGpuRunning&&!mapGpuResult.empty(),"missing104_gpu_bake_completed");
+    expect(runLog.find("Placeholder texture: missing104")!=std::string::npos,"missing104_placeholder_logged");
+    expect(!std::filesystem::exists(mapGpuFolder/"snapshot.bsp"),"missing104_no_bsp");
+    auto textures=ftebroom::quake1::wad(q1Read(mapGpuFolder/"textures.wad"));bool found=false;for(const auto& t:textures)found|=t.name=="missing104";expect(found,"missing104_wad_contains_original_name");
+    expect(materials.count("textures/missing104"),"missing104_preview_material");
+  }
+  if(std::string(mode)=="missing104cancelcheck")expect(runHadError&&!mapGpuRunning&&mapGpuMessage.find("cancelled")!=std::string::npos,"missing104_cancel_does_not_compile");
+  if(std::string(mode)=="q2104ready"){
+    expect(!assetsLoading&&assetError.empty()&&gameProfile==3,"q2104_resources");recentWindow=false;
+    expect(materials.count("textures/__tb_empty")&&materials.at("textures/__tb_empty").preview.rfind("textures/_ftebroom_q2/",0)==0,"q2104_empty_material_alias");
+    auto image=materials.at("textures/__tb_empty").preview;expect(!q1Read(documentPath(image)).empty(),"q2104_empty_pixels_staged");
+    command("ftebroom_test_materials q2104check\n");
+  }
   if(std::string(mode)=="map103hide"){recentWindow=false;runWindow=false;buildWindow=false;}
   if(std::string(mode)=="map103open"){
     gameProfile=2;gameProfileSave();expect(mountAssets(),"map103_mount");char map[4096]{};cvars->GetString("ftebroom_test_map",map,sizeof map);documentRequest("@"+std::string(map));recentWindow=false;

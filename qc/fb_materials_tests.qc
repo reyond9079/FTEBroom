@@ -3,6 +3,15 @@ int fb_material_test_id;
 float fb_material_testcommand()
 {
     if(argv(0)!="ftebroom_test_materials" || !cvar("ftebroom_skip_setup")) return FALSE;
+    if(argv(1)=="q2104check"){
+        fb_transform_expect(fb_material_key("Textures/__TB_empty")=="__tb_empty","q2104_case_insensitive_material");
+        fb_transform_expect(drawgetimagesize(fb_surface_preview_shader("__TB_empty",1))=='64 64 0',"q2104_empty_image_size");
+        fb_filter_prepare();int checked=0;for(int n=2;n<fb_node_count;n++)if(fb_nodes[n].kind==FB_NODE_BRUSH){if(!fb_filter_custom(n))break;checked++;}
+        fb_transform_expect(checked>100,"q2104_unselected_world_uses_same_shading");
+        fb_render_faces_prepare();int custom=0;for(int f=0;f<fb_render_face_count;f++)if(fb_render_faces[f].enabled)custom++;
+        fb_transform_expect(custom>100,"q2104_material_faces_cached_before_selection");
+        return TRUE;
+    }
     if(argv(1)=="q2102probe") {
         fb_tool_deactivate();fb_selection_clear();cvar_set("ca_newbrushtexture","e1u1/grate2_5");
         fb_createbox('0 0 96','128 128 224');fb_material_test_id=selectedbrushes[0].id;fb_selection_clear();

@@ -4,6 +4,7 @@
 #include "ftebroom_map_wads.h"
 #include "ftebroom_wad_cache.h"
 #include "ftebroom_compiler_wad.h"
+#include "ftebroom_placeholder_texture.h"
 static std::string q1Palette(){
   size_t size=0;auto data=(char*)files->LoadFile("gfx/palette.lmp",&size);
   if(!data)return ftebroom::defaultQuakePalette();
@@ -65,8 +66,8 @@ static std::string q1WadList() {
   return list;
 }
 // Compiler input uses ASCII relative paths, independent of external Unicode names.
-static std::string q1CompilerWads(const std::filesystem::path& folder,const std::string& source={}) {
-  q1FindWads(true);std::filesystem::create_directories(folder);std::set<std::string> wanted;
+static std::string q1CompilerWads(const std::filesystem::path& folder,const std::string& source={},std::vector<std::string>* missing=nullptr,bool placeholders=false) {
+  q1FindWads();std::filesystem::create_directories(folder);std::set<std::string> wanted;
   if(source.empty()){for(const auto& material:q1MaterialWad)wanted.insert(material.first);}
   else for(auto name:ftebroom::quake1::mapTextures(source))wanted.insert(name);
   std::set<std::string> owners;bool unresolved=false;
@@ -74,6 +75,15 @@ static std::string q1CompilerWads(const std::filesystem::path& folder,const std:
   std::vector<std::string> archives;
   for(const auto& path:q1WadPaths()){auto label=q1WadLabels.count(path.u8string())?q1WadLabels[path.u8string()]:path.filename().u8string();if(unresolved||owners.count(label))archives.push_back(q1Read(path));}
   auto bytes=ftebroom::quake1::compilerWad(archives,wanted,gameProfile==4);auto target=folder/"textures.wad";
+  std::set<std::string> present;for(const auto& t:ftebroom::quake1::wad(bytes))present.insert(t.name);
+  if(missing)missing->clear();
+  for(const auto& name:wanted)if(!present.count(name)){
+    bool neutral=name=="__tb_empty";if(!neutral&&missing)missing->push_back(name);
+    if(!neutral&&!placeholders){if(!missing)throw std::runtime_error("Missing Quake texture '"+name+"'. Add its WAD in Game / resources.");continue;}
+    if(name.size()>15)throw std::runtime_error("WAD texture names cannot exceed 15 characters: "+name);
+    auto palette=gameProfile==4?ftebroom::defaultQuakePalette():q1Palette();
+    bytes=ftebroom::addWadTexture(std::move(bytes),ftebroom::placeholderTexture(name,palette,neutral),palette,false,gameProfile==4);
+  }
   std::ofstream output(target,std::ios::binary);output.write(bytes.data(),bytes.size());output.close();
   if(!output)throw std::runtime_error("Cannot stage WAD for the compiler.");return "textures.wad";
 }

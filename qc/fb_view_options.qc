@@ -4,6 +4,7 @@ var float autocvar_ftebroom_opaque_batches=1;
 var float autocvar_ftebroom_show_brushes=1,autocvar_ftebroom_show_points=1,autocvar_ftebroom_show_models=1;
 var float autocvar_ftebroom_show_entity_names=1,autocvar_ftebroom_show_entity_bounds=1,autocvar_ftebroom_show_group_bounds=1,autocvar_ftebroom_show_brush_entity_bounds=1;
 var float autocvar_ftebroom_render_faces=0,autocvar_ftebroom_shade_faces=1,autocvar_ftebroom_show_edges=1;
+float fb_surface_shade(vector normal){return autocvar_ftebroom_shade_faces?0.6+0.4*fabs(normal*normalize('0.3 -0.5 1')):1;}
 var float autocvar_ftebroom_bounds_visible=0;
 var float autocvar_ftebroom_hidden_tags=0,autocvar_ftebroom_entity_links=1;
 var string autocvar_ftebroom_hidden_classes="";
@@ -99,6 +100,9 @@ int fb_filter_allowed(int node)
 int fb_filter_custom(int node)
 {
     if(node<0 || node>=fb_filter_tag_count)return FALSE;
+    // Classic MAPs use one material/shading path for world, group and selected
+    // brushes. Native lightmap shaders must not brighten only some surfaces.
+    if(cvar("ftebroom_classic_map"))return TRUE;
     // Map-edit submodels have no server entity submitting their surfaces.
     // Draw them explicitly, independently of selection and point-model visibility.
     if(fb_nodes[node].kind>=FB_NODE_BRUSH && fb_nodes[node].model!=1)return TRUE;
@@ -133,7 +137,7 @@ int fb_render_visible(int model,int id)
 void fb_static_preview_prepare()
 {
     fb_render_allowed(0,FB_PICK_LOCKED);fb_incremental_access();
-    fb_static_preview_supported=fb_grid_face_count>=30000 && cvar("ftebroom_cached_meshes");
+    fb_static_preview_supported=fb_grid_face_count>=(cvar("ftebroom_classic_map")?4096:30000) && cvar("ftebroom_cached_meshes");
     if(!fb_static_preview_supported)return;
     static int capacity;static string signature="",previousMask="";
     string key=sprintf("%i %i %i %i %i %g",fb_grid_geometry_epoch,fb_filter_epoch,fb_visibility_epoch,fb_selection_epoch,fb_node_count,fb_active);key=strcat(key," ",itos(fb_incremental_epoch));
@@ -185,7 +189,7 @@ string fb_surface_preview_shader(string source,float alpha)
 {
     string material=fb_material_key(source),preview="";
     if(fb_shader_previews)preview=fb_shader_previews[material];
-    if(preview=="")preview=strcat("textures/",material);
+    if(preview=="")preview=cvar("ftebroom_classic_map")?"textures/ftebroom/missing.tga":strcat("textures/",material);
     string shader=fb_surface_material_shader(material,alpha);
     int masked=cvar("ftebroom_quake1") && substring(material,0,1)=="{";if(fb_shader_masked)if((int)fb_shader_masked[material])masked=TRUE;
     string blend="";if(fb_shader_blend)blend=fb_shader_blend[material];
@@ -308,7 +312,7 @@ void fb_render_faces_prepare()
     static int geometry=-1,filters=-1,selection=-1;
     static string style;string nextStyle=strcat(cvar_string("ftebroom_render_faces")," ",cvar_string("ftebroom_shade_faces")," ",cvar_string("ftebroom_material_tag_epoch")," ",cvar_string("r_wateralpha"));
     nextStyle=strcat(nextStyle," ",cvar_string("r_lavaalpha")," ",cvar_string("r_slimealpha")," ",cvar_string("r_telealpha"));
-    if(geometry==fb_grid_geometry_epoch && (fb_incremental_enabled()?nextStyle==style:(filters==fb_filter_epoch&&selection==fb_selection_epoch)))return;
+    if(geometry==fb_grid_geometry_epoch && ((fb_incremental_enabled()||cvar("ftebroom_classic_map"))?nextStyle==style:(filters==fb_filter_epoch&&selection==fb_selection_epoch)))return;
     strunzone(style);style=strzone(nextStyle);
     geometry=fb_grid_geometry_epoch;filters=fb_filter_epoch;selection=fb_selection_epoch;fb_face_upload_epoch++;
     while(fb_render_shader_names){fb_render_shader_t *entry=fb_render_shader_names;fb_render_shader_names=entry.next;strunzone(entry.name);memfree(entry);}
@@ -363,7 +367,7 @@ void fb_filter_draw()
         fb_render_allowed(0,FB_PICK_LOCKED);
         int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;
         int drawn=-1;
-        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=30000 && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch,fb_incremental_config());
+        if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=(cvar("ftebroom_classic_map")?4096:30000) && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch,fb_incremental_config());
         if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_incremental_config());
         nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
     }

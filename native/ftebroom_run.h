@@ -42,6 +42,7 @@ static void runAppend(const std::string& text)
     if(at+18>previous)++runControlAcks;
   if(runLog.size()>4*1024*1024)runLog.erase(0,runLog.size()-4*1024*1024);
 }
+#include "ftebroom_build_textures.h"
 static std::filesystem::path runBundledEngine()
 {
   auto root=documentPath("ftebroom.cfg").parent_path().parent_path();
@@ -78,7 +79,7 @@ static void runLoad()
   }
   auto preset=[&](RunProfile profile){if(std::none_of(runProfiles.begin(),runProfiles.end(),[&](const RunProfile& p){return p.name==profile.name;}))runProfiles.push_back(std::move(profile));};
   const std::string map="\"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map\"",bsp="\"${WORK_DIR_PATH}/${MAP_BASE_NAME}.bsp\"";
-  const std::string q3="-game quake3 -fs_basepath \"${GAME_DIR_PATH}/..\" ";
+  const std::string q3="-game quake3 -fs_basepath \"${GAME_DIR_PATH}/..\" -fs_pakpath \"${WORK_DIR_PATH}\" ";
   preset({"Q3: BSP + fast VIS + LIGHT","${MAP_DIR_PATH}/_ftebroom-build",false,{
     {0,"${WORK_DIR_PATH}/${MAP_BASE_NAME}.map",""},{1,"${q3map2}",q3+"-meta "+map},
     {1,"${q3map2}",q3+"-vis -fast "+bsp},{1,"${q3map2}",q3+"-light -fast "+bsp}}});
@@ -164,6 +165,7 @@ static void runStop()
   if(runProcess>0){kill(-runProcess,SIGKILL);waitpid(runProcess,nullptr,0);runProcess=-1;}
   if(runPipe>=0){close(runPipe);runPipe=-1;}
 #endif
+  runMissingAwaiting=false;runMissingDecision=-1;runExportPrepared=false;
   runActive=runExportWaiting=false;runAppend("\nStopped.\n");
 }
 #ifdef _WIN32
@@ -226,6 +228,7 @@ static void runBegin(const RunProfile& profile)
 {
   if(runActive||runExclusive)return;
   runWindow=true;runError.clear();runHadError=false;runLog.clear();runStep=0;
+  runMissingAwaiting=false;runMissingDecision=0;runExportPrepared=false;runMissingNames.clear();runPlaceholderNames.clear();
   if(gameClassic() && std::any_of(profile.tasks.begin(),profile.tasks.end(),[](const RunTask& task){return task.kind==1 && task.source.find("q3map2")!=std::string::npos;})){
     runError="q3map2 cannot compile this game format. Use Compile / Setup compile for the active game profile.";runHadError=true;return;
   }
@@ -316,7 +319,7 @@ static void runFileTask(int kind,const std::string& source,const std::string& de
 }
 static void runTick()
 {
-  if(!runActive)return;
+  if(!runActive||runMissingAwaiting)return;
   try
   {
     if(runReadyHook&&!runReadyHook())return;
@@ -346,14 +349,9 @@ static void runTick()
       if(status!=1)throw std::runtime_error("Map export failed.");
       auto target=runFilePath(runExpand(runningProfile.tasks[runStep].source));
       if(runIsWorkingMap(target))throw std::runtime_error("Export Map must use a build copy, not the working map.");
-      std::filesystem::create_directories(target.parent_path());
-      std::filesystem::copy_file(documentPath("data/export-map.map"),target,std::filesystem::copy_options::overwrite_existing);
-      if(gameWad()){auto converted=ftebroom::quake1::map(q1Read(target),false,q1CompilerWads(target.parent_path(),q1Read(target)),false,gameProfile==4);
-        for(const auto& texture:ftebroom::quake1::mapTextures(converted))if(!materials.count("textures/"+texture))throw std::runtime_error("Missing Quake texture '"+texture+"'. Add its WAD in Game / resources.");
-        std::ofstream output(target,std::ios::binary);output<<converted;output.close();if(!output)throw std::runtime_error("Cannot write Quake build snapshot.");}
-      if(gameProfile==3){auto texture=target.parent_path()/"textures/fb_grey.wal";std::filesystem::create_directories(texture.parent_path());auto bytes=modelResource("textures/fb_grey.wal");std::ofstream f(texture,std::ios::binary);f.write(bytes.data(),bytes.size());if(bytes.empty()||!f)throw std::runtime_error("Cannot stage default Quake II material.");}
+      if(!runPrepareExport(target))return;
       if(runExportHook)runExportHook(target);
-      runExportWaiting=false;++runStep;
+      runExportWaiting=false;runExportPrepared=false;runMissingDecision=0;++runStep;
       if(runReadyHook)return;
     }
     if(runStep>=(int)runningProfile.tasks.size()){runActive=false;runAppend("Completed successfully.\n");return;}

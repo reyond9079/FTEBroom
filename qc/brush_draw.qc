@@ -1,4 +1,5 @@
 string fb_surface_preview_shader(string source,float alpha);
+float fb_surface_shade(vector normal);
 float fb_surface_opacity(string source,int tags);
 int fb_filter_face_tags(brushface_t *face,int contents);
 vector fb_visual_current_wire;
@@ -64,11 +65,12 @@ void(int mod, int id, float alpha) DrawEngineBrushFaded =
 		
         float fadedAlpha=alpha*fb_surface_opacity(faces[f].shadername,fb_filter_face_tags(&faces[f],contents));
         string materialname=fb_surface_preview_shader(faces[f].shadername,fadedAlpha);
+        vector faceColor=col;if(cvar("ftebroom_classic_map"))faceColor*=fb_surface_shade(faces[f].planenormal);
 
 		vector sz = drawgetimagesize(materialname);
 		R_BeginPolygon(materialname, 3);
 		for (int point = 0; point < points; point++)
-			R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, fadedAlpha);
+			R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], faceColor, fadedAlpha);
 		R_EndPolygon();
 	}
 };
@@ -146,11 +148,12 @@ void(brushface_t *faces, int numfaces, vector col, float alpha) DrawQCBrushTextu
 			//FIXME: we don't manage to pick up the size of the original wad image
 			float faceAlpha=alpha*fb_surface_opacity(faces[f].shadername,fb_filter_face_tags(&faces[f],0));
             string materialname=fb_surface_preview_shader(faces[f].shadername,faceAlpha);
+            vector faceColor=col;if(cvar("ftebroom_classic_map"))faceColor*=fb_surface_shade(faces[f].planenormal);
 
 			vector sz = drawgetimagesize(materialname);
 			R_BeginPolygon(materialname, 3);
 			for (point = 0; point < points; point++)
-				R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], col, faceAlpha);
+				R_PolygonVertex(facepoints[point], [(facepoints[point] * faces[f].sdir + faces[f].sbias)/sz_x, (facepoints[point] * faces[f].tdir + faces[f].tbias)/sz_y], faceColor, faceAlpha);
 			R_EndPolygon();
 		}
 	}

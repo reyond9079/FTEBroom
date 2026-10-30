@@ -444,7 +444,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 103");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 104");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1013,6 +1013,7 @@ static void panel(float w, float h)
   entityPanel();
   issuesPanel();
   runPanel();
+  runMissingPanel();
   buildPanel();
   bspModelPanel();
   ImGui::EndDisabled();
@@ -1044,6 +1045,7 @@ static void panel(float w, float h)
     preferencesAppearanceRequest=false;
     uiPreferences();
     if(ImGui::CollapsingHeader("Resolution"))uiResolutionControls();
+    if(ImGui::CollapsingHeader("Brightness"))displayBrightnessControls();
     bool legacy = cvars->GetFloat("ftebroom_drag_mode") != 0;
     if (ImGui::Checkbox("Drag unselected brushes to move (legacy)", &legacy))
       cvars->SetFloat("ftebroom_drag_mode", legacy);
@@ -1102,7 +1104,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 103");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 104");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1982,6 +1984,7 @@ extern "C" qboolean NATIVEEXPORT FTEPlug_Init(plugcorefuncs_t* api)
   commands->AddCommand(
     "ftebroom_assets_ready", assetsReady, "Index mounted project assets.");
   commands->AddCommand("ftebroom_start_map",profileStartMap,"Open the starter for the selected game profile.");
+  commands->AddCommand("ftebroom_build_placeholders",buildRemapPlaceholders,"Refresh generated material previews after loading a compile result.");
   commands->AddCommand(
     "ftebroom_project", loadProjectCommand, "Load Quake 3 assets from a baseq3 folder.");
   commands->AddCommand(
