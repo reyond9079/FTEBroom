@@ -577,7 +577,7 @@ static void documentFileBrowser()
     }
     ImGui::TextUnformatted(
       fileBrowserObj          ? "Export Wavefront OBJ + MTL (omitted layers excluded)"
-      : fileBrowserTrace == 1 ? "Load point file (.lin)"
+      : fileBrowserTrace == 1 ? "Load point file (.lin / .pts)"
       : fileBrowserTrace == 2  ? "Load portal file (.prt)"
       : fileBrowserExport     ? "Export map for compilation (omitted layers excluded)"
       : fileBrowserDefinitions ? "Open entity definitions"
@@ -646,7 +646,7 @@ static void documentFileBrowser()
       for(const auto& entry:found){auto extension=entry.second.extension().u8string();std::transform(extension.begin(),extension.end(),extension.begin(),::tolower);
         bool pak=extension==".pak";bool allowedPak=gameClassic()&&!fileBrowserDefinitions&&!fileBrowserTrace&&!fileBrowserObj;
         if(pak&&!allowedPak)continue;
-        if(entry.first || (fileBrowserObj ? extension==".obj" : fileBrowserTrace ? extension==(fileBrowserTrace==1?".lin":".prt") : fileBrowserDefinitions ? (extension==".ent"||extension==".def"||extension==".fgd") : extension==".map"))entries.push_back(entry);
+        if(entry.first || (fileBrowserObj ? extension==".obj" : fileBrowserTrace ? (fileBrowserTrace==1?(extension==".lin"||extension==".pts"):extension==".prt") : fileBrowserDefinitions ? (extension==".ent"||extension==".def"||extension==".fgd") : extension==".map"))entries.push_back(entry);
       }
     }catch(const std::exception& e){if(fileBrowserNew&&!std::filesystem::exists(fileBrowserFolder))ImGui::TextWrapped("This folder will be created when you press Create map. Use Up one level to browse its parent.");else ImGui::TextWrapped("%s",e.what());}
     std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {

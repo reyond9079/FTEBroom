@@ -447,7 +447,7 @@ static void panel(float w, float h)
         uiReset = true;
       ImGui::EndMenu();
     }
-    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 110");
+    ImGui::TextDisabled("   ReyondBroom 0.5 alpha 111");
     ImGui::EndMainMenuBar();
   }
   const auto fixed = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
@@ -1108,7 +1108,7 @@ static void panel(float w, float h)
     if(ImGui::BeginTabItem("Keyboard")){preferencesKeyboard();ImGui::EndTabItem();}
     if(ImGui::BeginTabItem("Update"))
     {
-      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 110");
+      ImGui::TextUnformatted("ReyondBroom 0.5 alpha 111");
       ImGui::TextLinkOpenURL("Check published releases","https://github.com/reyond9079/ReyondBroom/releases");
       updatePanel();
       ImGui::EndTabItem();
@@ -1126,6 +1126,7 @@ static void panel(float w, float h)
   ImGui::EndDisabled();
   popupOpen = ImGui::IsPopupOpen(
     nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+  tracePanel();
   terrainPanel();
   modFilesPanel();
   modelViewerPanel();
@@ -2026,6 +2027,7 @@ extern "C" qboolean NATIVEEXPORT FTEPlug_Init(plugcorefuncs_t* api)
 #ifndef _WIN32
   commands->AddCommand("ftebroom_drop_hex",linuxDropCommand,"Import a local desktop WAD drop.");
 #endif
+  commands->AddCommand("ftebroom_test_leak",testLeakBuild,"Test automatic leak discovery in disposable runs.");
   commands->AddCommand("ftebroom_test_build", testBuild, "Test BSP preview in disposable runs.");
   commands->AddCommand(
     "ftebroom_save", documentSaveCommand, "Save the current document.");

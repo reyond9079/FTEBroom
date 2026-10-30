@@ -322,6 +322,7 @@ static void executeAction(const Action& a, bool down = true)
   }
   if (cmd == "ftebroom_undo" || cmd == "ftebroom_redo" || cmd == "ftebroom_delete")
     cancelGesture();
+  if(traceAction(cmd))return;
   command((cmd + "\n").c_str());
 }
 static bool dispatchAction(int key, bool down, bool inScene)

@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "ftebroom_leak_path.h"
+static int traceRevisionNow();
+static void traceEditingView();
+static bool traceWindow=false,traceVisible=true;
+static int tracePointIndex=-1,traceRevision=-1;
+static uint64_t traceGeneration=0;
+static std::vector<ftebroom::leak::Point> tracePoints;
+static std::filesystem::path traceDocument;
 // Parse external diagnostic files before replacing the current overlay.
 static int traceRequest, fileBrowserTrace;
 static std::filesystem::path tracePaths[2];
@@ -18,15 +26,11 @@ static bool traceChoose(int kind, const std::filesystem::path& path)
         throw std::runtime_error("Invalid diagnostic point.");
       result << x << ' ' << y << ' ' << z << '\n';
     };
+    std::vector<ftebroom::leak::Point> parsed;
     if (kind == 1)
     {
-      int count = 0;
-      while (input >> std::ws && input.peek() != EOF)
-      {
-        if (++count > 262144) throw std::runtime_error("Too many leak points.");
-        point();
-      }
-      if (!count) throw std::runtime_error("The point file is empty.");
+      std::string text((std::istreambuf_iterator<char>(input)),{});parsed=ftebroom::leak::parse(text);
+      for(const auto& p:parsed)result<<p[0]<<' '<<p[1]<<' '<<p[2]<<'\n';
     }
     else
     {
@@ -59,6 +63,7 @@ static bool traceChoose(int kind, const std::filesystem::path& path)
       throw std::runtime_error("Cannot stage diagnostic file.");
     auto data=result.str();files->Write(output,data.data(),data.size());files->Close(output);
     tracePaths[kind-1] = path;
+    if(kind==1){tracePoints=std::move(parsed);tracePointIndex=-1;traceWindow=traceVisible=true;traceRevision=traceRevisionNow();traceDocument=documentFile;traceGeneration=documentGeneration;}
     action(kind == 1 ? "ftebroom_trace loadpoints\n" : "ftebroom_trace loadportals\n");
     return true;
   }
@@ -67,14 +72,46 @@ static bool traceChoose(int kind, const std::filesystem::path& path)
 static void traceAutoLoad()
 {
   action("ftebroom_trace unloadpoints\nftebroom_trace unloadportals\n");
-  tracePaths[0].clear(); tracePaths[1].clear();
+  tracePaths[0].clear(); tracePaths[1].clear();tracePoints.clear();tracePointIndex=-1;traceWindow=false;
   if (documentFile.empty()) return;
-  auto path = documentFile; path.replace_extension(".lin");
+  auto path = ftebroom::leak::find(documentFile);if(path.empty())return;
   std::error_code error;
   auto modified = std::filesystem::last_write_time(path, error);
   if (error) return;
   auto mapModified = std::filesystem::last_write_time(documentFile, error);
   if (!error && modified > mapModified) traceChoose(1, path);
+}
+static void traceFocus(int point){
+ if(tracePoints.empty())return;traceEditingView();tracePointIndex=std::clamp(point,0,int(tracePoints.size())-1);
+ traceVisible=true;action(("ftebroom_trace visible 1\nftebroom_trace goto "+std::to_string(tracePointIndex)+"\n").c_str());
+}
+static bool traceAction(const std::string& cmd){
+ if(cmd=="ftebroom_trace next"){traceFocus(tracePointIndex+1);return true;}
+ if(cmd=="ftebroom_trace previous"){traceFocus(tracePointIndex-1);return true;}
+ if(cmd=="ftebroom_trace unloadpoints"){tracePoints.clear();tracePointIndex=-1;traceWindow=false;}
+ return false;
+}
+static void tracePanel(){
+ if(!traceWindow||tracePoints.empty())return;
+ ImGui::SetNextWindowSize({450,0},ImGuiCond_FirstUseEver);
+ if(ImGui::Begin("Leak route",&traceWindow,ImGuiWindowFlags_AlwaysAutoResize)){
+  bool stale=traceDocument!=documentFile||traceGeneration!=documentGeneration||traceRevision!=traceRevisionNow();
+  ImGui::TextColored(stale?ImVec4{1,.7f,.2f,1}:ImVec4{1,.35f,.2f,1},stale?"Outdated route - recompile the map":"Compiler leak route");
+  ImGui::Text("%zu points",tracePoints.size());
+  if(ImGui::Checkbox("Show route",&traceVisible))action(traceVisible?"ftebroom_trace visible 1\n":"ftebroom_trace visible 0\n");
+  ImGui::BeginDisabled(modEmbedded);
+  if(ImGui::Button("Focus leak"))traceFocus(std::max(0,tracePointIndex));
+  if(ImGui::Button("First"))traceFocus(0);ImGui::SameLine();
+  if(ImGui::Button("Previous"))traceFocus(tracePointIndex-1);ImGui::SameLine();
+  if(ImGui::Button("Next"))traceFocus(tracePointIndex+1);ImGui::SameLine();
+  if(ImGui::Button("Last"))traceFocus(int(tracePoints.size())-1);
+  int number=std::max(0,tracePointIndex)+1;ImGui::SetNextItemWidth(130);
+  if(ImGui::InputInt("Point",&number))traceFocus(std::clamp(number,1,int(tracePoints.size()))-1);
+  ImGui::EndDisabled();
+  auto p=tracePoints[std::max(0,tracePointIndex)];ImGui::Text("X %.2f   Y %.2f   Z %.2f",p[0],p[1],p[2]);
+  ImGui::TextWrapped("The route connects an entity to the outside. Follow it to locate the opening; an endpoint is not necessarily the hole. Comma/period: previous/next point.");
+  ImGui::TextWrapped("%s",tracePaths[0].u8string().c_str());
+ }ImGui::End();
 }
 static void testTraceFiles()
 {

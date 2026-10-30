@@ -3,6 +3,10 @@ void fb_export_expect(int ok,string label){print(strcat(ok?"FTEBROOM_EXPORT_PASS
 int fb_export_testcommand()
 {
     if(argv(0)!="ftebroom_test_export" || !cvar("ftebroom_skip_setup"))return FALSE;
+    if(argv(1)=="leak111"){
+        fb_export_expect(fb_trace_count>0 && fb_trace_index>=0 && vlen(fb_camera_eye-fb_trace_points[fb_trace_index])<.05,"leak111_camera_at_selected_point");
+        fb_export_expect(fb_trace_vertices!=__NULL__ && fb_trace_lines!=__NULL__,"leak111_cached_route_mesh");return TRUE;
+    }
     if(argv(1)=="bsp90"){
         fb_tool_deactivate();brush_deselectall();
         fb_createbox('16 32 48','64 64 64');brush_deselectall();
@@ -20,9 +24,14 @@ int fb_export_testcommand()
     for(int p=0;p<5;p++)fb_trace_step(1);
     fb_export_expect(fb_trace_index==4 && fb_camera_eye=='64 32 80',"five_leak_points");
     fb_trace_step(-1);fb_export_expect(fb_camera_eye=='48 32 64',"previous_leak_point");
+    fb_trace_goto(9999);fb_export_expect(fb_trace_index==4 && fb_camera_eye=='64 32 80',"leak_goto_clamps_last");
+    makevectors(getproperty(VF_CL_VIEWANGLES));fb_export_expect(v_forward*normalize('48 32 64'-'64 32 80')>.999,"last_leak_point_faces_back_along_route");
+    fb_trace_goto(-5);fb_export_expect(fb_trace_index==0 && fb_camera_eye=='0 0 64',"leak_goto_clamps_first");
+    fb_trace_visible=FALSE;fb_export_expect(fb_trace_count==5,"hide_preserves_route");fb_trace_visible=TRUE;
     fb_export_expect(history==marker,"diagnostics_do_not_change_document");
     fb_trace_unload(FALSE);fb_trace_unload(TRUE);
     fb_export_expect(fb_trace_count==0 && fb_trace_portal_count==0,"unload_diagnostics");
+    if(argv(1)=="traceonly111")return TRUE;
     int id=fb_createbox('0 0 128','64 64 32');brush_deselectall();brushface_select(1,id,6);fb_patch_convert();
     fb_createbox('128 0 128','64 64 32');
     fb_organize_action("layernew",0,"No export");int layer=fb_active_layer;

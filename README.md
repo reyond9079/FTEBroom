@@ -2,18 +2,18 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 110: Quake II legacy WATER and other visible-contents compile fixes.** [Details and map checks](docs/contents110.md) · [Recent-project cache retention](docs/cache109.md) · [UV and Quake II fixes](docs/uv107.md) · [Lighting guide](docs/mod-lighting100.md). [Usage, limits and verification](docs/native-models-alpha95.md) · [Game profiles](docs/legacy-games-alpha94.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 111: automatic compiler-leak routes, viewport overlays and camera navigation by point.** [Leak inspection guide](docs/leak111.md) · [Quake II compile fixes](docs/contents110.md) · [Recent-project cache retention](docs/cache109.md) · [UV and Quake II fixes](docs/uv107.md) · [Lighting guide](docs/mod-lighting100.md). [Usage, limits and verification](docs/native-models-alpha95.md) · [Game profiles](docs/legacy-games-alpha94.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.110/ReyondBroom-0.5.0-alpha.110-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.110/ReyondBroom-0.5.0-alpha.110-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.111/ReyondBroom-0.5.0-alpha.111-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.111/ReyondBroom-0.5.0-alpha.111-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.110**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.110/ReyondBroom-0.5.0-alpha.110-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.111**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.111/ReyondBroom-0.5.0-alpha.111-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 

@@ -22,6 +22,15 @@ static int buildCurrentContentRevision(){
   if(qcQuery(4,0,value)&&std::sscanf(value.c_str(),"RBMAP1 %d",&revision)==1)return revision;
   return (int)cvars->GetFloat("ftebroom_revision");
 }
+static int traceRevisionNow(){return buildCurrentContentRevision();}
+static void traceEditingView();
+static bool buildLeakFound=false;
+static void buildDetectLeak(){
+ if(!buildGeometry||buildDocument!=documentFile||buildGeneration!=documentGeneration)return;
+ auto path=ftebroom::leak::find(buildPending);if(path.empty()||(buildLeakFound&&tracePaths[0]==path))return;
+ if(traceChoose(1,path)){traceRevision=buildContentRevision;traceGeneration=buildGeneration;buildLeakFound=true;
+  runAppend("Leak route detected: "+path.u8string()+". Use Leak route to inspect the path.\n");}
+}
 static double buildStarted;
 static int buildSavedLayout,buildSavedFocus,buildSavedMax,buildSavedTypes[4];
 static std::vector<std::string> buildStages;
@@ -74,6 +83,7 @@ static void buildExported(const std::filesystem::path& path)
 }
 static void buildStageFinished()
 {
+  buildDetectLeak();
   if(buildGeometry && runStep==1){auto portal=buildPending;portal.replace_extension(".prt");
     if(std::filesystem::exists(portal))std::filesystem::copy_file(portal,buildPending.parent_path()/"saved-portals.prt",std::filesystem::copy_options::overwrite_existing);}
 }
@@ -88,6 +98,7 @@ static void buildEdit()
 {
   command("ftebroom_bsp edit\n");buildRestoreLayout();
 }
+static void traceEditingView(){if(cvars->GetFloat("ftebroom_bsp_preview"))buildEdit();}
 static void buildShow()
 {
   if(buildResult.empty() || (buildResultDocument!=documentFile || buildResultProfile!=gameProfile))return;
@@ -180,7 +191,7 @@ static void buildBegin()
   if(runActive || runExclusive || buildRunning)return;
   if(documentFile.empty()){buildMessage="Save the map once before building.";return;}
   if(assetsLoading){buildMessage="Wait for game resources to finish loading before building.";return;}
-  buildMessage.clear();runLoad();buildLoadSettings();gameProfileLoad();
+  buildLeakFound=false;buildMessage.clear();runLoad();buildLoadSettings();gameProfileLoad();
   if(gameProfile==1 && gamePreviewAfterBuild){try{modValidate();}catch(const std::exception& e){buildMessage=e.what();return;}}
   std::error_code projectError;
   if(!*baseq3 || !std::filesystem::is_directory(std::filesystem::u8path(baseq3),projectError)){buildMessage="Configure an existing game resource folder in Game / resources.";setupNeeded=true;return;}
@@ -267,6 +278,7 @@ static void buildTick()
     else{buildResult=gpuBakeOutput;buildResultModel="maps/ftebroom-build/"+buildResult.parent_path().filename().u8string()+"/"+buildResult.filename().u8string();buildSaveHistory();buildMessage="GPU bake complete (experimental neutral-surface bounce).";buildShow();}
   }
   if(!buildRunning||runActive)return;
+  buildDetectLeak();
   buildRunning=false;gameProfileLocked=false;runExportHook=nullptr;runStageHook=nullptr;
   bool playAfterBuild=modCompilePending;modCompilePending=false;
   {std::ofstream log(buildPending.parent_path()/"build.log");log<<runLog;}
@@ -274,12 +286,13 @@ static void buildTick()
   if(runStep!=(int)buildStages.size()){buildMessage="Build cancelled. Previous successful BSP is retained.";return;}
   try {
     if(!buildValidBsp(buildPending))throw std::runtime_error("Compiler did not produce a valid BSP for the selected profile.");
+    if(buildGeometry&&!buildLeakFound){traceAction("ftebroom_trace unloadpoints");command("ftebroom_trace unloadpoints\n");}
     buildResult=buildPending;buildResultModel=buildPendingModel;buildResultDocument=buildDocument;buildResultRevision=buildRevision;buildResultProfile=gameProfile;buildResultSourceMap=buildSourceMap;
     buildResultContentRevision=buildContentRevision;buildResultGeneration=buildGeneration;
     buildSaveHistory();
     buildMessage="Build complete. Ready to preview.";
     if(gameProfile!=0 && gameProfile!=3 && (gamePreviewAfterBuild||playAfterBuild))modPreview();
-    else buildShow();
+    else if(!buildLeakFound)buildShow();
   }catch(const std::exception& error){buildMessage=error.what();}
 }
 #include "ftebroom_mod_preview.h"
@@ -395,6 +408,7 @@ static void buildToolbar(bool inlineTools=false)
     gameProfileLoad();
     if(gameProfile!=0&&gameProfile!=3){next("Play mod");ImGui::BeginDisabled(runActive||runExclusive||buildRunning||assetsLoading);
       if(compileButton("Play mod",3))modPreview();ImGui::EndDisabled();}
+    if(!tracePoints.empty()){next("Leak route");if(ImGui::Button("Leak route"))traceWindow=true;}
     ImGui::PopStyleVar();
 }
 static void buildOverlay()
@@ -512,4 +526,20 @@ static void testBuild()
   if(stage==9){expect(!buildRunning&&buildMessage.find("cancelled")!=std::string::npos,"cancellation_reported");expect(buildResult==previousResult,"cancel_retains_result");}
   if(stage==10){buildGeometry=false;buildLight=true;buildBegin();}
   if(stage==11){expect(runHadError&&!buildRunning&&runError.find("Geometry changed")!=std::string::npos,"changed_snapshot_rejected");expect(buildResult==previousResult,"changed_snapshot_retains_result");}
+}
+
+static void testLeakBuild(){
+ if(!cvars->GetFloat("ftebroom_skip_setup"))return;
+ char arg[4096]{};commands->Argv(1,arg,sizeof arg);
+ auto expect=[](bool ok,const char* name){core->Print((std::string(ok?"LEAK111_PASS ":"LEAK111_FAIL ")+name+"\n").c_str());};
+ if(std::string(arg)=="compile"){buildBegin();runMissingDecision=1;expect(buildRunning,"real_background_compile_started");return;}
+ if(std::string(arg)=="compiled"){expect(!buildRunning&&!runHadError&&buildLeakFound&&traceWindow&&!tracePoints.empty(),"real_compile_automatically_loaded_route");expect(!cvars->GetFloat("ftebroom_bsp_preview"),"leaky_compile_stays_in_map_view");traceFocus(0);return;}
+ if(std::string(arg)=="stale"){expect(traceRevision!=traceRevisionNow(),"map_edit_marks_route_outdated");return;}
+ if(std::string(arg)=="focus"){char point[32]{};commands->Argv(2,point,sizeof point);traceFocus(std::atoi(point));return;}
+ auto savedDocument=buildDocument,savedPending=buildPending;auto savedGeneration=buildGeneration;auto savedRevision=buildContentRevision;bool savedGeometry=buildGeometry,savedFound=buildLeakFound;
+ buildDocument=documentFile;buildPending=std::filesystem::u8path(arg);buildGeneration=documentGeneration;buildContentRevision=traceRevisionNow();buildGeometry=true;buildLeakFound=false;
+ buildStageFinished();expect(buildLeakFound&&!tracePoints.empty()&&traceWindow,"stage_hook_detects_compiler_route");
+ expect(traceDocument==documentFile&&traceGeneration==documentGeneration&&traceRevision==traceRevisionNow(),"route_bound_to_source_revision");
+ traceFocus(0);expect(tracePointIndex==0,"focus_first_point");
+ buildDocument=savedDocument;buildPending=savedPending;buildGeneration=savedGeneration;buildContentRevision=savedRevision;buildGeometry=savedGeometry;buildLeakFound=savedFound;
 }
