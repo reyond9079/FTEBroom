@@ -14,13 +14,15 @@ vector fb_uv_values(brushface_t *face)
     if(u*(face->tdir*base.tdir)-v*(face->tdir*base.sdir)<0) sy=-sy;
     return [sx,sy,atan2(-v,u)*180/M_PI];
 }
+int fb_uv_revision();
+int fb_uv_preview_attribute(int model,int id,int face,brushface_t *out);
 void fb_material_state()
 {
-    static int stateGeometry=-1,stateRevision=-1,stateSelection=-1;static string stateDefaults;
+    static int stateGeometry=-1,stateRevision=-1,stateSelection=-1,stateUV=-1;static string stateDefaults;
     string defaults=sprintf("%s %.9g %.9g %.9g %.9g %.9g",cvar_string("ca_newbrushtexture"),cvar("ftebroom_new_scale_x"),cvar("ftebroom_new_scale_y"),cvar("ftebroom_new_angle"),cvar("ftebroom_new_offset_x"),cvar("ftebroom_new_offset_y"));
     int revision=fb_document_revision();
-    if(stateGeometry==fb_grid_geometry_epoch&&stateRevision==revision&&stateSelection==fb_selection_epoch&&defaults==stateDefaults)return;
-    stateGeometry=fb_grid_geometry_epoch;stateRevision=revision;stateSelection=fb_selection_epoch;strunzone(stateDefaults);stateDefaults=strzone(defaults);
+    if(stateGeometry==fb_grid_geometry_epoch&&stateRevision==revision&&stateSelection==fb_selection_epoch&&defaults==stateDefaults&&stateUV==fb_uv_revision())return;
+    stateUV=fb_uv_revision();stateGeometry=fb_grid_geometry_epoch;stateRevision=revision;stateSelection=fb_selection_epoch;strunzone(stateDefaults);stateDefaults=strzone(defaults);
     static brushface_t faces[128];
     int count=0,contents,firstContents=0,firstFlags=0,firstValue=0,mixedFields=0;
     string material="";vector values='1 1 0',bias='0 0 0';int mixed=FALSE;
@@ -42,6 +44,7 @@ void fb_material_state()
         }
         int n=brush_get(selectedbrushes[b].model,selectedbrushes[b].id,faces,128,&contents);
         for(int f=0;f<min(n,128);f++) if(selbrush_face(&selectedbrushes[b],f)) {
+            fb_uv_preview_attribute(selectedbrushes[b].model,selectedbrushes[b].id,f,&faces[f]);
             vector uv=fb_uv_values(&faces[f]);
             if(!count) {
                 material=strzone(faces[f].shadername);values=uv;bias=[faces[f].sbias,faces[f].tbias,0];

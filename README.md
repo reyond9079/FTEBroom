@@ -2,18 +2,18 @@
 
 [**Join our Discord**](https://discord.gg/eDMf53Kny)
 
-**Alpha 100: Escape lighting controls on Linux native/SDL2 and Windows; softer RTL presets with adjustable baked fill for a closer lightmap match.** [Lighting guide and checks](docs/mod-lighting100.md). [Usage, limits and verification](docs/native-models-alpha95.md) · [Game profiles](docs/legacy-games-alpha94.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
+**Alpha 107: UV dragging previews without rebuilding the brush on every mouse movement; Quake II WINDOW compilation fix.** [Details and checks](docs/uv107.md) · [Lighting guide](docs/mod-lighting100.md). [Usage, limits and verification](docs/native-models-alpha95.md) · [Game profiles](docs/legacy-games-alpha94.md) · [Plugins](docs/plugins.md) · [Model editor](docs/model-editor.md).
 
 Automatic Blender download: [English](docs/alpha62.md).
 Model import, texture transfer and skin preview: [guide](docs/model-import64.md). Tools adapt to horizontal and vertical panels.
 
-[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.106/ReyondBroom-0.5.0-alpha.106-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.106/ReyondBroom-0.5.0-alpha.106-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
+[**Illustrated user manual**](docs/manual.md) · [**Linux x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.107/ReyondBroom-0.5.0-alpha.107-Linux-x64.tar.gz) · [**Linux SDL2 x64 download**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.107/ReyondBroom-0.5.0-alpha.107-Linux-SDL2-x64.tar.gz) · [Linux requirements](docs/linux.md)
 
 [Quake 1 / LibreQuake / PAK / entity models](docs/alpha29.md)
 
 [FTE Custom game — game profile](docs/when-the-sky-went-dark.md)
 
-[**Download Windows x64 - 0.5.0-alpha.106**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.106/ReyondBroom-0.5.0-alpha.106-Windows-x64.zip)
+[**Download Windows x64 - 0.5.0-alpha.107**](https://github.com/reyond9079/ReyondBroom/releases/download/v0.5.0-alpha.107/ReyondBroom-0.5.0-alpha.107-Windows-x64.zip)
 
 An independent map editor built on FTE Quake, csaddon and Dear ImGui. Menus and tools surround a live engine viewport, with a persistent inspector and one to four perspective/orthographic panes. Profiles support Quake 1, Quake II, Quake III Arena, Half-Life and FTE Custom game. Quake 1 supports standard and Valve 220 MAP; Quake 3 retains its shaders and patches.
 

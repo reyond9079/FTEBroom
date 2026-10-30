@@ -388,9 +388,13 @@ void fb_filter_draw()
     if(autocvar_ftebroom_native_faces && checkbuiltin(ftebroom_draw_faces) && (fb_static_preview_supported || (!fb_active && !fb_transform_preview && !fb_vertex_preview_valid && !fb_generator_count && cvar("ftebroom_tool")!=FB_TOOL_CLIP))){
         fb_render_allowed(0,FB_PICK_LOCKED);
         int *access=fb_static_preview_supported?fb_static_access:fb_render_access;int accessCount=fb_static_preview_supported?fb_static_access_count:fb_render_access_count;
+        // Hide only the base fill during UV preview. Geometry and grid stay valid.
+        int uvNode=fb_uv_replaces(fb_uv_model,fb_uv_id)?fb_document_brush_node(fb_uv_model,fb_uv_id):-1,uvAccess=0;
+        if(uvNode>=2 && uvNode<accessCount){uvAccess=access[uvNode];access[uvNode]&=~1i;}
         int drawn=-1;
         if(autocvar_ftebroom_cached_meshes && fb_render_face_count>=(cvar("ftebroom_classic_map")?4096:30000) && checkbuiltin(ftebroom_draw_faces_cached))drawn=ftebroom_draw_faces_cached(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_face_upload_epoch,fb_incremental_config());
         if(drawn<0)drawn=ftebroom_draw_faces(fb_render_faces,fb_render_face_count,access,accessCount,sizeof(fb_render_face_t),fb_incremental_config());
+        if(uvNode>=2 && uvNode<accessCount)access[uvNode]=uvAccess;
         nativePass=drawn>=0;cvar_set("ftebroom_native_faces_drawn",itos(drawn));
     }
     if(!nativePass)for(int i=0;i<fb_render_face_count;i++) {
@@ -398,7 +402,7 @@ void fb_filter_draw()
         if(face.node!=previous) {
             previous=face.node;fb_node_t node=fb_nodes[previous];
             visible=fb_render_allowed(previous,FB_PICK_LOCKED);
-            if(fb_preview_replaces(node.model,node.id))visible=FALSE;
+            if(fb_preview_replaces(node.model,node.id) || fb_uv_replaces(node.model,node.id))visible=FALSE;
             if(visible && !fb_filter_custom(previous))visible=brush_isselected(node.model,node.id)!=0;
             // Reject an entire off-screen brush before testing each of its faces.
             vector brushDelta=face.brushCenter-eye;float depth=brushDelta*forward,extent=face.brushRadius;
@@ -456,3 +460,21 @@ void fb_filter_tag(string type,int enabled)
 }
 
 int fb_point_preview_cache_allowed(){return fb_static_preview_supported && !fb_selected_entity_count;}
+
+void fb_uv_draw()
+{
+    if(!fb_uv_replaces(fb_uv_model,fb_uv_id))return;
+    int node=fb_document_brush_node(fb_uv_model,fb_uv_id);if(!fb_render_allowed(node,FB_PICK_LOCKED))return;
+    for(int f=0;f<fb_uv_count;f++){
+        int count=fb_uv_points_count[f];if(count<3 || count>64)continue;
+        brushface_t face=fb_uv_preview[f];int tags=fb_filter_face_tags(&face,fb_uv_contents);
+        if(node<fb_filter_tag_count && (fb_filter_tags[node]&FB_TAG_TRIGGER))tags|=FB_TAG_TRIGGER;
+        float alpha=fb_surface_opacity(face.shadername,tags),shade=fb_surface_shade(face.planenormal);
+        if(alpha==1 && (vector)getproperty(VF_ORIGIN)*face.planenormal<face.planedist-.01)continue;
+        string shader=alpha<1?"ftebroom/flattransparent":"ftebroom/flatface";vector size='1 1 1',color='0.65 0.68 0.72'*shade;
+        if(!autocvar_ftebroom_render_faces){shader=fb_surface_preview_shader(face.shadername,alpha);size=drawgetimagesize(shader);size_x=max(1,size_x);size_y=max(1,size_y);color='1 1 1'*shade;if(fb_material_key(face.shadername)=="ftebroom/grid")color*=.8;}
+        R_BeginPolygon(shader,3);
+        for(int p=0;p<count;p++){vector point=fb_uv_points[f*64+p];R_PolygonVertex(point,[(point*face.sdir+face.sbias)/size_x,(point*face.tdir+face.tbias)/size_y,0],color,alpha);}
+        R_EndPolygon();
+    }
+}

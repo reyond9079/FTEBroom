@@ -1,3 +1,4 @@
+#include "ftebroom_quake2_contents.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Missing-resource consent belongs to a single immutable export, not a profile.
 static bool runExportPrepared=false,runMissingAwaiting=false;
@@ -40,6 +41,8 @@ static bool runPrepareExport(const std::filesystem::path& target){
     std::filesystem::create_directories(target.parent_path());
     std::filesystem::copy_file(documentPath("data/export-map.map"),target,std::filesystem::copy_options::overwrite_existing);
     auto source=q1Read(target);runMissingNames.clear();runPlaceholderNames.clear();
+    if(gameProfile==3){size_t corrected=0;auto prepared=ftebroom::q2CompileContents(source,corrected);if(corrected){source=std::move(prepared);buildWriteTexture(target,source);runAppend("Quake II: removed legacy inferred SOLID from SOLID | WINDOW on "+std::to_string(corrected)+" faces in the compile copy; source MAP unchanged.\n");}}
+
     if(gameWad()){
       auto wads=q1CompilerWads(target.parent_path(),source,&runMissingNames);
       buildWriteTexture(target,ftebroom::quake1::map(source,false,wads,false,gameProfile==4));

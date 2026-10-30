@@ -1,0 +1,43 @@
+--- a/engine/gl/gl_heightmap.c
++++ b/engine/gl/gl_heightmap.c
+@@ -8859,6 +8859,8 @@
+ 	qboolean foundsubmodel = false;
+ 	qboolean inbrush = false;
+ 	int brushcontents = FTECONTENTS_SOLID;
++    qboolean editor_q2_contents = Cvar_VariableValue("ftebroom_game_profile") == 3 && Cvar_VariableValue("ftebroom_offline_brush_edit") != 0;
++    qboolean explicit_q2_contents = false;
+ 	heightmap_t *subhm = NULL;
+ 	model_t *submod = NULL;
+ 	const char *brushpunct = "(){}[]";	//use an empty string for better compat with vanilla qbsp...
+@@ -8924,6 +8926,7 @@
+ 				inbrush = false;
+ 				patch_tex = NULL;
+ 				brushcontents = FTECONTENTS_SOLID;
++                explicit_q2_contents = false;
+ 				continue;
+ 			}
+ 		}
+@@ -9304,7 +9307,13 @@
+ 					//if we got this far, then its q3 format.
+ 					//q3 is weird. the first extra arg is contents. but only the detail contents is used.
+ 					//ex1 &= Q3CONTENTS_DETAIL;
+-					brushcontents |= ex1;
++					if (editor_q2_contents && !explicit_q2_contents)
++                    {
++                        // Explicit Q2 contents replace the inferred SOLID default.
++                        brushcontents = 0;
++                        explicit_q2_contents = true;
++                    }
++                    brushcontents |= ex1;
+ 
+ 					//propagate these, in case someone tries editing a q2bsp.
+ 					faces[numplanes].surfaceflags = ex2;
+@@ -9338,7 +9347,7 @@
+ 			}
+ 			else
+ 			*/
+-			if (bt && !numplanes)
++			if (bt && !numplanes && !explicit_q2_contents)
+ 			{
+ 				if (*bt->shadername == '*')
+ 				{

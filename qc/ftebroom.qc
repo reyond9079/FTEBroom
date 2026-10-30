@@ -12,6 +12,7 @@ void fb_texture_key(string mode,int direction,int speed);
 void fb_material_usage();
 void fb_entity_publish();
 void fb_uv_publish();
+void fb_uv_draw();
 void fb_uv_finish(int commit);
 float fb_entity_command();
 int fb_export_map();
@@ -572,6 +573,7 @@ void ftebroom_frame()
     fb_trace_draw();
     fb_issues_tick();
     fb_filter_draw();
+    fb_uv_draw();
     fb_frame_profile[0]+=gettime(1)-profileTime;profileTime=gettime(1);
     fb_pick_draw_entities(FALSE);
     fb_frame_profile[1]+=gettime(1)-profileTime;profileTime=gettime(1);
