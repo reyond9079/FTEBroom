@@ -5,8 +5,9 @@
 #include <string>
 #include <iomanip>
 namespace ftebroom {
-// Older editor builds ORed their inferred SOLID bit into explicit Q2 WINDOW.
-// Repair only that recognized conflict in disposable compiler input.
+// Older editor builds ORed inferred SOLID into explicit Q2 visible contents.
+// Remove it only alongside one unambiguous WINDOW/AUX/liquid/MIST type.
+// Multiple non-solid visible types remain an error for the compiler to report.
 inline std::string q2CompileContents(const std::string& source,size_t& corrected){
   corrected=0;std::istringstream lines(source);std::ostringstream output;std::string line;
   while(std::getline(lines,line)){
@@ -23,7 +24,8 @@ inline std::string q2CompileContents(const std::string& source,size_t& corrected
       if(valid){
         row>>std::ws;auto begin=row.tellg();std::int64_t contents,flags,value;
         if(row>>contents){auto end=row.tellg();if(row>>flags>>value){
-          if((contents&127)==3&&begin>=0&&end>=begin){line.replace(size_t(begin),size_t(end-begin),std::to_string(contents&~std::int64_t(1)));corrected++;}
+          const auto visible=contents&127,nonSolid=visible&~std::int64_t(1);
+          if((visible&1)&&nonSolid&&!(nonSolid&(nonSolid-1))&&begin>=0&&end>=begin){line.replace(size_t(begin),size_t(end-begin),std::to_string(contents&~std::int64_t(1)));corrected++;}
         }}
       }
     }
